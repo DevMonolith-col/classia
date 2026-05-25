@@ -1,0 +1,332 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── SaaS ────────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id         String       @id @default(uuid())
+  name       String
+  slug       String       @unique
+  status     TenantStatus @default(ACTIVE)
+  logoUrl    String?
+  brandColor String?
+  timezone   String       @default("America/Bogota")
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  users         User[]
+  students      Student[]
+  groups        Group[]
+  subjects      Subject[]
+  announcements Announcement[]
+
+  @@map("tenants")
+}
+
+enum TenantStatus {
+  DEMO
+  PILOT
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String
+  email        String
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         UserRole
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant           Tenant         @relation(fields: [tenantId], references: [id])
+  teacher          Teacher?
+  guardian         Guardian?
+  sentMessages     Message[]      @relation("SentMessages")
+  receivedMessages Message[]      @relation("ReceivedMessages")
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  TENANT_ADMIN
+  PRINCIPAL
+  COORDINATOR
+  SECRETARY
+  TEACHER
+  GUARDIAN
+  STUDENT
+}
+
+// ─── Institución ─────────────────────────────────────────────────────────────
+
+model Group {
+  id       String @id @default(uuid())
+  tenantId String
+  name     String
+  grade    String
+  section  String
+
+  tenant             Tenant             @relation(fields: [tenantId], references: [id])
+  students           Student[]
+  schedules          Schedule[]
+  attendanceSessions AttendanceSession[]
+  homework           Homework[]
+
+  @@map("groups")
+}
+
+model Subject {
+  id       String  @id @default(uuid())
+  tenantId String
+  name     String
+  code     String?
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  schedules Schedule[]
+  marks     Mark[]
+  homework  Homework[]
+
+  @@map("subjects")
+}
+
+// ─── Personas ────────────────────────────────────────────────────────────────
+
+model Student {
+  id         String    @id @default(uuid())
+  tenantId   String
+  firstName  String
+  lastName   String
+  documentId String?
+  birthDate  DateTime?
+  groupId    String?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  tenant              Tenant               @relation(fields: [tenantId], references: [id])
+  group               Group?               @relation(fields: [groupId], references: [id])
+  guardians           StudentGuardian[]
+  attendanceRecords   AttendanceRecord[]
+  marks               Mark[]
+  homeworkSubmissions HomeworkSubmission[]
+
+  @@unique([tenantId, documentId])
+  @@map("students")
+}
+
+model Guardian {
+  id       String @id @default(uuid())
+  userId   String @unique
+  tenantId String
+
+  user     User              @relation(fields: [userId], references: [id])
+  students StudentGuardian[]
+
+  @@map("guardians")
+}
+
+model StudentGuardian {
+  studentId    String
+  guardianId   String
+  relationship String  @default("parent")
+  isPrimary    Boolean @default(true)
+
+  student  Student  @relation(fields: [studentId], references: [id])
+  guardian Guardian @relation(fields: [guardianId], references: [id])
+
+  @@id([studentId, guardianId])
+  @@map("student_guardians")
+}
+
+model Teacher {
+  id       String @id @default(uuid())
+  userId   String @unique
+  tenantId String
+
+  user               User               @relation(fields: [userId], references: [id])
+  schedules          Schedule[]
+  attendanceSessions AttendanceSession[]
+  marks              Mark[]
+  homework           Homework[]
+
+  @@map("teachers")
+}
+
+// ─── Académico ───────────────────────────────────────────────────────────────
+
+model Schedule {
+  id         String @id @default(uuid())
+  tenantId   String
+  groupId    String
+  subjectId  String
+  teacherId  String
+  dayOfWeek  Int
+  startTime  String
+  endTime    String
+  room       String?
+
+  group               Group               @relation(fields: [groupId], references: [id])
+  subject             Subject             @relation(fields: [subjectId], references: [id])
+  teacher             Teacher             @relation(fields: [teacherId], references: [id])
+  attendanceSessions  AttendanceSession[]
+
+  @@map("schedules")
+}
+
+model AttendanceSession {
+  id         String   @id @default(uuid())
+  tenantId   String
+  scheduleId String?
+  groupId    String
+  teacherId  String
+  date       DateTime
+  isOpen     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  schedule Schedule?        @relation(fields: [scheduleId], references: [id])
+  group    Group            @relation(fields: [groupId], references: [id])
+  teacher  Teacher          @relation(fields: [teacherId], references: [id])
+  records  AttendanceRecord[]
+
+  @@map("attendance_sessions")
+}
+
+model AttendanceRecord {
+  id          String           @id @default(uuid())
+  sessionId   String
+  studentId   String
+  status      AttendanceStatus
+  observation String?
+
+  session AttendanceSession @relation(fields: [sessionId], references: [id])
+  student Student           @relation(fields: [studentId], references: [id])
+
+  @@unique([sessionId, studentId])
+  @@map("attendance_records")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  JUSTIFIED
+  PERMISSION
+}
+
+model Mark {
+  id          String   @id @default(uuid())
+  tenantId    String
+  studentId   String
+  subjectId   String
+  teacherId   String
+  title       String
+  value       Float
+  maxValue    Float    @default(100)
+  period      Int      @default(1)
+  date        DateTime @default(now())
+  isPublished Boolean  @default(true)
+
+  student Student @relation(fields: [studentId], references: [id])
+  subject Subject @relation(fields: [subjectId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+
+  @@map("marks")
+}
+
+model Homework {
+  id          String   @id @default(uuid())
+  tenantId    String
+  teacherId   String
+  subjectId   String
+  groupId     String
+  title       String
+  description String?
+  dueDate     DateTime
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+
+  teacher     Teacher              @relation(fields: [teacherId], references: [id])
+  subject     Subject              @relation(fields: [subjectId], references: [id])
+  group       Group                @relation(fields: [groupId], references: [id])
+  submissions HomeworkSubmission[]
+
+  @@map("homework")
+}
+
+model HomeworkSubmission {
+  id          String    @id @default(uuid())
+  homeworkId  String
+  studentId   String
+  status      String    @default("PENDING")
+  submittedAt DateTime?
+
+  homework Homework @relation(fields: [homeworkId], references: [id])
+  student  Student  @relation(fields: [studentId], references: [id])
+
+  @@unique([homeworkId, studentId])
+  @@map("homework_submissions")
+}
+
+// ─── Comunicaciones ──────────────────────────────────────────────────────────
+
+model Message {
+  id        String   @id @default(uuid())
+  tenantId  String
+  fromId    String
+  toId      String
+  subject   String?
+  body      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  from User @relation("SentMessages", fields: [fromId], references: [id])
+  to   User @relation("ReceivedMessages", fields: [toId], references: [id])
+
+  @@map("messages")
+}
+
+model Announcement {
+  id         String   @id @default(uuid())
+  tenantId   String
+  title      String
+  body       String
+  targetRole String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("announcements")
+}
+
+// ─── Audit ───────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  tenantId   String?
+  userId     String?
+  actorRole  String?
+  action     String
+  entityType String
+  entityId   String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@map("audit_logs")
+}
