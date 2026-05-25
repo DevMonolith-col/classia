@@ -1,4 +1,3 @@
-cat > docs/agents/05-qa-seguridad.md <<'EOF'
 # Agente 05 — QA / Seguridad
 
 ## Propósito
@@ -168,3 +167,4 @@ Regla general:
 
 ```txt
 No exponer en notificaciones push información sensible completa.
+```

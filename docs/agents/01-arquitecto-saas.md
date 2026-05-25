@@ -1,4 +1,3 @@
-cat > docs/agents/01-arquitecto-saas.md <<'EOF'
 # Agente 01 — Arquitecto SaaS
 
 ## Propósito
@@ -78,3 +77,4 @@ Formato deseado de dominio:
 
 ```txt
 app.colegio.dominio.co
+```
