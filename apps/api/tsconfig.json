@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "target": "ES2021",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "incremental": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "paths": {
+      "@classia/shared": ["../../packages/shared/src"],
+      "@classia/validators": ["../../packages/validators/src"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
