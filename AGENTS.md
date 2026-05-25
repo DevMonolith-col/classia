@@ -8,6 +8,10 @@ No es una app para un solo colegio.
 
 Cada colegio es un tenant independiente con sus propios usuarios, estudiantes, acudientes, profesores, horarios, notas, asistencia, comunicados, archivos, configuración y branding.
 
+
+
+
+
 ## Stack
 
 - Monorepo con pnpm workspaces.
@@ -56,3 +60,19 @@ docker              -> compose y scripts
 - IA.
 - Biometría.
 - Firma digital avanzada.
+
+---
+
+## Agentes especializados
+
+Además de estas reglas generales, el proyecto cuenta con agentes especializados en `docs/agents/`.
+
+Antes de trabajar en un área específica, revisar el documento correspondiente:
+
+```txt
+docs/agents/01-arquitecto-saas.md
+docs/agents/02-backend-api.md
+docs/agents/03-database-prisma.md
+docs/agents/04-frontend-mobile.md
+docs/agents/05-qa-seguridad.md
+```
