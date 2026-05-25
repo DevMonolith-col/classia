@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: classia-postgres
+    environment:
+      POSTGRES_USER: classia
+      POSTGRES_PASSWORD: classia
+      POSTGRES_DB: classia_saas
+    ports:
+      - "5432:5432"
+    volumes:
+      - classia_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: classia-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  classia_postgres_data:
