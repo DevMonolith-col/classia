@@ -19,19 +19,17 @@ export class TenantContextService {
       throw new UnauthorizedException("Tenant context is required.");
     }
 
-    const tenant = await this.prisma.tenant.findFirst({
-      where: {
-        OR: [{ slug: tenantSlug }, { primaryDomain: request.hostname }],
-        status: {
-          in: [TenantStatus.ACTIVE, TenantStatus.DEMO, TenantStatus.PILOT],
-        },
-      },
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-      },
-    });
+    const tenant = await this.findActiveTenant(tenantSlug, request.hostname);
+
+    if (!tenant) {
+      throw new NotFoundException("Tenant not found.");
+    }
+
+    return tenant;
+  }
+
+  async resolveTenantBySlug(slug: string) {
+    const tenant = await this.findActiveTenant(slug);
 
     if (!tenant) {
       throw new NotFoundException("Tenant not found.");
@@ -51,5 +49,21 @@ export class TenantContextService {
     const appDomain = this.config.get<string>("app.domain") ?? "classia.com.co";
 
     return extractTenantSlugFromHost(request.hostname, appDomain);
+  }
+
+  private findActiveTenant(slug: string, hostname?: string) {
+    return this.prisma.tenant.findFirst({
+      where: {
+        OR: [{ slug }, ...(hostname ? [{ primaryDomain: hostname }] : [])],
+        status: {
+          in: [TenantStatus.ACTIVE, TenantStatus.DEMO, TenantStatus.PILOT],
+        },
+      },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+      },
+    });
   }
 }

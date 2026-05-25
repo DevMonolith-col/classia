@@ -7,6 +7,10 @@ export type RequestTenant = {
 export type RequestUser = {
   id: string;
   email: string;
+  tenantId: string;
+  tenantSlug: string;
+  membershipId: string;
+  role: string;
   permissions?: string[];
 };
 

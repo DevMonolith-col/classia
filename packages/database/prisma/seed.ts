@@ -1,16 +1,10 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { PrismaClient, TenantStatus, UserRole, UserStatus } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
 const demoPassword = "ClassiaDemo2026!";
-
-function hashDevelopmentPassword(password: string) {
-  const salt = "classia-demo-seed";
-  const digest = createHash("sha256").update(`${salt}:${password}`).digest("hex");
-
-  return `dev-sha256$${salt}$${digest}`;
-}
 
 async function main() {
   const tenant = await prisma.tenant.upsert({
@@ -30,7 +24,7 @@ async function main() {
     },
   });
 
-  const passwordHash = hashDevelopmentPassword(demoPassword);
+  const passwordHash = await bcrypt.hash(demoPassword, 12);
   const superAdmin = await prisma.user.upsert({
     where: { email: "admin@classia.com.co" },
     update: {
