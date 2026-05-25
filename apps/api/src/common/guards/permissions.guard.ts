@@ -1,4 +1,10 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from "@nestjs/common";
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { Request } from "express";
 import { PERMISSIONS_KEY } from "../decorators/permissions.decorator";
@@ -21,6 +27,11 @@ export class PermissionsGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<Request>();
     const user = request.user as RequestUser | undefined;
+
+    if (!user) {
+      throw new UnauthorizedException("Authenticated user is required.");
+    }
+
     const userPermissions = new Set(user?.permissions ?? []);
     const canAccess = requiredPermissions.every((permission) =>
       userPermissions.has(permission),

@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { Request } from "express";
+import { getPermissionsForRole } from "../permissions/permissions";
 import { AuthTokenPayload } from "../../modules/auth/auth.types";
 
 @Injectable()
@@ -35,7 +36,7 @@ export class JwtAuthGuard implements CanActivate {
       tenantSlug: payload.tenantSlug,
       membershipId: payload.membershipId,
       role: payload.role,
-      permissions: [`role:${payload.role}`],
+      permissions: getPermissionsForRole(payload.role),
     };
     request.tenant = {
       id: payload.tenantId,

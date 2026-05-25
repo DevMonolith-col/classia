@@ -1,3 +1,5 @@
+import { UserRole } from "@prisma/client";
+
 export type RequestTenant = {
   id: string;
   slug: string;
@@ -10,7 +12,7 @@ export type RequestUser = {
   tenantId: string;
   tenantSlug: string;
   membershipId: string;
-  role: string;
+  role: UserRole;
   permissions?: string[];
 };
 
