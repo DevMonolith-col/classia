@@ -1,0 +1,16 @@
+{
+  "name": "@classia/validators",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "scripts": {
+    "lint": "echo \"lint validators pendiente\"",
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"test validators pendiente\"",
+    "build": "echo \"build validators pendiente\""
+  }
+}

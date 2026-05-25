@@ -1,0 +1,32 @@
+{
+  "name": "classia-saas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SaaS escolar multi-tenant con web, backend y app movil.",
+  "packageManager": "pnpm@10.33.4",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "pnpm --filter api start:dev",
+    "dev:mobile": "pnpm --filter mobile start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build"
+  },
+  "keywords": [
+    "saas",
+    "school",
+    "multi-tenant",
+    "nextjs",
+    "nestjs",
+    "expo"
+  ],
+  "author": "Juan Jose Toro",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "eslint": "^10.4.0",
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@classia/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "lint": "echo \"lint shared pendiente\"",
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"test shared pendiente\"",
+    "build": "echo \"build shared pendiente\""
+  }
+}
