@@ -43,6 +43,18 @@ pnpm dev:api
 pnpm dev:web
 ```
 
+`pnpm dev:api` y `pnpm dev` liberan primero el puerto `3001` si quedo ocupado por un proceso de este workspace. Si tambien necesitas limpiar puertos manualmente:
+
+```bash
+pnpm ports:free
+```
+
+Esto revisa `3000` y `3001` y solo detiene procesos que parezcan pertenecer a Classia. Si estas seguro de que quieres forzar la limpieza:
+
+```bash
+pnpm ports:free:force
+```
+
 URLs locales:
 
 ```txt
