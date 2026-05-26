@@ -26,6 +26,7 @@ Thumbs.db
 
 # IDE
 .vscode/*
+.vscode/
 !.vscode/extensions.json
 
 # local
