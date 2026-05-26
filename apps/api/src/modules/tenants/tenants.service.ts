@@ -56,6 +56,7 @@ export class TenantsService {
     await this.audit.record({
       tenantId: tenant.id,
       userId: user.id,
+      actorRole: user.role,
       action: "tenant.created",
       entityType: "Tenant",
       entityId: tenant.id,
@@ -110,6 +111,7 @@ export class TenantsService {
     await this.audit.record({
       tenantId: tenant.id,
       userId: user.id,
+      actorRole: user.role,
       action: "tenant.updated",
       entityType: "Tenant",
       entityId: tenant.id,

@@ -1,10 +1,11 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, UserRole } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 
 type CreateAuditLogInput = {
   tenantId?: string;
   userId?: string;
+  actorRole?: UserRole;
   action: string;
   entityType?: string;
   entityId?: string;
@@ -23,6 +24,7 @@ export class AuditService {
       data: {
         tenantId: input.tenantId,
         userId: input.userId,
+        actorRole: input.actorRole,
         action: input.action,
         entityType: input.entityType,
         entityId: input.entityId,

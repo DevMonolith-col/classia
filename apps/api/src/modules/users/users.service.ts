@@ -128,6 +128,7 @@ export class UsersService {
     await this.audit.record({
       tenantId: targetTenantId,
       userId: actor.id,
+      actorRole: actor.role,
       action: "user.created",
       entityType: "User",
       entityId: user.id,
@@ -166,6 +167,7 @@ export class UsersService {
     await this.audit.record({
       tenantId: actor.tenantId,
       userId: actor.id,
+      actorRole: actor.role,
       action: "user.updated",
       entityType: "User",
       entityId: updated.id,
@@ -207,6 +209,7 @@ export class UsersService {
     await this.audit.record({
       tenantId: targetTenantId,
       userId: actor.id,
+      actorRole: actor.role,
       action: "membership.created",
       entityType: "TenantMembership",
       entityId: membership.id,
@@ -249,6 +252,7 @@ export class UsersService {
     await this.audit.record({
       tenantId: membership.tenant.id,
       userId: actor.id,
+      actorRole: actor.role,
       action: "membership.updated",
       entityType: "TenantMembership",
       entityId: membership.id,

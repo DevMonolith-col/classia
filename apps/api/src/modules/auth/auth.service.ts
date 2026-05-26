@@ -72,6 +72,7 @@ export class AuthService {
     await this.audit.record({
       tenantId: tenant.id,
       userId: user.id,
+      actorRole: membership.role,
       action: "auth.login",
       entityType: "User",
       entityId: user.id,
@@ -147,6 +148,7 @@ export class AuthService {
     await this.audit.record({
       tenantId: session.tenant.id,
       userId: session.user.id,
+      actorRole: membership.role,
       action: "auth.refresh",
       entityType: "AuthSession",
       entityId: session.id,
@@ -161,9 +163,20 @@ export class AuthService {
     const refreshTokenHash = this.hashRefreshToken(input.refreshToken);
     const session = await this.prisma.authSession.findUnique({
       where: { refreshTokenHash },
+      include: {
+        user: {
+          include: {
+            memberships: true,
+          },
+        },
+      },
     });
 
     if (session && !session.revokedAt) {
+      const membership = session.user.memberships.find(
+        (item) => item.tenantId === session.tenantId,
+      );
+
       await this.prisma.authSession.update({
         where: { id: session.id },
         data: { revokedAt: new Date() },
@@ -172,6 +185,7 @@ export class AuthService {
       await this.audit.record({
         tenantId: session.tenantId ?? undefined,
         userId: session.userId,
+        actorRole: membership?.role,
         action: "auth.logout",
         entityType: "AuthSession",
         entityId: session.id,
