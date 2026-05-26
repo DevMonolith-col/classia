@@ -158,6 +158,29 @@ Para resolver tenant en desarrollo:
 x-tenant-slug: demo
 ```
 
+Formato base de error:
+
+```json
+{
+  "statusCode": 400,
+  "error": "Bad Request",
+  "message": "Validation failed.",
+  "details": {
+    "issues": [
+      {
+        "path": "password",
+        "code": "too_small",
+        "message": "String must contain at least 6 character(s)"
+      }
+    ]
+  },
+  "path": "/auth/login",
+  "timestamp": "2026-05-26T00:00:00.000Z"
+}
+```
+
+`details` aparece cuando el error tiene informacion estructurada, por ejemplo validaciones Zod. El `stack` solo se expone en `NODE_ENV=development`.
+
 ## Verificacion
 
 ```bash

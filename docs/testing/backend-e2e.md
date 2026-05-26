@@ -40,6 +40,8 @@ La suite `apps/api/test/backend-v1.e2e-spec.ts` valida:
 - Login con credenciales invalidas devuelve `401`.
 - Payload invalido devuelve `400`.
 - Endpoint protegido sin token devuelve `401`.
+- Los errores e2e no exponen `stack` y devuelven `path` + `timestamp`.
+- Los errores de Zod devuelven `details.issues[]` con `path`, `code` y `message`.
 - `POST /auth/refresh` rota tokens.
 - `POST /auth/logout` revoca refresh tokens.
 - `GET /audit/logs` responde solo a roles con permiso.
