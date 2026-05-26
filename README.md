@@ -1,135 +1,203 @@
 # Classia SaaS
 
-SaaS escolar multi-tenant para colegios latinoamericanos. Gestión de asistencia, notas, tareas, comunicación y más — en una sola plataforma extensible mediante plugins.
+SaaS escolar multi-tenant para colegios. Esta rama integra el primer front navegable con la base backend v1: NestJS modular, Prisma/PostgreSQL, Redis, auth JWT, tenants, usuarios, memberships y auditoría básica.
 
 ## Stack
 
-| Capa | Tecnología |
-|------|-----------|
+| Capa | Tecnologia |
+| --- | --- |
 | Web | Next.js 16 + React 19 + Tailwind CSS + shadcn/ui |
-| API | NestJS 10 + TypeScript + Passport JWT |
-| Mobile | React Native + Expo _(próximamente)_ |
+| API | NestJS + TypeScript |
 | ORM | Prisma 5 |
 | Base de datos | PostgreSQL 16 |
 | Cache / Jobs | Redis 7 + BullMQ |
-| Package manager | pnpm (workspaces) |
+| Package manager | pnpm workspaces |
 | Infra local | Docker Compose |
 
-## Estructura del monorepo
+## Estructura
 
-```
-apps/
-  web/        → Panel web (admin, docente, familia)
-  api/        → REST API NestJS
-  mobile/     → App móvil Expo (próximamente)
-packages/
-  database/   → Schema Prisma + migraciones + seed
-  shared/     → Tipos y utilidades compartidas
-  validators/ → Schemas de validación reutilizables
-docs/         → Documentación técnica y funcional
+```txt
+apps/web              Front Next.js
+apps/api              API NestJS
+apps/mobile           App Expo pendiente
+packages/database     Prisma schema, migraciones y seed
+packages/shared       Tipos y constantes compartidas
+packages/validators   Schemas Zod compartidos
+docs                  Documentacion tecnica y funcional
 ```
 
-## Inicio rápido
-
-### 1. Requisitos previos
-
-- Node.js 20+
-- pnpm 9+ (`npm install -g pnpm`)
-- Docker Desktop
-
-### 2. Clonar e instalar
+## Inicio Rapido
 
 ```bash
-git clone <repo>
-cd classia-saas
 pnpm install
+docker compose up -d
+pnpm --filter @classia/database db:generate
+pnpm --filter @classia/database db:migrate
+pnpm --filter @classia/database seed:demo
 ```
 
-### 3. Variables de entorno
+En terminales separadas:
 
 ```bash
-# La API lee apps/api/.env
-cp apps/api/.env.example apps/api/.env
-
-# La base de datos lee packages/database/.env
-echo 'DATABASE_URL="postgresql://classia:classia@localhost:5433/classia_saas"' > packages/database/.env
+pnpm dev:api
+pnpm dev:web
 ```
 
-> **Nota:** El puerto es `5433` para evitar conflicto con PostgreSQL local. Si no tienes Postgres instalado localmente puedes usar `5432` en ambos archivos y en `docker-compose.yml`.
+URLs locales:
 
-### 4. Levantar infraestructura
+```txt
+Web: http://localhost:3000
+API: http://localhost:3001
+```
+
+La API carga variables desde `.env` si existe y usa `.env.example` como base de desarrollo. No subir `.env`.
+
+## Credenciales
+
+### API real
+
+Estas credenciales salen del seed demo y funcionan contra `apps/api`.
+
+| Rol | Tenant | Email | Password |
+| --- | --- | --- | --- |
+| Superadmin | demo | admin@classia.com.co | ClassiaDemo2026! |
+| Tenant admin | demo | rector@demo.classia.com.co | ClassiaDemo2026! |
+
+Ejemplo:
 
 ```bash
-docker-compose up -d
+curl -X POST http://localhost:3001/auth/login \
+  -H "content-type: application/json" \
+  -H "x-tenant-slug: demo" \
+  -d '{"email":"rector@demo.classia.com.co","password":"ClassiaDemo2026!"}'
 ```
 
-### 5. Base de datos
+### Front navegable
+
+El front integrado todavia usa navegacion visual en login. En `http://localhost:3000/login` puedes usar los botones demo:
+
+| Vista | Email mostrado | Password mostrado | Destino |
+| --- | --- | --- | --- |
+| Admin | admin@classia.com.co | ClassiaDemo2026! | `/admin` |
+| Profesor | lopez@demo.classia.co | demo123 | `/profesor` |
+| Familia | rosa@demo.classia.co | demo123 | `/familia` |
+
+Los perfiles Profesor y Familia son accesos visuales para revisar pantallas; todavia no existen como usuarios reales en el seed backend.
+
+## Vistas Para Revisar
+
+```txt
+/                         Landing
+/login                    Login con accesos demo
+/admin                    Dashboard admin
+/admin/estudiantes        Estudiantes
+/admin/profesores         Profesores
+/admin/cursos             Cursos
+/admin/asistencia         Asistencia admin
+/admin/tareas             Tareas admin
+/admin/mensajes           Mensajes admin
+/admin/reportes           Reportes
+/admin/configuracion      Configuracion
+/admin/plugins            Plugins
+/profesor                 Dashboard profesor
+/profesor/asistencia      Asistencia profesor
+/profesor/calificaciones  Calificaciones
+/profesor/horario         Horario
+/profesor/tareas          Tareas
+/profesor/mensajes        Mensajes
+/familia                  Dashboard familia
+/familia/asistencia       Asistencia
+/familia/calificaciones   Calificaciones
+/familia/horario          Horario
+/familia/tareas           Tareas
+/familia/mensajes         Mensajes
+/familia/incapacidades    Incapacidades
+```
+
+## API Actual
+
+Base disponible en Backend v1:
+
+```txt
+GET  /health
+GET  /tenants/current
+GET  /tenants
+POST /tenants
+GET  /tenants/:id
+PATCH /tenants/:id
+
+POST /auth/login
+POST /auth/refresh
+POST /auth/logout
+GET  /auth/me
+
+GET  /users/me
+GET  /users/me/memberships
+GET  /users
+POST /users
+GET  /users/:id
+PATCH /users/:id
+POST /users/:id/memberships
+PATCH /users/:id/memberships/:membershipId
+
+GET  /audit/status
+```
+
+Los endpoints protegidos requieren:
+
+```txt
+Authorization: Bearer <accessToken>
+```
+
+Para resolver tenant en desarrollo:
+
+```txt
+x-tenant-slug: demo
+```
+
+## Verificacion
 
 ```bash
-pnpm --filter @classia/database db:generate   # genera el cliente Prisma
-pnpm --filter @classia/database db:migrate     # crea las tablas
-pnpm --filter @classia/database seed:demo      # datos de prueba
+pnpm -r typecheck
+pnpm -r build
+curl http://localhost:3001/health
+curl -H x-tenant-slug:demo http://localhost:3001/tenants/current
 ```
 
-### 6. Desarrollo
+Smoke de auth:
 
 ```bash
-# En terminales separadas:
-pnpm dev:api   # http://localhost:3001
-pnpm dev:web   # http://localhost:3000
+ACCESS_TOKEN=$(curl -s -X POST http://localhost:3001/auth/login \
+  -H "content-type: application/json" \
+  -H "x-tenant-slug: demo" \
+  -d '{"email":"rector@demo.classia.com.co","password":"ClassiaDemo2026!"}' \
+  | node -pe 'JSON.parse(fs.readFileSync(0,"utf8")).accessToken')
+
+curl http://localhost:3001/auth/me \
+  -H "authorization: Bearer $ACCESS_TOKEN"
 ```
 
-## Credenciales demo
+## Alcance Actual
 
-Tenant: `demo` (query param `?tenant=demo` en login)
+Incluido:
 
-| Rol | Email | Contraseña |
-|-----|-------|-----------|
-| Admin | admin@demo.classia.co | demo123 |
-| Profesor | lopez@demo.classia.co | demo123 |
-| Padre | rosa@demo.classia.co | demo123 |
+- Base NestJS modular.
+- Docker Compose con PostgreSQL y Redis.
+- Prisma con Tenant, User, TenantMembership, AuthSession y AuditLog.
+- Seed demo.
+- Auth JWT + refresh tokens.
+- Guards de tenant y permisos.
+- CRUD admin base de tenants, users y memberships.
+- Front navegable para landing, admin, profesor y familia.
 
-## API — endpoints principales
+No incluido todavia en backend:
 
-```
-POST /v1/auth/login?tenant=demo
-GET  /v1/auth/me
-
-GET  /v1/admin/dashboard
-GET  /v1/admin/students
-GET  /v1/admin/teachers
-GET  /v1/admin/courses
-GET  /v1/admin/messages
-GET  /v1/admin/announcements
-
-GET  /v1/teacher/dashboard
-GET  /v1/teacher/schedule
-GET  /v1/teacher/groups
-GET  /v1/teacher/attendance
-POST /v1/teacher/attendance
-GET  /v1/teacher/homework
-POST /v1/teacher/homework
-GET  /v1/teacher/marks
-POST /v1/teacher/marks
-
-GET  /v1/guardian/dashboard
-GET  /v1/guardian/children
-GET  /v1/guardian/grades
-GET  /v1/guardian/attendance
-GET  /v1/guardian/homework
-GET  /v1/guardian/messages
-```
-
-Todos los endpoints (excepto login) requieren `Authorization: Bearer <token>`.
-
-## Arquitectura multi-tenant
-
-Base de datos compartida con `tenantId` en cada entidad. El tenant se resuelve por `slug` en el login y se transporta en el JWT. Los guards de NestJS garantizan que ninguna query cruce fronteras entre colegios.
-
-## Principios de diseño
-
-- Multi-tenant desde el día uno — todas las entidades incluyen `tenantId`
-- Monolito modular (no microservicios) — modular NestJS + BullMQ para jobs en segundo plano
-- Plugin marketplace — arquitectura preparada para módulos opcionales por colegio
-- Tipado end-to-end — TypeScript en web, API y mobile compartiendo tipos vía `packages/shared`
-- Sin un DB por colegio — shared DB es el estándar de la industria para V1 SaaS
+- Estudiantes.
+- Profesores como entidad academica.
+- Acudientes.
+- Asistencia real.
+- Calificaciones.
+- Tareas.
+- Comunicados.
+- Notificaciones.
+- Pagos, transporte, biblioteca, enfermeria, nomina, IA, biometria o firma digital avanzada.

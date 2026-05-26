@@ -17,3 +17,17 @@ export const createTenantSchema = z.object({
 });
 
 export type CreateTenantInput = z.infer<typeof createTenantSchema>;
+
+export const loginSchema = z.object({
+  email: emailSchema.transform((email) => email.toLowerCase()),
+  password: z.string().min(8).max(128),
+  tenantSlug: tenantSlugSchema.optional(),
+});
+
+export type LoginInput = z.infer<typeof loginSchema>;
+
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(32),
+});
+
+export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;

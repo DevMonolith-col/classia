@@ -1,36 +1,21 @@
 services:
   postgres:
-    image: postgres:16-alpine
-    container_name: classia_postgres
-    restart: unless-stopped
+    image: postgres:16
+    container_name: classia-postgres
     environment:
-      POSTGRES_DB: classia_saas
       POSTGRES_USER: classia
       POSTGRES_PASSWORD: classia
+      POSTGRES_DB: classia_saas
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U classia -d classia_saas"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - classia_postgres_data:/var/lib/postgresql/data
 
   redis:
-    image: redis:7-alpine
-    container_name: classia_redis
-    restart: unless-stopped
+    image: redis:7
+    container_name: classia-redis
     ports:
       - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
 volumes:
-  postgres_data:
-  redis_data:
+  classia_postgres_data:

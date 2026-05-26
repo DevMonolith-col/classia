@@ -465,14 +465,14 @@ export default function AsistenciaAdminPage() {
                                 <td key={index} className={`px-4 py-3 text-center ${isToday ? "bg-primary/5" : ""}`}>
                                   {isEditing ? (
                                     <div className="flex justify-center gap-1">
-                                      {(["presente", "ausente", "tardanza", "justificado"] as AttendanceStatus[]).map((s) => (
+                                      {(["presente", "ausente", "tardanza", "justificado"] as NonNullable<AttendanceStatus>[]).map((s) => (
                                         <button
                                           key={s}
                                           onClick={() => updateAttendance(selectedCourse.id, student.id, dateStr, s)}
                                           className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
                                             status === s ? getStatusColor(s) : "bg-muted hover:bg-muted-foreground/20"
                                           }`}
-                                          title={s?.charAt(0).toUpperCase() + s?.slice(1)}
+                                          title={s.charAt(0).toUpperCase() + s.slice(1)}
                                         >
                                           {getStatusIcon(s)}
                                         </button>
