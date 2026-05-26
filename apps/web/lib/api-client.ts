@@ -1,7 +1,7 @@
 import { toast } from "sonner"
 import { clearTokens, getAccessToken, getRefreshToken, refreshAccessToken } from "./auth"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3005"
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"
 const TENANT_SLUG = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "demo"
 
 type FetchOptions = RequestInit & {
