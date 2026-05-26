@@ -62,6 +62,8 @@ Estas credenciales salen del seed demo y funcionan contra `apps/api`.
 | --- | --- | --- | --- |
 | Superadmin | demo | admin@classia.com.co | ClassiaDemo2026! |
 | Tenant admin | demo | rector@demo.classia.com.co | ClassiaDemo2026! |
+| Profesor | demo | lopez@demo.classia.co | ClassiaDemo2026! |
+| Familia | demo | rosa@demo.classia.co | ClassiaDemo2026! |
 
 Ejemplo:
 
@@ -82,7 +84,7 @@ El front integrado todavia usa navegacion visual en login. En `http://localhost:
 | Profesor | lopez@demo.classia.co | ClassiaDemo2026! | `/profesor` |
 | Familia | rosa@demo.classia.co | ClassiaDemo2026! | `/familia` |
 
-Los perfiles Profesor y Familia son accesos visuales para revisar pantallas; todavia no existen como usuarios reales en el seed backend.
+Los perfiles Profesor y Familia existen en el seed backend, pero sus modulos academicos todavia son vistas navegables sin datos reales.
 
 ## Vistas Para Revisar
 
@@ -141,6 +143,7 @@ POST /users/:id/memberships
 PATCH /users/:id/memberships/:membershipId
 
 GET  /audit/status
+GET  /audit/logs
 ```
 
 Los endpoints protegidos requieren:
@@ -160,9 +163,12 @@ x-tenant-slug: demo
 ```bash
 pnpm -r typecheck
 pnpm -r build
+pnpm --filter api test:e2e
 curl http://localhost:3001/health
 curl -H x-tenant-slug:demo http://localhost:3001/tenants/current
 ```
+
+Los e2e del backend requieren PostgreSQL y Redis locales. Ver [docs/testing/backend-e2e.md](docs/testing/backend-e2e.md).
 
 Smoke de auth:
 
