@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "nest start --watch",
+    "dev": "node ../../scripts/dev/free-port.mjs 3001 && nest start --watch",
     "start": "nest start",
-    "start:dev": "nest start --watch",
+    "start:dev": "node ../../scripts/dev/free-port.mjs 3001 && nest start --watch",
     "build": "nest build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
