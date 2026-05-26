@@ -7,7 +7,7 @@ import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
-  const port = config.get<number>("app.port", 3005);
+  const port = config.get<number>("app.port", 3001);
   const webUrl = config.get<string>("app.webUrl", "http://localhost:3000");
 
   app.use(helmet());
