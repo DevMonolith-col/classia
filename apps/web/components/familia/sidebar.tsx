@@ -4,175 +4,152 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import {
-  Home,
-  BookOpen,
-  ClipboardList,
-  Calendar,
-  MessageSquare,
-  FileText,
-  Bell,
-  Settings,
-  LogOut,
-  Menu,
-  X,
+  Home, BookOpen, ClipboardList, Calendar,
+  MessageSquare, FileText, Bell, Settings,
+  LogOut, Menu, X,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { logout, getStoredUser } from "@/lib/auth"
 
 const ROLE_LABELS: Record<string, string> = {
   GUARDIAN: "Acudiente",
-  STUDENT: "Estudiante",
+  STUDENT:  "Estudiante",
 }
 
 const navigation = [
-  { name: "Inicio", href: "/familia", icon: Home },
-  { name: "Calificaciones", href: "/familia/calificaciones", icon: ClipboardList },
-  { name: "Tareas", href: "/familia/tareas", icon: FileText },
-  { name: "Horario", href: "/familia/horario", icon: Calendar },
-  { name: "Asistencia", href: "/familia/asistencia", icon: BookOpen },
-  { name: "Mensajes", href: "/familia/mensajes", icon: MessageSquare },
-  { name: "Notificaciones", href: "/familia/notificaciones", icon: Bell },
-  { name: "Ajustes", href: "/familia/ajustes", icon: Settings },
+  { name: "Inicio",          href: "/familia",               icon: Home },
+  { name: "Calificaciones",  href: "/familia/calificaciones",icon: ClipboardList },
+  { name: "Tareas",          href: "/familia/tareas",        icon: FileText },
+  { name: "Horario",         href: "/familia/horario",       icon: Calendar },
+  { name: "Asistencia",      href: "/familia/asistencia",    icon: BookOpen },
+  { name: "Mensajes",        href: "/familia/mensajes",      icon: MessageSquare },
+  { name: "Notificaciones",  href: "/familia/notificaciones",icon: Bell },
+  { name: "Ajustes",         href: "/familia/ajustes",       icon: Settings },
 ]
 
-export function FamiliaSidebar() {
-  const pathname = usePathname()
-  const router = useRouter()
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+interface Props { isCollapsed: boolean; onToggle: () => void }
+
+export function FamiliaSidebar({ isCollapsed, onToggle }: Props) {
+  const pathname     = usePathname()
+  const router       = useRouter()
+  const [mobileOpen, setMobileOpen] = useState(false)
   const [user, setUser] = useState<{ firstName: string; lastName: string; email: string; role: string } | null>(null)
 
-  useEffect(() => {
-    setUser(getStoredUser())
-  }, [])
+  useEffect(() => { setUser(getStoredUser()) }, [])
 
-  const handleLogout = async () => {
-    await logout()
-    router.push("/login")
-  }
-
-  const initials = user
-    ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
-    : "FA"
-
+  const initials    = user ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase() : "FA"
   const displayName = user ? `${user.firstName} ${user.lastName}` : "Familia"
-  const roleLabel = user ? (ROLE_LABELS[user.role] ?? "Familia") : ""
+  const roleLabel   = user ? (ROLE_LABELS[user.role] ?? user.role) : ""
+
+  const handleLogout = async () => { await logout(); router.push("/login") }
 
   return (
     <>
-      {/* Mobile Header */}
-      <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-background px-4 lg:hidden">
-        <Link href="/familia" className="flex items-center gap-2">
+      {/* ── Top bar solo móvil ─────────────────────────────────── */}
+      <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background px-4 lg:hidden">
+        <button onClick={() => setMobileOpen(true)} className="rounded-md p-2 text-foreground" aria-label="Abrir menú">
+          <Menu className="h-5 w-5" />
+        </button>
+        <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
             <span className="text-sm font-bold text-primary-foreground">C</span>
           </div>
-          <span className="font-bold text-foreground">Classia</span>
-        </Link>
-
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
-          </Button>
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="flex items-center justify-center rounded-md p-2 text-foreground"
-            aria-label="Toggle menu"
-          >
-            {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-          </button>
+          <span className="font-bold">Classia</span>
         </div>
+        <button className="relative rounded-md p-2 text-foreground">
+          <Bell className="h-5 w-5" />
+          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
+        </button>
       </header>
 
-      {/* Mobile Sidebar Overlay */}
-      {isMobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-foreground/50 lg:hidden"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
+      {/* ── Overlay móvil ──────────────────────────────────────── */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setMobileOpen(false)} />
       )}
 
-      {/* Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-sidebar transition-transform lg:translate-x-0 ${
-          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        {/* Logo */}
-        <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
-            <span className="text-sm font-bold text-sidebar-primary-foreground">C</span>
-          </div>
-          <div>
-            <span className="font-bold text-sidebar-foreground">Classia</span>
-            <p className="text-xs text-sidebar-foreground/60">Portal Familiar</p>
-          </div>
+      {/* ── Sidebar ────────────────────────────────────────────── */}
+      <aside className={[
+        "fixed inset-y-0 left-0 z-40 flex flex-col bg-sidebar transition-all duration-300",
+        "w-64",
+        isCollapsed ? "lg:w-16" : "lg:w-64",
+        mobileOpen  ? "translate-x-0" : "-translate-x-full",
+        "lg:translate-x-0",
+      ].join(" ")}>
+
+        {/* Header del sidebar */}
+        <div className={`flex h-16 shrink-0 items-center border-b border-sidebar-border ${isCollapsed ? "justify-center px-2" : "px-4"}`}>
+          {!isCollapsed && (
+            <div className="flex flex-1 items-center gap-2 overflow-hidden">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary">
+                <span className="text-sm font-bold text-sidebar-primary-foreground">C</span>
+              </div>
+              <span className="truncate font-bold text-sidebar-foreground">Classia</span>
+            </div>
+          )}
+          {/* Botón hamburguesa desktop */}
+          <button
+            onClick={onToggle}
+            className="hidden shrink-0 rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          {/* Botón cerrar móvil */}
+          <button
+            onClick={() => setMobileOpen(false)}
+            className="shrink-0 rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:hidden"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
-        {/* User info */}
-        <div className="border-b border-sidebar-border p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sidebar-accent">
-              <span className="text-sm font-semibold text-sidebar-accent-foreground">
-                {initials}
-              </span>
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-sidebar-foreground">
-                {displayName}
-              </p>
-              <p className="truncate text-xs font-medium uppercase tracking-wide text-sidebar-foreground/50">
-                {roleLabel}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+        {/* Navegación */}
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
           {navigation.map((item) => {
-            const isActive = pathname === item.href
+            const active = pathname === item.href
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                onClick={() => setIsMobileMenuOpen(false)}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                  isActive
+                onClick={() => setMobileOpen(false)}
+                title={isCollapsed ? item.name : undefined}
+                className={[
+                  "flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
+                  isCollapsed ? "justify-center px-2" : "gap-3 px-3",
+                  active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                }`}
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                ].join(" ")}
               >
-                <item.icon className="h-5 w-5" />
-                {item.name}
+                <item.icon className="h-5 w-5 shrink-0" />
+                {!isCollapsed && <span className="truncate">{item.name}</span>}
               </Link>
             )
           })}
         </nav>
 
-        {/* Actions */}
-        <div className="border-t border-sidebar-border p-4">
-          <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="flex-1 justify-start gap-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              asChild
-            >
-              <Link href="/familia/ajustes">
-                <Settings className="h-4 w-4" />
-                Ajustes
-              </Link>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="flex-1 justify-start gap-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              onClick={handleLogout}
-            >
-              <LogOut className="h-4 w-4" />
-              Salir
-            </Button>
-          </div>
+        {/* Usuario + logout */}
+        <div className="shrink-0 space-y-1 border-t border-sidebar-border p-3">
+          {!isCollapsed && user && (
+            <div className="flex items-center gap-2 px-3 py-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent">
+                <span className="text-xs font-semibold text-sidebar-accent-foreground">{initials}</span>
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
+                <p className="truncate text-xs font-medium uppercase tracking-wide text-sidebar-foreground/50">{roleLabel}</p>
+              </div>
+            </div>
+          )}
+          <button
+            onClick={handleLogout}
+            title={isCollapsed ? "Cerrar sesión" : undefined}
+            className={[
+              "flex w-full items-center rounded-lg py-2 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
+              isCollapsed ? "justify-center px-2" : "gap-2 px-3",
+            ].join(" ")}
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            {!isCollapsed && "Cerrar sesión"}
+          </button>
         </div>
       </aside>
     </>
