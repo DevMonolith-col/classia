@@ -1,8 +1,56 @@
 # Classia SaaS — Planeación Backend v1 para Codex
 
+## Estado actual al 2026-05-26
+
+Backend v1 ya no esta solo en fase de arranque. La base NestJS esta implementada y validada con e2e.
+
+Rama actual de continuidad:
+
+```txt
+codex/backend-v1-continue
+```
+
+Estado implementado:
+
+- `apps/api` con NestJS modular.
+- Docker Compose con PostgreSQL y Redis.
+- Prisma en `packages/database`.
+- Schema base con `Tenant`, `User`, `TenantMembership`, `AuthSession` y `AuditLog`.
+- Seed demo con superadmin, tenant admin, profesor y acudiente/familia.
+- Healthcheck real con PostgreSQL y Redis.
+- Auth JWT + refresh tokens + sesiones revocables.
+- Resolucion de tenant por `x-tenant-slug` en desarrollo y hostname/dominio para produccion.
+- Guards de JWT, tenant y permisos.
+- CRUD base de tenants, users y memberships.
+- Auditoria base para login, refresh, logout, tenants, users y memberships.
+- Consulta de audit logs tenant-scoped.
+- Errores globales normalizados con `path`, `timestamp` y detalles Zod.
+- E2E backend para auth, tenant y auditoria.
+- Puertos documentados restaurados: web `3000`, API `3001`.
+
+Documentacion relacionada:
+
+- Contrato para front: [`docs/api/frontend-contract.md`](../api/frontend-contract.md)
+- E2E backend: [`docs/testing/backend-e2e.md`](../testing/backend-e2e.md)
+
+Estado pendiente:
+
+- Modulos academicos reales: estudiantes, profesores como entidad academica, acudientes, cursos/grupos, materias, horarios, asistencia, calificaciones, tareas y comunicados.
+- Paginacion/filtros completos para tenants/users.
+- Recuperacion de password, invitaciones y registro publico.
+- Rate limiting de login.
+- Swagger/OpenAPI o generacion formal de cliente.
+- Storage S3/R2 real.
+- Email/notificaciones.
+- Jobs reales en BullMQ.
+
+Decision vigente: no implementar modulos academicos hasta aprobar el primer dominio y su contrato multi-tenant.
+
+---
+
 ## Propósito del documento
 
-Este documento define la planeación inicial del backend de Classia SaaS para trabajar con Codex en la rama `dev/backend-v1`.
+Este documento define la planeacion inicial y el estado actual del backend de Classia SaaS. La rama original fue `dev/backend-v1`; la continuidad de trabajo vive actualmente en `codex/backend-v1-continue`.
 
 La intención es construir un backend propio, profesional y mantenible, evitando depender de un backend externo tipo BaaS como núcleo principal. Classia manejará lógica compleja de negocio, multi-tenancy, seguridad, auditoría, roles, reportes, notificaciones e integraciones; por eso el backend debe diseñarse desde el inicio como una pieza central del producto.
 
@@ -77,7 +125,7 @@ No implementar microservicios, Kubernetes ni arquitectura distribuida compleja e
 
 La rama `dev/backend-v1` debe dejar lista la base profesional del backend.
 
-Al finalizar esta fase debería existir:
+Al finalizar esta fase debia existir:
 
 - App NestJS creada en `apps/api`.
 - Docker Compose con PostgreSQL y Redis.
@@ -94,7 +142,9 @@ Al finalizar esta fase debería existir:
 - Scripts pnpm funcionales.
 - Typecheck pasando.
 
-No se deben implementar todavía módulos académicos completos como estudiantes, acudientes, notas, asistencia o tareas. Primero se construye el cimiento.
+Estado: esos puntos base ya estan implementados. Ademas se agregaron auth real con sesiones, CRUD base de administracion, auditoria consultable, e2e backend y contrato para front.
+
+No se deben implementar todavia modulos academicos completos como estudiantes, acudientes, notas, asistencia o tareas sin aprobacion del siguiente dominio. Primero se estabiliza el cimiento.
 
 ---
 
@@ -575,6 +625,8 @@ Se debe mantener `.env.example` actualizado.
 
 No subir `.env`.
 
+Nota actual: `docker-compose.yml` expone PostgreSQL en `localhost:5432`. Si una maquina ya tiene Postgres local en ese puerto, se puede cambiar el mapping de Docker y sobreescribir `DATABASE_URL` en `.env`, sin modificar secretos ni defaults compartidos.
+
 ---
 
 ## Seguridad mínima desde Backend v1
@@ -585,14 +637,14 @@ Backend v1 debe preparar la base para:
 - Helmet.
 - CORS controlado.
 - Errores globales controlados.
-- No exponer stack traces en producción.
-- Hash de contraseñas futuro con argon2 o bcrypt.
-- Auth futuro con access token y refresh token.
+- No exponer stack traces fuera de `NODE_ENV=development`.
+- Hash de contraseñas con bcrypt.
+- Auth con access token y refresh token.
 - Rate limiting futuro para login.
 - Guards por tenant y permisos.
 - Auditoría de acciones sensibles.
 
-No es obligatorio implementar todo el auth completo en la primera tarea si se está creando solo la base, pero la estructura debe quedar preparada.
+Estado actual: auth ya esta implementado para login, refresh, logout y `/auth/me`; rate limiting queda pendiente.
 
 ---
 
@@ -623,7 +675,7 @@ support.impersonation_started
 support.impersonation_ended
 ```
 
-Backend v1 puede implementar el servicio base de auditoría aunque solo sea usado por tenants/users inicialmente.
+Estado actual: el servicio base de auditoria ya existe y registra login, refresh, logout, tenants, users y memberships. `GET /audit/logs` permite consultar logs con alcance por tenant y permisos.
 
 ---
 
@@ -634,6 +686,8 @@ Crear seed demo inicial con:
 - Tenant demo.
 - Usuario superadmin.
 - Usuario administrador del colegio demo.
+- Usuario profesor demo.
+- Usuario acudiente/familia demo.
 - Memberships correspondientes.
 
 Ejemplo de datos:
@@ -650,6 +704,12 @@ email: admin@classia.com.co
 
 Tenant admin:
 email: rector@demo.classia.com.co
+
+Profesor:
+email: lopez@demo.classia.co
+
+Familia:
+email: rosa@demo.classia.co
 ```
 
 Las contraseñas deben ser claramente de desarrollo y documentadas en el seed, no usarse en producción.
@@ -689,30 +749,40 @@ docker compose down
 
 ## Criterios de aceptación de Backend v1
 
-La tarea se considera lista cuando:
+La tarea base se considera lista cuando:
 
-- Existe `apps/api` como app NestJS funcional.
-- `pnpm dev:api` levanta el backend.
-- Existe `docker-compose.yml` con PostgreSQL y Redis.
-- PostgreSQL y Redis levantan correctamente.
-- Prisma está configurado.
-- Existe schema inicial con `Tenant`, `User`, `TenantMembership`, `AuditLog`.
-- Se puede correr migración inicial.
-- Se puede generar Prisma Client.
-- Existe seed demo.
-- Existe endpoint de healthcheck.
-- Existe estructura base para tenants.
-- Existe estructura base para auditoría.
-- `pnpm -r typecheck` pasa.
-- `git status` queda limpio después del commit.
-- No se suben secretos.
-- No se implementan módulos fuera del alcance inicial.
+- [x] Existe `apps/api` como app NestJS funcional.
+- [x] `pnpm dev:api` levanta el backend.
+- [x] Existe `docker-compose.yml` con PostgreSQL y Redis.
+- [x] PostgreSQL y Redis levantan correctamente.
+- [x] Prisma esta configurado.
+- [x] Existe schema inicial con `Tenant`, `User`, `TenantMembership`, `AuthSession` y `AuditLog`.
+- [x] Se puede correr migracion inicial.
+- [x] Se puede generar Prisma Client.
+- [x] Existe seed demo.
+- [x] Existe endpoint de healthcheck.
+- [x] Existe estructura base para tenants.
+- [x] Existe estructura base para users/memberships.
+- [x] Existe estructura base para auditoria.
+- [x] Auth JWT + refresh tokens funciona.
+- [x] Errores globales estan normalizados.
+- [x] E2E base de backend pasa.
+- [x] `pnpm -r typecheck` pasa.
+- [x] No se suben secretos.
+- [x] No se implementan modulos academicos completos fuera del alcance inicial.
+
+Criterios todavia pendientes para cerrar Backend v1 como contrato estable:
+
+- [ ] Publicar/compartir contrato front-back y mantenerlo actualizado.
+- [ ] Definir si se generara OpenAPI/Swagger o cliente tipado.
+- [ ] Agregar paginacion/busqueda a listados admin si front lo requiere.
+- [ ] Definir siguiente modulo academico y sus reglas multi-tenant antes de implementarlo.
 
 ---
 
 ## Lo que NO debe hacer Codex en esta rama
 
-No implementar todavía:
+No implementar todavia sin aprobacion explicita:
 
 - Estudiantes.
 - Acudientes.
@@ -740,6 +810,19 @@ No cambiar la estructura general del monorepo sin aprobación.
 No mover paquetes ya creados sin justificarlo.
 
 No guardar secretos reales.
+
+Nota: el schema Prisma puede contener modelos academicos de preparacion por merges previos, pero Backend v1 no debe exponer modulos/API academicos reales hasta aprobar alcance y pruebas multi-tenant.
+
+---
+
+## Siguiente orden recomendado
+
+1. Alinear front con `docs/api/frontend-contract.md`.
+2. Probar login real y redireccion por rol desde el front.
+3. Integrar `/auth/me`, `/users/me` y `/users/me/memberships`.
+4. Consumir endpoints admin base solo en pantallas donde ya exista UI preparada.
+5. Agregar paginacion/filtros si el front lo necesita para tenants/users.
+6. Definir primer modulo academico real con contrato, modelo y e2e antes de escribir endpoints.
 
 ---
 
