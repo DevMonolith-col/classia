@@ -27,7 +27,6 @@ Thumbs.db
 # IDE
 .vscode/*
 !.vscode/extensions.json
-!.vscode/settings.json
 
 # local
 .cache
