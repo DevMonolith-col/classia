@@ -12,9 +12,9 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
+      "@classia/database": ["packages/database/src"],
       "@classia/shared": ["packages/shared/src"],
       "@classia/validators": ["packages/validators/src"]
     }
   }
 }
-

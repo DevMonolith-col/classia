@@ -1,10 +1,3 @@
-
----
-
-## 3. Agente Database / Prisma
-
-```bash
-cat > docs/agents/03-database-prisma.md <<'EOF'
 # Agente 03 — Database / Prisma
 
 ## Propósito
@@ -87,3 +80,4 @@ support_ticket_messages
 billing_subscriptions
 invoices
 demo_accounts
+```

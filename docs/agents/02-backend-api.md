@@ -1,10 +1,3 @@
-
----
-
-## 2. Agente Backend / API
-
-```bash
-cat > docs/agents/02-backend-api.md <<'EOF'
 # Agente 02 — Backend / API
 
 ## Propósito
@@ -75,3 +68,4 @@ apps/api/src/
 │   ├── reports/
 │   └── audit/
 └── prisma/
+```

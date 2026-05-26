@@ -1,20 +1,56 @@
 "use client"
 
 import Link from "next/link"
-import { useState } from "react"
+import { useRouter } from "next/navigation"
+import { FormEvent, useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 
 export default function LoginPage() {
+  const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [userType, setUserType] = useState<"admin" | "profesor" | "familia">("admin")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
 
   const userTypeLabels = {
     admin: { label: "Administrador", redirect: "/admin" },
     profesor: { label: "Profesor", redirect: "/profesor" },
     familia: { label: "Padre/Estudiante", redirect: "/familia" },
+  }
+
+  const demoAccounts = [
+    {
+      label: "Admin",
+      email: "admin@classia.com.co",
+      password: "ClassiaDemo2026!",
+      type: "admin" as const,
+    },
+    {
+      label: "Profesor",
+      email: "lopez@demo.classia.co",
+      password: "demo123",
+      type: "profesor" as const,
+    },
+    {
+      label: "Familia",
+      email: "rosa@demo.classia.co",
+      password: "demo123",
+      type: "familia" as const,
+    },
+  ]
+
+  const selectDemoAccount = (account: (typeof demoAccounts)[number]) => {
+    setUserType(account.type)
+    setEmail(account.email)
+    setPassword(account.password)
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    router.push(userTypeLabels[userType].redirect)
   }
 
   return (
@@ -68,7 +104,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <form className="space-y-4">
+            <form className="space-y-4" onSubmit={handleSubmit}>
               {/* Email */}
               <div>
                 <label
@@ -81,6 +117,8 @@ export default function LoginPage() {
                   id="email"
                   type="email"
                   placeholder="tu@correo.com"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
                   className="w-full"
                 />
               </div>
@@ -98,6 +136,8 @@ export default function LoginPage() {
                     id="password"
                     type={showPassword ? "text" : "password"}
                     placeholder="••••••••"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
                     className="w-full pr-10"
                   />
                   <button
@@ -133,10 +173,24 @@ export default function LoginPage() {
               </div>
 
               {/* Submit */}
-              <Button type="submit" className="w-full" asChild>
-                <Link href={userTypeLabels[userType].redirect}>Iniciar Sesión</Link>
+              <Button type="submit" className="w-full">
+                Iniciar Sesión
               </Button>
             </form>
+
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              {demoAccounts.map((account) => (
+                <Button
+                  key={account.type}
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => selectDemoAccount(account)}
+                >
+                  {account.label}
+                </Button>
+              ))}
+            </div>
 
             {/* Divider */}
             <div className="my-6 flex items-center gap-4">

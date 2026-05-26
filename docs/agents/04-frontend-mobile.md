@@ -1,10 +1,3 @@
-
----
-
-## 4. Agente Frontend / Mobile
-
-```bash
-cat > docs/agents/04-frontend-mobile.md <<'EOF'
 # Agente 04 — Frontend Web / Mobile
 
 ## Propósito
@@ -237,4 +230,3 @@ Una pantalla está lista cuando:
 - No muestra datos de otro tenant.
 - Es clara para el rol objetivo.
 - Está alineada con la identidad visual de Classia.
-EOF
