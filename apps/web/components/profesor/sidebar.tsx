@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
 import {
   LayoutDashboard,
   Users,
@@ -15,11 +15,17 @@ import {
   LogOut,
   Menu,
   X,
-  ChevronDown,
   Bell,
   ClipboardCheck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { logout, getStoredUser } from "@/lib/auth"
+
+const ROLE_LABELS: Record<string, string> = {
+  TEACHER: "Docente",
+  COORDINATOR: "Coordinador",
+  PRINCIPAL: "Rector",
+}
 
 const navigation = [
   { name: "Mi Panel", href: "/profesor", icon: LayoutDashboard },
@@ -35,7 +41,25 @@ const navigation = [
 
 export function ProfesorSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [user, setUser] = useState<{ firstName: string; lastName: string; email: string; role: string } | null>(null)
+
+  useEffect(() => {
+    setUser(getStoredUser())
+  }, [])
+
+  const handleLogout = async () => {
+    await logout()
+    router.push("/login")
+  }
+
+  const initials = user
+    ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
+    : "PR"
+
+  const displayName = user ? `${user.firstName} ${user.lastName}` : "Profesor"
+  const roleLabel = user ? (ROLE_LABELS[user.role] ?? "Docente") : ""
 
   return (
     <>
@@ -113,27 +137,27 @@ export function ProfesorSidebar() {
         {/* User Menu */}
         <div className="border-t border-sidebar-border p-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sidebar-accent">
-              <span className="text-sm font-semibold text-sidebar-accent-foreground">JL</span>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sidebar-accent">
+              <span className="text-sm font-semibold text-sidebar-accent-foreground">
+                {initials}
+              </span>
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0">
               <p className="truncate text-sm font-medium text-sidebar-foreground">
-                Prof. Juan López
+                {displayName}
               </p>
-              <p className="truncate text-xs text-sidebar-foreground/60">
-                Matemáticas
+              <p className="truncate text-xs font-medium uppercase tracking-wide text-sidebar-foreground/50">
+                {roleLabel}
               </p>
             </div>
-            <button className="rounded-lg p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground">
-              <ChevronDown className="h-4 w-4" />
-            </button>
           </div>
           <Button
             variant="ghost"
-            className="mt-4 w-full justify-start gap-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            className="mt-3 w-full justify-start gap-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            onClick={handleLogout}
           >
             <LogOut className="h-4 w-4" />
-            Cerrar Sesión
+            Cerrar sesión
           </Button>
         </div>
       </aside>

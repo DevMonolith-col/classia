@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
 import {
   Home,
   BookOpen,
@@ -15,10 +15,14 @@ import {
   LogOut,
   Menu,
   X,
-  ChevronDown,
-  Users,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { logout, getStoredUser } from "@/lib/auth"
+
+const ROLE_LABELS: Record<string, string> = {
+  GUARDIAN: "Acudiente",
+  STUDENT: "Estudiante",
+}
 
 const navigation = [
   { name: "Inicio", href: "/familia", icon: Home },
@@ -31,15 +35,27 @@ const navigation = [
   { name: "Ajustes", href: "/familia/ajustes", icon: Settings },
 ]
 
-const children = [
-  { id: "1", name: "María García", grade: "5to Grado A", avatar: "MG" },
-  { id: "2", name: "Pedro García", grade: "3er Grado B", avatar: "PG" },
-]
-
 export function FamiliaSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [selectedChild, setSelectedChild] = useState(children[0])
+  const [user, setUser] = useState<{ firstName: string; lastName: string; email: string; role: string } | null>(null)
+
+  useEffect(() => {
+    setUser(getStoredUser())
+  }, [])
+
+  const handleLogout = async () => {
+    await logout()
+    router.push("/login")
+  }
+
+  const initials = user
+    ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
+    : "FA"
+
+  const displayName = user ? `${user.firstName} ${user.lastName}` : "Familia"
+  const roleLabel = user ? (ROLE_LABELS[user.role] ?? "Familia") : ""
 
   return (
     <>
@@ -92,31 +108,22 @@ export function FamiliaSidebar() {
           </div>
         </div>
 
-        {/* Child Selector */}
+        {/* User info */}
         <div className="border-b border-sidebar-border p-4">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-sidebar-foreground/60">
-            Estudiante
-          </p>
-          <div className="space-y-2">
-            {children.map((child) => (
-              <button
-                key={child.id}
-                onClick={() => setSelectedChild(child)}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
-                  selectedChild.id === child.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                }`}
-              >
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground">
-                  {child.avatar}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="truncate text-sm font-medium">{child.name}</p>
-                  <p className="truncate text-xs opacity-60">{child.grade}</p>
-                </div>
-              </button>
-            ))}
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sidebar-accent">
+              <span className="text-sm font-semibold text-sidebar-accent-foreground">
+                {initials}
+              </span>
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-sidebar-foreground">
+                {displayName}
+              </p>
+              <p className="truncate text-xs font-medium uppercase tracking-wide text-sidebar-foreground/50">
+                {roleLabel}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -142,37 +149,25 @@ export function FamiliaSidebar() {
           })}
         </nav>
 
-        {/* User Menu */}
+        {/* Actions */}
         <div className="border-t border-sidebar-border p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sidebar-accent">
-              <Users className="h-5 w-5 text-sidebar-accent-foreground" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="truncate text-sm font-medium text-sidebar-foreground">
-                Familia García
-              </p>
-              <p className="truncate text-xs text-sidebar-foreground/60">
-                2 estudiantes
-              </p>
-            </div>
-            <button className="rounded-lg p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground">
-              <ChevronDown className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="mt-4 flex gap-2">
+          <div className="flex gap-2">
             <Button
               variant="ghost"
               size="sm"
               className="flex-1 justify-start gap-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              asChild
             >
-              <Settings className="h-4 w-4" />
-              Ajustes
+              <Link href="/familia/ajustes">
+                <Settings className="h-4 w-4" />
+                Ajustes
+              </Link>
             </Button>
             <Button
               variant="ghost"
               size="sm"
               className="flex-1 justify-start gap-2 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              onClick={handleLogout}
             >
               <LogOut className="h-4 w-4" />
               Salir

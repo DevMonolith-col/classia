@@ -1,0 +1,80 @@
+import { NextRequest, NextResponse } from "next/server"
+
+const PUBLIC_PATHS = new Set(["/", "/login", "/registro", "/recuperar-password"])
+
+const ROLE_SECTION: Record<string, string> = {
+  SUPER_ADMIN: "/admin",
+  SUPPORT_AGENT: "/admin",
+  TENANT_ADMIN: "/admin",
+  PRINCIPAL: "/admin",
+  COORDINATOR: "/admin",
+  SECRETARY: "/admin",
+  TEACHER: "/profesor",
+  GUARDIAN: "/familia",
+  STUDENT: "/familia",
+}
+
+const PROTECTED_SECTIONS = ["/admin", "/profesor", "/familia"]
+
+function decodeJwtPayload(token: string): { role: string; exp: number } | null {
+  try {
+    const part = token.split(".")[1]
+    const json = atob(part.replace(/-/g, "+").replace(/_/g, "/"))
+    return JSON.parse(json) as { role: string; exp: number }
+  } catch {
+    return null
+  }
+}
+
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // Ignorar assets de Next.js
+  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) {
+    return NextResponse.next()
+  }
+
+  const accessToken = request.cookies.get("classia_at")?.value
+  const refreshToken = request.cookies.get("classia_rt")?.value
+
+  // Rutas públicas
+  if (PUBLIC_PATHS.has(pathname)) {
+    // Si ya tiene sesión activa, redirigir a su sección
+    if (pathname === "/login" && accessToken) {
+      const payload = decodeJwtPayload(accessToken)
+      if (payload && payload.exp * 1000 > Date.now()) {
+        const section = ROLE_SECTION[payload.role] ?? "/login"
+        return NextResponse.redirect(new URL(section, request.url))
+      }
+    }
+    return NextResponse.next()
+  }
+
+  // Rutas protegidas: necesita al menos el refresh token
+  const inProtectedSection = PROTECTED_SECTIONS.some((s) => pathname.startsWith(s))
+
+  if (inProtectedSection && !accessToken && !refreshToken) {
+    const url = new URL("/login", request.url)
+    url.searchParams.set("from", pathname)
+    return NextResponse.redirect(url)
+  }
+
+  // Si tiene access token válido, verificar que esté en su sección correcta
+  if (accessToken) {
+    const payload = decodeJwtPayload(accessToken)
+    if (payload && payload.exp * 1000 > Date.now()) {
+      const correctSection = ROLE_SECTION[payload.role]
+      const currentSection = PROTECTED_SECTIONS.find((s) => pathname.startsWith(s))
+
+      if (correctSection && currentSection && currentSection !== correctSection) {
+        return NextResponse.redirect(new URL(correctSection, request.url))
+      }
+    }
+  }
+
+  return NextResponse.next()
+}
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+}

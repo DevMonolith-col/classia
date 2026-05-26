@@ -93,6 +93,30 @@ async function main() {
     },
   });
 
+  // Usuario profesor demo
+  const teacherUser = await prisma.user.upsert({
+    where: { email: "lopez@demo.classia.co" },
+    update: { firstName: "Juan", lastName: "Lopez", status: UserStatus.ACTIVE, passwordHash },
+    create: { email: "lopez@demo.classia.co", passwordHash, firstName: "Juan", lastName: "Lopez", status: UserStatus.ACTIVE },
+  });
+  await prisma.tenantMembership.upsert({
+    where: { tenantId_userId: { tenantId: tenant.id, userId: teacherUser.id } },
+    update: { role: UserRole.TEACHER },
+    create: { tenantId: tenant.id, userId: teacherUser.id, role: UserRole.TEACHER },
+  });
+
+  // Usuario acudiente demo
+  const guardianUser = await prisma.user.upsert({
+    where: { email: "rosa@demo.classia.co" },
+    update: { firstName: "Rosa", lastName: "García", status: UserStatus.ACTIVE, passwordHash },
+    create: { email: "rosa@demo.classia.co", passwordHash, firstName: "Rosa", lastName: "García", status: UserStatus.ACTIVE },
+  });
+  await prisma.tenantMembership.upsert({
+    where: { tenantId_userId: { tenantId: tenant.id, userId: guardianUser.id } },
+    update: { role: UserRole.GUARDIAN },
+    create: { tenantId: tenant.id, userId: guardianUser.id, role: UserRole.GUARDIAN },
+  });
+
   await prisma.auditLog.create({
     data: {
       tenantId: tenant.id,

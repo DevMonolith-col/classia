@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const loginSchema = z.object({
   email: z.string().email().transform((email) => email.toLowerCase()),
-  password: z.string().min(8).max(128),
+  password: z.string().min(6).max(128),
   tenantSlug: z
     .string()
     .min(3)
