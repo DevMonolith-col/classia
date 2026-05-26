@@ -52,6 +52,8 @@ API: http://localhost:3001
 
 La API carga variables desde `.env` si existe y usa `.env.example` como base de desarrollo. No subir `.env`.
 
+`docker-compose.yml` expone PostgreSQL en `localhost:5432`. Si tu maquina ya usa ese puerto, ajusta tu `.env` local y el mapping de Docker sin cambiar secretos en el repo.
+
 ## Credenciales
 
 ### API real
@@ -145,6 +147,8 @@ PATCH /users/:id/memberships/:membershipId
 GET  /audit/status
 GET  /audit/logs
 ```
+
+Contrato detallado para front: [docs/api/frontend-contract.md](docs/api/frontend-contract.md).
 
 Los endpoints protegidos requieren:
 
