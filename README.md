@@ -43,6 +43,18 @@ pnpm dev:api
 pnpm dev:web
 ```
 
+`pnpm dev:api` y `pnpm dev` liberan primero el puerto `3001` si quedo ocupado por un proceso de este workspace. Si tambien necesitas limpiar puertos manualmente:
+
+```bash
+pnpm ports:free
+```
+
+Esto revisa `3000` y `3001` y solo detiene procesos que parezcan pertenecer a Classia. Si estas seguro de que quieres forzar la limpieza:
+
+```bash
+pnpm ports:free:force
+```
+
 URLs locales:
 
 ```txt
@@ -51,6 +63,8 @@ API: http://localhost:3001
 ```
 
 La API carga variables desde `.env` si existe y usa `.env.example` como base de desarrollo. No subir `.env`.
+
+`docker-compose.yml` expone PostgreSQL en `localhost:5432`. Si tu maquina ya usa ese puerto, ajusta tu `.env` local y el mapping de Docker sin cambiar secretos en el repo.
 
 ## Credenciales
 
@@ -62,6 +76,8 @@ Estas credenciales salen del seed demo y funcionan contra `apps/api`.
 | --- | --- | --- | --- |
 | Superadmin | demo | admin@classia.com.co | ClassiaDemo2026! |
 | Tenant admin | demo | rector@demo.classia.com.co | ClassiaDemo2026! |
+| Profesor | demo | lopez@demo.classia.co | ClassiaDemo2026! |
+| Familia | demo | rosa@demo.classia.co | ClassiaDemo2026! |
 
 Ejemplo:
 
@@ -82,7 +98,7 @@ El front integrado todavia usa navegacion visual en login. En `http://localhost:
 | Profesor | lopez@demo.classia.co | ClassiaDemo2026! | `/profesor` |
 | Familia | rosa@demo.classia.co | ClassiaDemo2026! | `/familia` |
 
-Los perfiles Profesor y Familia son accesos visuales para revisar pantallas; todavia no existen como usuarios reales en el seed backend.
+Los perfiles Profesor y Familia existen en el seed backend, pero sus modulos academicos todavia son vistas navegables sin datos reales.
 
 ## Vistas Para Revisar
 
@@ -141,7 +157,10 @@ POST /users/:id/memberships
 PATCH /users/:id/memberships/:membershipId
 
 GET  /audit/status
+GET  /audit/logs
 ```
+
+Contrato detallado para front: [docs/api/frontend-contract.md](docs/api/frontend-contract.md).
 
 Los endpoints protegidos requieren:
 
@@ -155,14 +174,40 @@ Para resolver tenant en desarrollo:
 x-tenant-slug: demo
 ```
 
+Formato base de error:
+
+```json
+{
+  "statusCode": 400,
+  "error": "Bad Request",
+  "message": "Validation failed.",
+  "details": {
+    "issues": [
+      {
+        "path": "password",
+        "code": "too_small",
+        "message": "String must contain at least 6 character(s)"
+      }
+    ]
+  },
+  "path": "/auth/login",
+  "timestamp": "2026-05-26T00:00:00.000Z"
+}
+```
+
+`details` aparece cuando el error tiene informacion estructurada, por ejemplo validaciones Zod. El `stack` solo se expone en `NODE_ENV=development`.
+
 ## Verificacion
 
 ```bash
 pnpm -r typecheck
 pnpm -r build
+pnpm --filter api test:e2e
 curl http://localhost:3001/health
 curl -H x-tenant-slug:demo http://localhost:3001/tenants/current
 ```
+
+Los e2e del backend requieren PostgreSQL y Redis locales. Ver [docs/testing/backend-e2e.md](docs/testing/backend-e2e.md).
 
 Smoke de auth:
 

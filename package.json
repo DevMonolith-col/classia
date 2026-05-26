@@ -9,6 +9,8 @@
     "dev:web": "pnpm --filter @classia/web dev",
     "dev:api": "pnpm --filter api start:dev",
     "dev:mobile": "pnpm --filter mobile start",
+    "ports:free": "node scripts/dev/free-port.mjs 3000 3001",
+    "ports:free:force": "node scripts/dev/free-port.mjs 3000 3001 --force",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
