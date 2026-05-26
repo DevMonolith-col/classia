@@ -40,6 +40,16 @@ type ErrorResponse = {
   statusCode: number;
   error: string;
   message: string;
+  details?: {
+    issues?: Array<{
+      path: string;
+      code: string;
+      message: string;
+    }>;
+  };
+  path: string;
+  timestamp: string;
+  stack?: string;
 };
 
 type AuditLogsResponse = {
@@ -141,6 +151,9 @@ describe("Backend v1 e2e", () => {
     });
     expect(invalidPassword.status).toBe(401);
     expect(invalidPassword.body.message).toBe("Invalid credentials.");
+    expect(invalidPassword.body.path).toBe("/auth/login");
+    expect(invalidPassword.body.timestamp).toEqual(expect.any(String));
+    expect(invalidPassword.body.stack).toBeUndefined();
 
     const invalidPayload = await api<ErrorResponse>("/auth/login", {
       method: "POST",
@@ -153,10 +166,22 @@ describe("Backend v1 e2e", () => {
     });
     expect(invalidPayload.status).toBe(400);
     expect(invalidPayload.body.message).toBe("Validation failed.");
+    expect(invalidPayload.body.details?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "password",
+          code: "too_small",
+          message: expect.any(String),
+        }),
+      ]),
+    );
+    expect(invalidPayload.body.stack).toBeUndefined();
 
     const missingToken = await api<ErrorResponse>("/auth/me");
     expect(missingToken.status).toBe(401);
     expect(missingToken.body.message).toBe("Access token is required.");
+    expect(missingToken.body.path).toBe("/auth/me");
+    expect(missingToken.body.stack).toBeUndefined();
   });
 
   it("refreshes and revokes refresh tokens on logout", async () => {
