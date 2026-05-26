@@ -79,8 +79,8 @@ El front integrado todavia usa navegacion visual en login. En `http://localhost:
 | Vista | Email mostrado | Password mostrado | Destino |
 | --- | --- | --- | --- |
 | Admin | admin@classia.com.co | ClassiaDemo2026! | `/admin` |
-| Profesor | lopez@demo.classia.co | demo123 | `/profesor` |
-| Familia | rosa@demo.classia.co | demo123 | `/familia` |
+| Profesor | lopez@demo.classia.co | ClassiaDemo2026! | `/profesor` |
+| Familia | rosa@demo.classia.co | ClassiaDemo2026! | `/familia` |
 
 Los perfiles Profesor y Familia son accesos visuales para revisar pantallas; todavia no existen como usuarios reales en el seed backend.
 
