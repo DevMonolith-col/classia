@@ -35,8 +35,10 @@ docs                  Documentacion tecnica y operativa
 Backend compartido actual:
 
 ```txt
-API: https://classia-api-production-fd89.up.railway.app
-Health: https://classia-api-production-fd89.up.railway.app/health
+production API: https://classia-api-production-fd89.up.railway.app
+production health: https://classia-api-production-fd89.up.railway.app/health
+shared-dev API: https://classia-api-shared-dev.up.railway.app
+shared-dev health: https://classia-api-shared-dev.up.railway.app/health
 ```
 
 ## Inicio rapido local
@@ -124,6 +126,7 @@ Reglas practicas:
 - `shared-dev` o `staging` debe conectarse a `develop`
 - `develop` no debe reutilizar Postgres o Redis de production
 - el frontend local puede cambiar entre production y shared-dev ajustando `NEXT_PUBLIC_API_URL`
+- `NODE_ENV` del backend en Railway debe seguir siendo `production`, aunque el environment se llame `shared-dev`
 
 Orden recomendado para adoptarlo:
 
@@ -216,6 +219,13 @@ pnpm --filter @classia/database db:generate
 pnpm --filter api test:e2e
 curl http://localhost:3001/health
 curl -H x-tenant-slug:demo http://localhost:3001/tenants/current
+```
+
+Checks utiles con Railway:
+
+```bash
+curl https://classia-api-production-fd89.up.railway.app/health
+curl https://classia-api-shared-dev.up.railway.app/health
 ```
 
 Los e2e del backend requieren PostgreSQL y Redis locales. Ver [docs/testing/backend-e2e.md](docs/testing/backend-e2e.md).
