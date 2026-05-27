@@ -185,6 +185,7 @@ POST /auth/login
 POST /auth/refresh
 POST /auth/logout
 GET  /auth/me
+GET  /app/bootstrap
 
 GET  /users/me
 GET  /users/me/memberships
@@ -194,6 +195,26 @@ GET  /users/:id
 PATCH /users/:id
 POST /users/:id/memberships
 PATCH /users/:id/memberships/:membershipId
+
+GET  /groups
+POST /groups
+GET  /groups/:id
+PATCH /groups/:id
+
+GET  /students
+POST /students
+GET  /students/:id
+PATCH /students/:id
+
+GET  /teachers
+POST /teachers
+GET  /teachers/:id
+PATCH /teachers/:id
+
+GET  /guardians
+POST /guardians
+GET  /guardians/:id
+PATCH /guardians/:id
 
 GET  /audit/status
 GET  /audit/logs
@@ -243,13 +264,13 @@ Incluido:
 - Auth JWT + refresh tokens
 - Guards de tenant y permisos
 - CRUD admin base de tenants, users y memberships
+- CRUD admin base de grupos, estudiantes, docentes y acudientes
 - Front navegable para landing, admin, profesor y familia
 
 No incluido todavia en backend:
 
-- Estudiantes
-- Profesores como entidad academica
-- Acudientes
+- Dashboards agregados por rol
+- Materias y horarios consumibles por front
 - Asistencia real
 - Calificaciones
 - Tareas
