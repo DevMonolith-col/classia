@@ -6,10 +6,11 @@ import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 export function setupApp(app: INestApplication) {
   const config = app.get(ConfigService);
   const webUrl = config.get<string>("app.webUrl", "http://localhost:3000");
+  const corsOrigins = config.get<string[]>("app.corsOrigins") ?? [webUrl];
 
   app.use(helmet());
   app.enableCors({
-    origin: [webUrl],
+    origin: corsOrigins,
     credentials: true,
   });
   app.useGlobalFilters(new HttpExceptionFilter(config));

@@ -1,5 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"
-const TENANT_SLUG = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "demo"
+import { API_URL, TENANT_SLUG } from "./env"
 
 export type JwtPayload = {
   sub: string

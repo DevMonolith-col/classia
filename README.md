@@ -1,6 +1,6 @@
 # Classia SaaS
 
-SaaS escolar multi-tenant para colegios. Esta rama integra el primer front navegable con la base backend v1: NestJS modular, Prisma/PostgreSQL, Redis, auth JWT, tenants, usuarios, memberships y auditoría básica.
+SaaS escolar multi-tenant para colegios. Este monorepo incluye web con Next.js, API con NestJS, Prisma/PostgreSQL, Redis y contratos compartidos.
 
 ## Stack
 
@@ -23,10 +23,25 @@ apps/mobile           App Expo pendiente
 packages/database     Prisma schema, migraciones y seed
 packages/shared       Tipos y constantes compartidas
 packages/validators   Schemas Zod compartidos
-docs                  Documentacion tecnica y funcional
+docs                  Documentacion tecnica y operativa
 ```
 
-## Inicio Rapido
+## Estado actual
+
+- `main` ya puede correr `apps/web` contra el backend compartido en Railway.
+- No es obligatorio levantar backend local para cambios de frontend.
+- Backend local sigue siendo recomendable para cambios profundos de `apps/api`, Prisma, migraciones o debugging serio.
+
+Backend compartido actual:
+
+```txt
+API: https://classia-api-production-fd89.up.railway.app
+Health: https://classia-api-production-fd89.up.railway.app/health
+```
+
+## Inicio rapido local
+
+Instalacion base:
 
 ```bash
 pnpm install
@@ -36,22 +51,25 @@ pnpm --filter @classia/database db:migrate
 pnpm --filter @classia/database seed:demo
 ```
 
-En terminales separadas:
+Desarrollo completo local:
 
 ```bash
 pnpm dev:api
 pnpm dev:web
 ```
 
+Solo frontend contra Railway:
+
+```bash
+pnpm --filter @classia/web dev
+```
+
+`pnpm install` ejecuta `postinstall` y regenera Prisma automaticamente.
+
 `pnpm dev:api` y `pnpm dev` liberan primero el puerto `3001` si quedo ocupado por un proceso de este workspace. Si tambien necesitas limpiar puertos manualmente:
 
 ```bash
 pnpm ports:free
-```
-
-Esto revisa `3000` y `3001` y solo detiene procesos que parezcan pertenecer a Classia. Si estas seguro de que quieres forzar la limpieza:
-
-```bash
 pnpm ports:free:force
 ```
 
@@ -60,17 +78,38 @@ URLs locales:
 ```txt
 Web: http://localhost:3000
 API: http://localhost:3001
+Postgres: localhost:5432
+Redis: localhost:6379
 ```
+
+## Variables de entorno
 
 La API carga variables desde `.env` si existe y usa `.env.example` como base de desarrollo. No subir `.env`.
 
-`docker-compose.yml` expone PostgreSQL en `localhost:5432`. Si tu maquina ya usa ese puerto, ajusta tu `.env` local y el mapping de Docker sin cambiar secretos en el repo.
+Variables clave:
 
-## Credenciales
+```txt
+NEXT_PUBLIC_API_URL      URL base consumida por apps/web
+NEXT_PUBLIC_TENANT_SLUG  Tenant por defecto en desarrollo
+APP_WEB_URL              Origen principal permitido por la API
+APP_CORS_ORIGINS         Lista separada por comas para CORS
+DATABASE_URL             Conexion de PostgreSQL
+REDIS_URL                Conexion de Redis
+JWT_SECRET               Secreto del access token
+REFRESH_TOKEN_SECRET     Secreto del refresh token
+```
 
-### API real
+`JWT_SECRET` y `REFRESH_TOKEN_SECRET` son solo del backend. No van en el frontend.
 
-Estas credenciales salen del seed demo y funcionan contra `apps/api`.
+## Flujos de trabajo
+
+- Front local contra Railway: ver [docs/operations/frontend-with-railway.md](docs/operations/frontend-with-railway.md)
+- Backend local completo: usar `.env` local, Docker y `pnpm dev:api`
+- Railway production: `main` despliega el backend compartido
+
+## Credenciales demo
+
+Estas credenciales salen del seed demo y funcionan tanto en local como en Railway si ya corriste migraciones y `seed:demo`.
 
 | Rol | Tenant | Email | Password |
 | --- | --- | --- | --- |
@@ -79,7 +118,7 @@ Estas credenciales salen del seed demo y funcionan contra `apps/api`.
 | Profesor | demo | lopez@demo.classia.co | ClassiaDemo2026! |
 | Familia | demo | rosa@demo.classia.co | ClassiaDemo2026! |
 
-Ejemplo:
+Ejemplo de login por API:
 
 ```bash
 curl -X POST http://localhost:3001/auth/login \
@@ -88,51 +127,19 @@ curl -X POST http://localhost:3001/auth/login \
   -d '{"email":"rector@demo.classia.com.co","password":"ClassiaDemo2026!"}'
 ```
 
-### Front navegable
+## Seed demo
 
-El front integrado todavia usa navegacion visual en login. En `http://localhost:3000/login` puedes usar los botones demo:
+`pnpm --filter @classia/database seed:demo` es mayormente idempotente:
 
-| Vista | Email mostrado | Password mostrado | Destino |
-| --- | --- | --- | --- |
-| Admin | admin@classia.com.co | ClassiaDemo2026! | `/admin` |
-| Profesor | lopez@demo.classia.co | ClassiaDemo2026! | `/profesor` |
-| Familia | rosa@demo.classia.co | ClassiaDemo2026! | `/familia` |
+- tenant, usuarios y memberships usan `upsert`
+- si cambias nombres, roles o password demo, la corrida vuelve a dejarlos en ese estado
+- cada corrida agrega un `auditLog` nuevo de tipo `seed.demo_created`
 
-Los perfiles Profesor y Familia existen en el seed backend, pero sus modulos academicos todavia son vistas navegables sin datos reales.
+Eso significa que puedes correr el seed otra vez para refrescar usuarios demo, pero no debes tratarlo como una migracion de datos productivos.
 
-## Vistas Para Revisar
+## API actual
 
-```txt
-/                         Landing
-/login                    Login con accesos demo
-/admin                    Dashboard admin
-/admin/estudiantes        Estudiantes
-/admin/profesores         Profesores
-/admin/cursos             Cursos
-/admin/asistencia         Asistencia admin
-/admin/tareas             Tareas admin
-/admin/mensajes           Mensajes admin
-/admin/reportes           Reportes
-/admin/configuracion      Configuracion
-/admin/plugins            Plugins
-/profesor                 Dashboard profesor
-/profesor/asistencia      Asistencia profesor
-/profesor/calificaciones  Calificaciones
-/profesor/horario         Horario
-/profesor/tareas          Tareas
-/profesor/mensajes        Mensajes
-/familia                  Dashboard familia
-/familia/asistencia       Asistencia
-/familia/calificaciones   Calificaciones
-/familia/horario          Horario
-/familia/tareas           Tareas
-/familia/mensajes         Mensajes
-/familia/incapacidades    Incapacidades
-```
-
-## API Actual
-
-Base disponible en Backend v1:
+Base disponible en backend v1:
 
 ```txt
 GET  /health
@@ -160,7 +167,7 @@ GET  /audit/status
 GET  /audit/logs
 ```
 
-Contrato detallado para front: [docs/api/frontend-contract.md](docs/api/frontend-contract.md).
+Contrato detallado para front: [docs/api/frontend-contract.md](docs/api/frontend-contract.md)
 
 Los endpoints protegidos requieren:
 
@@ -168,40 +175,17 @@ Los endpoints protegidos requieren:
 Authorization: Bearer <accessToken>
 ```
 
-Para resolver tenant en desarrollo:
+En desarrollo y demo actual:
 
 ```txt
 x-tenant-slug: demo
 ```
 
-Formato base de error:
-
-```json
-{
-  "statusCode": 400,
-  "error": "Bad Request",
-  "message": "Validation failed.",
-  "details": {
-    "issues": [
-      {
-        "path": "password",
-        "code": "too_small",
-        "message": "String must contain at least 6 character(s)"
-      }
-    ]
-  },
-  "path": "/auth/login",
-  "timestamp": "2026-05-26T00:00:00.000Z"
-}
-```
-
-`details` aparece cuando el error tiene informacion estructurada, por ejemplo validaciones Zod. El `stack` solo se expone en `NODE_ENV=development`.
-
 ## Verificacion
 
 ```bash
-pnpm -r typecheck
 pnpm -r build
+pnpm --filter @classia/database db:generate
 pnpm --filter api test:e2e
 curl http://localhost:3001/health
 curl -H x-tenant-slug:demo http://localhost:3001/tenants/current
@@ -209,40 +193,27 @@ curl -H x-tenant-slug:demo http://localhost:3001/tenants/current
 
 Los e2e del backend requieren PostgreSQL y Redis locales. Ver [docs/testing/backend-e2e.md](docs/testing/backend-e2e.md).
 
-Smoke de auth:
-
-```bash
-ACCESS_TOKEN=$(curl -s -X POST http://localhost:3001/auth/login \
-  -H "content-type: application/json" \
-  -H "x-tenant-slug: demo" \
-  -d '{"email":"rector@demo.classia.com.co","password":"ClassiaDemo2026!"}' \
-  | node -pe 'JSON.parse(fs.readFileSync(0,"utf8")).accessToken')
-
-curl http://localhost:3001/auth/me \
-  -H "authorization: Bearer $ACCESS_TOKEN"
-```
-
-## Alcance Actual
+## Alcance actual
 
 Incluido:
 
-- Base NestJS modular.
-- Docker Compose con PostgreSQL y Redis.
-- Prisma con Tenant, User, TenantMembership, AuthSession y AuditLog.
-- Seed demo.
-- Auth JWT + refresh tokens.
-- Guards de tenant y permisos.
-- CRUD admin base de tenants, users y memberships.
-- Front navegable para landing, admin, profesor y familia.
+- Base NestJS modular
+- Docker Compose con PostgreSQL y Redis
+- Prisma con Tenant, User, TenantMembership, AuthSession y AuditLog
+- Seed demo
+- Auth JWT + refresh tokens
+- Guards de tenant y permisos
+- CRUD admin base de tenants, users y memberships
+- Front navegable para landing, admin, profesor y familia
 
 No incluido todavia en backend:
 
-- Estudiantes.
-- Profesores como entidad academica.
-- Acudientes.
-- Asistencia real.
-- Calificaciones.
-- Tareas.
-- Comunicados.
-- Notificaciones.
-- Pagos, transporte, biblioteca, enfermeria, nomina, IA, biometria o firma digital avanzada.
+- Estudiantes
+- Profesores como entidad academica
+- Acudientes
+- Asistencia real
+- Calificaciones
+- Tareas
+- Comunicados
+- Notificaciones
+- Pagos, transporte, biblioteca, enfermeria, nomina, IA, biometria o firma digital avanzada
