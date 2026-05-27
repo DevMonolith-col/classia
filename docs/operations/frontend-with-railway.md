@@ -17,6 +17,22 @@ Con este flujo:
 - el equipo comparte el mismo backend demo
 - backend local queda reservado para cambios profundos de API o Prisma
 
+## Estrategia de ramas y environments
+
+Convencion recomendada:
+
+```txt
+main     -> Railway production
+develop  -> Railway shared-dev o staging
+feature/* y fix/* -> ramas cortas de trabajo
+```
+
+Notas:
+
+- Railway conecta environments a ramas de GitHub, no crea ramas propias
+- `develop` debe tener su propio `Postgres` y `Redis`
+- el frontend local puede cambiar entre production y shared-dev ajustando `NEXT_PUBLIC_API_URL`
+
 ## Configuracion del frontend local
 
 Crea `apps/web/.env.local` con:

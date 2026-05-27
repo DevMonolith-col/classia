@@ -107,6 +107,33 @@ REFRESH_TOKEN_SECRET     Secreto del refresh token
 - Backend local completo: usar `.env` local, Docker y `pnpm dev:api`
 - Railway production: `main` despliega el backend compartido
 
+## Estrategia de entornos
+
+Convencion recomendada:
+
+```txt
+main     -> Railway production
+develop  -> Railway shared-dev o staging
+feature/* y fix/* -> ramas cortas de trabajo que luego se fusionan a develop
+```
+
+Reglas practicas:
+
+- Railway conecta environments a ramas de GitHub, no crea ramas propias
+- `production` debe seguir conectado a `main`
+- `shared-dev` o `staging` debe conectarse a `develop`
+- `develop` no debe reutilizar Postgres o Redis de production
+- el frontend local puede cambiar entre production y shared-dev ajustando `NEXT_PUBLIC_API_URL`
+
+Orden recomendado para adoptarlo:
+
+1. Documentar la convencion en el repo
+2. Crear la rama `develop`
+3. Crear el environment `shared-dev` o `staging` en Railway
+4. Duplicar `Classia Api`, `Postgres` y `Redis` para ese environment
+5. Conectar el API de ese environment a la rama `develop`
+6. Aplicar migraciones y `seed:demo` al Postgres de `develop`
+
 ## Credenciales demo
 
 Estas credenciales salen del seed demo y funcionan tanto en local como en Railway si ya corriste migraciones y `seed:demo`.
