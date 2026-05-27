@@ -35,8 +35,10 @@ docs                  Documentacion tecnica y operativa
 Backend compartido actual:
 
 ```txt
-API: https://classia-api-production-fd89.up.railway.app
-Health: https://classia-api-production-fd89.up.railway.app/health
+production API: https://classia-api-production-fd89.up.railway.app
+production health: https://classia-api-production-fd89.up.railway.app/health
+shared-dev API: https://classia-api-shared-dev.up.railway.app
+shared-dev health: https://classia-api-shared-dev.up.railway.app/health
 ```
 
 ## Inicio rapido local
@@ -86,6 +88,8 @@ Redis: localhost:6379
 
 La API carga variables desde `.env` si existe y usa `.env.example` como base de desarrollo. No subir `.env`.
 
+Para frontend local, usa [apps/web/.env.local.example](C:\dev\classia-saas\apps\web\.env.local.example) como plantilla de `apps/web/.env.local`.
+
 Variables clave:
 
 ```txt
@@ -124,6 +128,7 @@ Reglas practicas:
 - `shared-dev` o `staging` debe conectarse a `develop`
 - `develop` no debe reutilizar Postgres o Redis de production
 - el frontend local puede cambiar entre production y shared-dev ajustando `NEXT_PUBLIC_API_URL`
+- `NODE_ENV` del backend en Railway debe seguir siendo `production`, aunque el environment se llame `shared-dev`
 
 Orden recomendado para adoptarlo:
 
@@ -180,6 +185,7 @@ POST /auth/login
 POST /auth/refresh
 POST /auth/logout
 GET  /auth/me
+GET  /app/bootstrap
 
 GET  /users/me
 GET  /users/me/memberships
@@ -189,6 +195,26 @@ GET  /users/:id
 PATCH /users/:id
 POST /users/:id/memberships
 PATCH /users/:id/memberships/:membershipId
+
+GET  /groups
+POST /groups
+GET  /groups/:id
+PATCH /groups/:id
+
+GET  /students
+POST /students
+GET  /students/:id
+PATCH /students/:id
+
+GET  /teachers
+POST /teachers
+GET  /teachers/:id
+PATCH /teachers/:id
+
+GET  /guardians
+POST /guardians
+GET  /guardians/:id
+PATCH /guardians/:id
 
 GET  /audit/status
 GET  /audit/logs
@@ -218,6 +244,13 @@ curl http://localhost:3001/health
 curl -H x-tenant-slug:demo http://localhost:3001/tenants/current
 ```
 
+Checks utiles con Railway:
+
+```bash
+curl https://classia-api-production-fd89.up.railway.app/health
+curl https://classia-api-shared-dev.up.railway.app/health
+```
+
 Los e2e del backend requieren PostgreSQL y Redis locales. Ver [docs/testing/backend-e2e.md](docs/testing/backend-e2e.md).
 
 ## Alcance actual
@@ -231,13 +264,13 @@ Incluido:
 - Auth JWT + refresh tokens
 - Guards de tenant y permisos
 - CRUD admin base de tenants, users y memberships
+- CRUD admin base de grupos, estudiantes, docentes y acudientes
 - Front navegable para landing, admin, profesor y familia
 
 No incluido todavia en backend:
 
-- Estudiantes
-- Profesores como entidad academica
-- Acudientes
+- Dashboards agregados por rol
+- Materias y horarios consumibles por front
 - Asistencia real
 - Calificaciones
 - Tareas

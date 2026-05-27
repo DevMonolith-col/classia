@@ -1,6 +1,6 @@
 # Front Local Con Railway
 
-Esta guia describe el flujo recomendado actual para trabajar frontend en `main` sin levantar backend local.
+Esta guia describe el flujo recomendado actual para trabajar frontend sin levantar backend local, tanto contra `production` como contra `shared-dev`.
 
 ## Objetivo
 
@@ -8,7 +8,8 @@ Usar:
 
 ```txt
 Front local: http://localhost:3000
-Backend compartido: https://classia-api-production-fd89.up.railway.app
+Backend production: https://classia-api-production-fd89.up.railway.app
+Backend shared-dev: https://classia-api-shared-dev.up.railway.app
 ```
 
 Con este flujo:
@@ -35,7 +36,7 @@ Notas:
 
 ## Configuracion del frontend local
 
-Crea `apps/web/.env.local` con:
+Crea `apps/web/.env.local` usando como base [apps/web/.env.local.example](C:\dev\classia-saas\apps\web\.env.local.example):
 
 ```txt
 NEXT_PUBLIC_API_URL=https://classia-api-production-fd89.up.railway.app
@@ -48,9 +49,15 @@ Luego levanta solo el frontend:
 pnpm --filter @classia/web dev
 ```
 
+Para probar `shared-dev`, cambia solo:
+
+```txt
+NEXT_PUBLIC_API_URL=https://classia-api-shared-dev.up.railway.app
+```
+
 ## Configuracion minima en Railway API
 
-En el servicio `Classia Api`, variables requeridas:
+En el servicio `Classia Api`, variables requeridas para `production`:
 
 ```txt
 APP_API_URL=https://classia-api-production-fd89.up.railway.app
@@ -63,11 +70,23 @@ DATABASE_URL=<referencia interna a Postgres Railway>
 REDIS_URL=<referencia interna a Redis Railway>
 ```
 
+Para `shared-dev`, cambia al menos:
+
+```txt
+APP_API_URL=https://classia-api-shared-dev.up.railway.app
+APP_WEB_URL=http://localhost:3000
+APP_CORS_ORIGINS=http://localhost:3000
+NODE_ENV=production
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+```
+
 Notas:
 
 - `APP_WEB_URL` y `APP_CORS_ORIGINS` son los que habilitan CORS para el front local
 - `JWT_SECRET` y `REFRESH_TOKEN_SECRET` no van en el frontend
 - `DATABASE_URL` interna de Railway sirve dentro de Railway, no desde tu PC local
+- aunque el environment se llame `shared-dev`, `NODE_ENV` debe quedar en `production`
 
 ## Preparacion de la base en Railway
 
@@ -100,6 +119,15 @@ Debe incluir:
 ```txt
 Access-Control-Allow-Origin: http://localhost:3000
 ```
+
+Healthchecks esperados:
+
+```powershell
+curl https://classia-api-production-fd89.up.railway.app/health
+curl https://classia-api-shared-dev.up.railway.app/health
+```
+
+Ademas, valida que el servicio `Classia Api` del environment `shared-dev` este conectado a la rama `develop`.
 
 Credenciales demo:
 
