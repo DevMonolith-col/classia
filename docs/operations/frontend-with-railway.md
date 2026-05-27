@@ -36,7 +36,7 @@ Notas:
 
 ## Configuracion del frontend local
 
-Crea `apps/web/.env.local` con:
+Crea `apps/web/.env.local` usando como base [apps/web/.env.local.example](C:\dev\classia-saas\apps\web\.env.local.example):
 
 ```txt
 NEXT_PUBLIC_API_URL=https://classia-api-production-fd89.up.railway.app
