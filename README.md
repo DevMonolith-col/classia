@@ -88,6 +88,8 @@ Redis: localhost:6379
 
 La API carga variables desde `.env` si existe y usa `.env.example` como base de desarrollo. No subir `.env`.
 
+Para frontend local, usa [apps/web/.env.local.example](C:\dev\classia-saas\apps\web\.env.local.example) como plantilla de `apps/web/.env.local`.
+
 Variables clave:
 
 ```txt
