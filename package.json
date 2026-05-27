@@ -5,6 +5,7 @@
   "description": "SaaS escolar multi-tenant con web, backend y app movil.",
   "packageManager": "pnpm@10.33.4",
   "scripts": {
+    "postinstall": "pnpm --filter @classia/database db:generate",
     "dev": "pnpm -r --parallel dev",
     "dev:web": "pnpm --filter @classia/web dev",
     "dev:api": "pnpm --filter api start:dev",
