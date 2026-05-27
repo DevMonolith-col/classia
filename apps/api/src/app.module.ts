@@ -11,7 +11,12 @@ import { RedisModule } from "./core/redis/redis.module";
 import { TenantContextModule } from "./core/tenant-context/tenant-context.module";
 import { AuditModule } from "./modules/audit/audit.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { BootstrapModule } from "./modules/bootstrap/bootstrap.module";
+import { GroupsModule } from "./modules/groups/groups.module";
+import { GuardiansModule } from "./modules/guardians/guardians.module";
 import { HealthModule } from "./modules/health/health.module";
+import { StudentsModule } from "./modules/students/students.module";
+import { TeachersModule } from "./modules/teachers/teachers.module";
 import { TenantsModule } from "./modules/tenants/tenants.module";
 import { UsersModule } from "./modules/users/users.module";
 
@@ -31,7 +36,12 @@ import { UsersModule } from "./modules/users/users.module";
     HealthModule,
     TenantsModule,
     AuthModule,
+    BootstrapModule,
     UsersModule,
+    GroupsModule,
+    StudentsModule,
+    TeachersModule,
+    GuardiansModule,
     AuditModule,
   ],
 })

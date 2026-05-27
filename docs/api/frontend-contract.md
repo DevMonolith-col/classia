@@ -1,6 +1,6 @@
 # Contrato Frontend / Backend v1
 
-Estado al 2026-05-26.
+Estado al 2026-05-27.
 
 Este documento resume que puede consumir el front hoy, que headers requiere, que respuestas devuelve la API y que sigue pendiente. La API corre en `http://localhost:3001` y el front en `http://localhost:3000`.
 
@@ -13,13 +13,15 @@ Backend disponible:
 - Auth real con JWT access token, refresh token y sesiones revocables.
 - Usuarios globales con memberships por tenant.
 - CRUD base admin para tenants, users y memberships.
+- CRUD base admin para grupos, estudiantes, docentes y acudientes.
 - Auditoria base para acciones sensibles y consulta tenant-scoped.
 - Errores normalizados y validaciones Zod estructuradas.
 - E2E de backend para auth, tenant y auditoria.
 
 Backend pendiente:
 
-- Modulos academicos reales: estudiantes, profesores como entidad academica, acudientes, cursos/grupos, materias, horarios, asistencia, calificaciones, tareas y comunicados.
+- Dashboards academicos enriquecidos por rol mas alla del bootstrap inicial.
+- Modulos academicos restantes: materias, horarios, asistencia, calificaciones, tareas y comunicados.
 - Paginacion/filtros completos en usuarios y tenants.
 - Recuperacion de password.
 - Rate limiting de login.
@@ -206,6 +208,69 @@ Response `201`:
 ```
 
 Accion auditada si la sesion existia y no estaba revocada: `auth.logout`.
+
+## Bootstrap de aplicacion
+
+### GET `/app/bootstrap`
+
+Protegido.
+
+Objetivo:
+
+- Entregar el contexto inicial para que web/mobile arranquen sin encadenar multiples requests.
+
+Response `200`:
+
+```json
+{
+  "user": {
+    "id": "<user-id>",
+    "email": "rector@demo.classia.com.co",
+    "firstName": "Rector",
+    "lastName": "Demo",
+    "status": "ACTIVE"
+  },
+  "tenant": {
+    "id": "<tenant-id>",
+    "slug": "demo",
+    "name": "Colegio Demo Classia",
+    "status": "DEMO",
+    "primaryDomain": "app.demo.classia.com.co",
+    "logoUrl": null,
+    "brandColor": "#2563eb",
+    "timezone": "America/Bogota"
+  },
+  "membership": {
+    "id": "<membership-id>",
+    "role": "TENANT_ADMIN",
+    "status": "ACTIVE",
+    "permissions": ["students:list", "students:create"]
+  },
+  "summary": {
+    "kind": "admin",
+    "stats": {
+      "users": 4,
+      "groups": 2,
+      "students": 2,
+      "teachers": 1,
+      "guardians": 1
+    }
+  }
+}
+```
+
+Variantes de `summary.kind` actuales:
+
+- `admin`
+- `teacher`
+- `guardian`
+- `basic`
+
+Notas:
+
+- `admin` devuelve conteos agregados del tenant.
+- `teacher` devuelve perfil docente y hasta 5 horarios.
+- `guardian` devuelve perfil acudiente y estudiantes asociados.
 
 ## Tenants
 
@@ -408,6 +473,217 @@ Request parcial:
 
 Accion auditada: `membership.updated`.
 
+## Grupos
+
+Todos los endpoints de `/groups` son protegidos y requieren permisos.
+
+### GET `/groups?tenantId=<tenant-id>`
+
+Permiso: `groups:list`.
+
+Reglas:
+
+- `SUPER_ADMIN` y `SUPPORT_AGENT` pueden listar globalmente o filtrar por `tenantId`.
+- Roles tenant-scoped quedan limitados a su tenant actual.
+
+Response `200`: array de grupos con conteos agregados.
+
+### POST `/groups`
+
+Permiso: `groups:create`.
+
+Request:
+
+```json
+{
+  "tenantId": "<tenant-id>",
+  "name": "5to Grado A",
+  "grade": "5to Grado",
+  "section": "A"
+}
+```
+
+`tenantId` es opcional para actores tenant-scoped.
+
+Accion auditada: `group.created`.
+
+### GET `/groups/:id`
+
+Permiso: `groups:read`.
+
+### PATCH `/groups/:id`
+
+Permiso: `groups:update`.
+
+Request parcial:
+
+```json
+{
+  "name": "5to Grado A",
+  "section": "A"
+}
+```
+
+Accion auditada: `group.updated`.
+
+## Students
+
+Todos los endpoints de `/students` son protegidos y requieren permisos.
+
+### GET `/students?tenantId=<tenant-id>&groupId=<group-id>`
+
+Permiso: `students:list`.
+
+Response `200`: array de estudiantes con grupo y acudientes asociados.
+
+### POST `/students`
+
+Permiso: `students:create`.
+
+Request:
+
+```json
+{
+  "tenantId": "<tenant-id>",
+  "firstName": "Maria",
+  "lastName": "Garcia",
+  "documentId": "STU-1001",
+  "birthDate": "2014-03-10T00:00:00.000Z",
+  "groupId": "<group-id>",
+  "guardianIds": ["<guardian-id>"],
+  "isActive": true
+}
+```
+
+Notas:
+
+- `tenantId` es opcional para actores tenant-scoped.
+- `groupId` debe pertenecer al tenant actual.
+- `guardianIds` reemplaza la necesidad de un endpoint aparte para la relacion inicial.
+
+Accion auditada: `student.created`.
+
+### GET `/students/:id`
+
+Permiso: `students:read`.
+
+### PATCH `/students/:id`
+
+Permiso: `students:update`.
+
+Request parcial:
+
+```json
+{
+  "groupId": "<group-id>",
+  "guardianIds": ["<guardian-id-1>", "<guardian-id-2>"],
+  "isActive": true
+}
+```
+
+Notas:
+
+- Si `guardianIds` se envia, reemplaza completamente las relaciones actuales.
+- `groupId: null` remueve el estudiante del grupo.
+
+Accion auditada: `student.updated`.
+
+## Teachers
+
+Todos los endpoints de `/teachers` son protegidos y requieren permisos.
+
+### GET `/teachers?tenantId=<tenant-id>`
+
+Permiso: `teachers:list`.
+
+Response `200`: array de perfiles docentes enlazados a `User`.
+
+### POST `/teachers`
+
+Permiso: `teachers:create`.
+
+Request:
+
+```json
+{
+  "tenantId": "<tenant-id>",
+  "userId": "<user-id>"
+}
+```
+
+Reglas:
+
+- El `userId` debe tener membership `TEACHER` en el tenant actual.
+- Un usuario solo puede tener un perfil docente.
+
+Accion auditada: `teacher.created`.
+
+### GET `/teachers/:id`
+
+Permiso: `teachers:read`.
+
+### PATCH `/teachers/:id`
+
+Permiso: `teachers:update`.
+
+Request parcial:
+
+```json
+{
+  "userId": "<user-id>"
+}
+```
+
+Accion auditada: `teacher.updated`.
+
+## Guardians
+
+Todos los endpoints de `/guardians` son protegidos y requieren permisos.
+
+### GET `/guardians?tenantId=<tenant-id>`
+
+Permiso: `guardians:list`.
+
+Response `200`: array de perfiles acudiente enlazados a `User` y sus estudiantes asociados.
+
+### POST `/guardians`
+
+Permiso: `guardians:create`.
+
+Request:
+
+```json
+{
+  "tenantId": "<tenant-id>",
+  "userId": "<user-id>"
+}
+```
+
+Reglas:
+
+- El `userId` debe tener membership `GUARDIAN` en el tenant actual.
+- Un usuario solo puede tener un perfil acudiente.
+
+Accion auditada: `guardian.created`.
+
+### GET `/guardians/:id`
+
+Permiso: `guardians:read`.
+
+### PATCH `/guardians/:id`
+
+Permiso: `guardians:update`.
+
+Request parcial:
+
+```json
+{
+  "userId": "<user-id>"
+}
+```
+
+Accion auditada: `guardian.updated`.
+
 ## Auditoria
 
 ### GET `/audit/status`
@@ -477,11 +753,11 @@ Reglas:
 | Rol | Puede usar hoy |
 | --- | --- |
 | SUPER_ADMIN | Tenants CRUD, users CRUD, memberships, audit |
-| TENANT_ADMIN | Su tenant, users/memberships de su tenant, audit de su tenant |
-| SUPPORT_AGENT | List/read tenants, self/memberships, audit |
-| PRINCIPAL | Tenant read, self/memberships |
-| COORDINATOR | Tenant read, self/memberships |
-| SECRETARY | Tenant read, self/memberships |
+| TENANT_ADMIN | Su tenant, users/memberships de su tenant, grupos, estudiantes, docentes, acudientes y audit de su tenant |
+| SUPPORT_AGENT | List/read tenants, entidades academicas read-only, self/memberships, audit |
+| PRINCIPAL | Tenant read, grupos, estudiantes, docentes, acudientes, self/memberships |
+| COORDINATOR | Tenant read, grupos, estudiantes, docentes, acudientes, self/memberships |
+| SECRETARY | Tenant read, grupos, estudiantes, docentes, acudientes, self/memberships |
 | TEACHER | Self/memberships |
 | GUARDIAN | Self/memberships |
 | STUDENT | Self/memberships |
@@ -499,17 +775,110 @@ Funciona contra backend real:
 - Admin de tenant: consultar/actualizar su tenant.
 - Admin de tenant: listar usuarios de su tenant.
 - Admin de tenant: crear/actualizar usuarios y memberships.
+- Admin de tenant: crear/consultar/actualizar grupos.
+- Admin de tenant: crear/consultar/actualizar estudiantes.
+- Admin de tenant: crear/consultar/actualizar perfiles docentes.
+- Admin de tenant: crear/consultar/actualizar perfiles acudiente.
 - Admin de tenant: consultar audit logs tenant-scoped.
 - Manejar errores con `statusCode`, `message`, `details.issues`, `path` y `timestamp`.
 
 No funciona todavia como backend real:
 
-- Dashboards academicos con datos reales.
-- Listados reales de estudiantes/profesores/acudientes como entidades academicas.
+- Dashboards academicos completos para admin/profesor/familia mas alla del resumen inicial.
 - Asistencia, calificaciones, tareas, horarios, mensajes/comunicados.
 - Registro publico, recuperar password y flujos de invitacion.
 - Upload/download de archivos.
 - Notificaciones push/email.
+
+## Guia de trabajo para frontend
+
+Orden recomendado para bajar mocks y conectarse al backend real:
+
+### Fase 1: contexto de aplicacion
+
+Usar:
+
+- `POST /auth/login`
+- `GET /app/bootstrap`
+- `GET /auth/me` solo si hace falta verificacion puntual
+
+Objetivo:
+
+- resolver redireccion por rol
+- cargar tenant, usuario, membership y permisos
+- pintar layout, sidebar y contadores base sin hardcodear datos
+
+Pantallas candidatas:
+
+- `login`
+- layouts por rol
+- dashboard admin basico
+
+### Fase 2: administracion academica base
+
+Usar:
+
+- `GET /groups`
+- `GET /students`
+- `GET /teachers`
+- `GET /guardians`
+- `POST/PATCH` de esas mismas entidades para formularios admin
+
+Objetivo:
+
+- reemplazar mocks de listados
+- habilitar tablas y formularios reales
+- modelar relaciones student-group-guardian con datos reales
+
+Pantallas candidatas:
+
+- `/admin/estudiantes`
+- `/admin/profesores`
+- `/admin/cursos` o vista equivalente de grupos
+
+### Fase 3: expansion por rol
+
+Todavia pendiente en backend:
+
+- horarios utiles para profesor/familia
+- asistencia
+- calificaciones
+- tareas
+- comunicados
+
+Hasta que esos modulos existan, mantener mocks locales en:
+
+- dashboards de profesor
+- dashboards de familia
+- vistas de asistencia, calificaciones, tareas y mensajes
+
+### Regla operativa
+
+- si una pantalla puede salir de `bootstrap`, `groups`, `students`, `teachers` o `guardians`, ya no deberia seguir mockeada
+- si depende de attendance/marks/homework/messages, sigue en mock hasta que el backend de Sprint 2 exista
+
+## Datos demo disponibles hoy
+
+El seed demo actual deja listo:
+
+- 1 tenant demo
+- 1 `TENANT_ADMIN`
+- 1 `TEACHER`
+- 1 `GUARDIAN`
+- 2 grupos
+- 2 estudiantes
+- 1 perfil docente
+- 1 perfil acudiente
+- 2 estudiantes asociados al acudiente
+- 2 horarios base enlazados a grupos y materias
+
+Esto permite a frontend validar:
+
+- conteos del bootstrap admin
+- tablas de grupos
+- tablas de estudiantes
+- relaciones de acudiente por estudiante
+- formularios admin basicos
 
 ## Recomendaciones para integracion front
 
