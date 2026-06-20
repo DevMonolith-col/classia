@@ -20,7 +20,7 @@ export type LoginResult = {
 }
 
 const ROLE_ROUTES: Record<string, string> = {
-  SUPER_ADMIN: "/admin",
+  SUPER_ADMIN: "/superadmin",
   SUPPORT_AGENT: "/admin",
   TENANT_ADMIN: "/admin",
   PRINCIPAL: "/admin",
