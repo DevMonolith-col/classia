@@ -3,14 +3,35 @@ import { ConfigService } from "@nestjs/config";
 import helmet from "helmet";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 
+const PRIVATE_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/;
+
 export function setupApp(app: INestApplication) {
   const config = app.get(ConfigService);
+  const nodeEnv = config.get<string>("app.nodeEnv", "development");
   const webUrl = config.get<string>("app.webUrl", "http://localhost:3000");
-  const corsOrigins = config.get<string[]>("app.corsOrigins") ?? [webUrl];
+  const explicitOrigins = config.get<string[]>("app.corsOrigins") ?? [webUrl];
 
   app.use(helmet());
   app.enableCors({
-    origin: corsOrigins,
+    origin(
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) {
+      if (!origin) return callback(null, true);
+
+      if (
+        nodeEnv === "development" &&
+        PRIVATE_ORIGIN.test(origin)
+      ) {
+        return callback(null, true);
+      }
+
+      if (explicitOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      callback(new Error(`Origin not allowed by CORS: ${origin}`));
+    },
     credentials: true,
   });
   app.useGlobalFilters(new HttpExceptionFilter(config));
