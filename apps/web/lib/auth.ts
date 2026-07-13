@@ -20,7 +20,7 @@ export type LoginResult = {
 }
 
 const ROLE_ROUTES: Record<string, string> = {
-  SUPER_ADMIN: "/admin",
+  SUPER_ADMIN: "/superadmin",
   SUPPORT_AGENT: "/admin",
   TENANT_ADMIN: "/admin",
   PRINCIPAL: "/admin",
@@ -28,7 +28,7 @@ const ROLE_ROUTES: Record<string, string> = {
   SECRETARY: "/admin",
   TEACHER: "/profesor",
   GUARDIAN: "/familia",
-  STUDENT: "/familia",
+  STUDENT: "/alumno",
 }
 
 export function getRoleRoute(role: string): string {

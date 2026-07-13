@@ -21,7 +21,7 @@ const navigation = [
   { name: "Mis Clases",     href: "/profesor/clases",        icon: BookOpen },
   { name: "Estudiantes",    href: "/profesor/estudiantes",   icon: Users },
   { name: "Calificaciones", href: "/profesor/calificaciones",icon: ClipboardList },
-  { name: "Tareas",         href: "/profesor/tareas",        icon: FileText },
+  { name: "Asignaciones",   href: "/profesor/asignaciones",  icon: FileText },
   { name: "Asistencia",     href: "/profesor/asistencia",    icon: ClipboardCheck },
   { name: "Horario",        href: "/profesor/horario",       icon: Calendar },
   { name: "Mensajes",       href: "/profesor/mensajes",      icon: MessageSquare },

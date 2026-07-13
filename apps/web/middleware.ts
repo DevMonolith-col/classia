@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 const PUBLIC_PATHS = new Set(["/", "/login", "/registro", "/recuperar-password"])
 
 const ROLE_SECTION: Record<string, string> = {
-  SUPER_ADMIN: "/admin",
+  SUPER_ADMIN: "/superadmin",
   SUPPORT_AGENT: "/admin",
   TENANT_ADMIN: "/admin",
   PRINCIPAL: "/admin",
@@ -11,10 +11,10 @@ const ROLE_SECTION: Record<string, string> = {
   SECRETARY: "/admin",
   TEACHER: "/profesor",
   GUARDIAN: "/familia",
-  STUDENT: "/familia",
+  STUDENT: "/alumno",
 }
 
-const PROTECTED_SECTIONS = ["/admin", "/profesor", "/familia"]
+const PROTECTED_SECTIONS = ["/superadmin", "/admin", "/profesor", "/familia", "/alumno"]
 
 function decodeJwtPayload(token: string): { role: string; exp: number } | null {
   try {
