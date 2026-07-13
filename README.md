@@ -80,7 +80,7 @@ URLs locales:
 ```txt
 Web: http://localhost:3000
 API: http://localhost:3001
-Postgres: localhost:5432
+Postgres: localhost:5434
 Redis: localhost:6379
 ```
 
