@@ -244,7 +244,7 @@ export default function ProfesorDashboardPage() {
               Tareas por Calificar
             </CardTitle>
             <Button variant="ghost" size="sm" asChild>
-              <Link href="/profesor/tareas" className="gap-1">
+              <Link href="/profesor/asignaciones" className="gap-1">
                 Ver todas
                 <ArrowRight className="h-4 w-4" />
               </Link>
@@ -343,7 +343,7 @@ export default function ProfesorDashboardPage() {
               <Link href="/profesor/calificaciones/nueva">Registrar Calificaciones</Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link href="/profesor/tareas/nueva">Crear Tarea</Link>
+              <Link href="/profesor/asignaciones">Crear Tarea</Link>
             </Button>
             <Button variant="outline" asChild>
               <Link href="/profesor/estudiantes">Ver Estudiantes</Link>

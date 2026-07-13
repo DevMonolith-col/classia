@@ -88,6 +88,7 @@ model User {
   sessions         AuthSession[]
   teacher          Teacher?
   guardian         Guardian?
+  student          Student?
   sentMessages     Message[]          @relation("SentMessages")
   receivedMessages Message[]          @relation("ReceivedMessages")
 
@@ -164,6 +165,7 @@ model Subject {
 model Student {
   id         String    @id @default(uuid())
   tenantId   String
+  userId     String?   @unique
   firstName  String
   lastName   String
   documentId String?
@@ -174,11 +176,13 @@ model Student {
   updatedAt  DateTime  @updatedAt
 
   tenant              Tenant               @relation(fields: [tenantId], references: [id])
+  user                User?                @relation(fields: [userId], references: [id])
   group               Group?               @relation(fields: [groupId], references: [id])
   guardians           StudentGuardian[]
   attendanceRecords   AttendanceRecord[]
   marks               Mark[]
   homeworkSubmissions HomeworkSubmission[]
+  quizAttempts        QuizAttempt[]
 
   @@unique([tenantId, documentId])
   @@map("students")
@@ -281,6 +285,7 @@ model Mark {
   studentId   String
   subjectId   String
   teacherId   String
+  homeworkId  String?
   title       String
   value       Float
   maxValue    Float    @default(100)
@@ -288,39 +293,118 @@ model Mark {
   date        DateTime @default(now())
   isPublished Boolean  @default(true)
 
-  student Student @relation(fields: [studentId], references: [id])
-  subject Subject @relation(fields: [subjectId], references: [id])
-  teacher Teacher @relation(fields: [teacherId], references: [id])
+  student  Student   @relation(fields: [studentId], references: [id])
+  subject  Subject   @relation(fields: [subjectId], references: [id])
+  teacher  Teacher   @relation(fields: [teacherId], references: [id])
+  homework Homework? @relation(fields: [homeworkId], references: [id])
 
   @@map("marks")
 }
 
 model Homework {
-  id          String   @id @default(uuid())
-  tenantId    String
-  teacherId   String
-  subjectId   String
-  groupId     String
-  title       String
-  description String?
-  dueDate     DateTime
-  status      String   @default("ACTIVE")
-  createdAt   DateTime @default(now())
+  id             String   @id @default(uuid())
+  tenantId       String
+  teacherId      String
+  subjectId      String
+  groupId        String
+  title          String
+  description    String?
+  dueDate        DateTime
+  weight         Float    @default(0)
+  type           String   @default("TAREA")
+  allowNavigation Boolean @default(true)
+  attachmentKey  String?
+  attachmentName String?
+  status         String   @default("ACTIVE")
+  createdAt      DateTime @default(now())
 
   teacher     Teacher              @relation(fields: [teacherId], references: [id])
   subject     Subject              @relation(fields: [subjectId], references: [id])
   group       Group                @relation(fields: [groupId], references: [id])
   submissions HomeworkSubmission[]
+  marks       Mark[]
+  questions   Question[]
+  attempts    QuizAttempt[]
 
   @@map("homework")
 }
 
-model HomeworkSubmission {
+model Question {
+  id         String   @id @default(uuid())
+  homeworkId String
+  type       String
+  text       String
+  points     Float    @default(1)
+  imageKey   String?
+  imageName  String?
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  homework Homework         @relation(fields: [homeworkId], references: [id])
+  options  QuestionOption[]
+  answers  QuizAnswer[]
+
+  @@map("questions")
+}
+
+model QuestionOption {
+  id         String  @id @default(uuid())
+  questionId String
+  text       String
+  isCorrect  Boolean @default(false)
+  feedback   String?
+  order      Int     @default(0)
+
+  question Question     @relation(fields: [questionId], references: [id])
+  answers  QuizAnswer[] @relation("SelectedOption")
+
+  @@map("question_options")
+}
+
+model QuizAttempt {
   id          String    @id @default(uuid())
+  tenantId    String
   homeworkId  String
   studentId   String
-  status      String    @default("PENDING")
+  status      String    @default("IN_PROGRESS")
+  score       Float?
+  maxScore    Float?
+  startedAt   DateTime  @default(now())
   submittedAt DateTime?
+
+  homework Homework     @relation(fields: [homeworkId], references: [id])
+  student  Student      @relation(fields: [studentId], references: [id])
+  answers  QuizAnswer[]
+
+  @@unique([homeworkId, studentId])
+  @@map("quiz_attempts")
+}
+
+model QuizAnswer {
+  id               String   @id @default(uuid())
+  attemptId        String
+  questionId       String
+  selectedOptionId String?
+  textAnswer       String?
+  isCorrect        Boolean?
+  pointsAwarded    Float?
+
+  attempt        QuizAttempt     @relation(fields: [attemptId], references: [id])
+  question       Question        @relation(fields: [questionId], references: [id])
+  selectedOption QuestionOption? @relation("SelectedOption", fields: [selectedOptionId], references: [id])
+
+  @@unique([attemptId, questionId])
+  @@map("quiz_answers")
+}
+
+model HomeworkSubmission {
+  id             String    @id @default(uuid())
+  homeworkId     String
+  studentId      String
+  status         String    @default("PENDING")
+  attachmentKey  String?
+  attachmentName String?
+  submittedAt    DateTime?
 
   homework Homework @relation(fields: [homeworkId], references: [id])
   student  Student  @relation(fields: [studentId], references: [id])

@@ -6,7 +6,7 @@ import { useState, useEffect } from "react"
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Calendar,
   MessageSquare, BarChart3, Settings, LogOut, Menu, X,
-  Bell, FileText, ClipboardCheck, Puzzle, CalendarClock,
+  Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock,
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 
@@ -28,6 +28,7 @@ const navigation = [
   { name: "Horarios",      href: "/admin/horarios",      icon: CalendarClock },
   { name: "Tareas",        href: "/admin/tareas",        icon: FileText },
   { name: "Asistencia",    href: "/admin/asistencia",    icon: ClipboardCheck },
+  { name: "Calificaciones", href: "/admin/calificaciones", icon: ClipboardList },
   { name: "Calendario",    href: "/admin/calendario",    icon: Calendar },
   { name: "Mensajes",      href: "/admin/mensajes",      icon: MessageSquare },
   { name: "Reportes",      href: "/admin/reportes",      icon: BarChart3 },

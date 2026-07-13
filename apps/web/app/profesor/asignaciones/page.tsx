@@ -1,0 +1,317 @@
+"use client"
+
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import Link from "next/link"
+import { useSearchParams } from "next/navigation"
+import { AlertTriangle, BookOpen, CalendarClock, FileText, Paperclip, Pencil, Plus } from "lucide-react"
+import { toast } from "sonner"
+import { apiFetch } from "@/lib/api-client"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { HOMEWORK_TYPE_COLORS, HOMEWORK_TYPE_LABELS, HOMEWORK_TYPES, type Homework } from "@/components/profesor/homework-types"
+import { DAY_LABELS, type TeacherSchedule } from "@/components/profesor/marks-types"
+
+const FILTERS = ["ALL", ...HOMEWORK_TYPES] as const
+type Filter = (typeof FILTERS)[number]
+
+const FILTER_LABELS: Record<Filter, string> = {
+  ALL: "Todas",
+  TAREA: "Tareas",
+  EXAMEN: "Exámenes",
+  QUIZ: "Quices",
+  PROYECTO: "Proyectos",
+}
+
+function formatDueDate(iso: string) {
+  return new Date(iso).toLocaleString("es-CO", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+function AsignacionesProfesorPageContent() {
+  const searchParams = useSearchParams()
+  const scheduleIdParam = searchParams.get("scheduleId")
+
+  const [schedules, setSchedules] = useState<TeacherSchedule[]>([])
+  const [loadingSetup, setLoadingSetup] = useState(true)
+  const [setupError, setSetupError] = useState("")
+
+  const [selectedScheduleId, setSelectedScheduleId] = useState(scheduleIdParam ?? "")
+  const [homeworkList, setHomeworkList] = useState<Homework[]>([])
+  const [loadingHomework, setLoadingHomework] = useState(false)
+  const [filter, setFilter] = useState<Filter>("ALL")
+
+  const loadSetup = useCallback(async () => {
+    setLoadingSetup(true)
+    setSetupError("")
+    try {
+      const bootstrapRes = await apiFetch("/app/bootstrap", { silent: true })
+      if (!bootstrapRes.ok) throw new Error("No se pudo cargar tu perfil de profesor.")
+      const bootstrap = (await bootstrapRes.json()) as {
+        summary?: { kind?: string; teacher?: { id?: string } }
+      }
+      const id = bootstrap.summary?.teacher?.id
+      if (!bootstrap.summary || bootstrap.summary.kind !== "teacher" || !id) {
+        throw new Error("Esta cuenta no tiene un perfil de profesor asociado.")
+      }
+
+      const schedulesRes = await apiFetch(`/schedules?teacherId=${id}`, { silent: true })
+      const schedulesData = schedulesRes.ok ? ((await schedulesRes.json()) as TeacherSchedule[]) : []
+      setSchedules(schedulesData)
+      if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
+    } catch (err) {
+      setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
+    } finally {
+      setLoadingSetup(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSetup()
+  }, [loadSetup])
+
+  const selectedSchedule = schedules.find((s) => s.id === selectedScheduleId) ?? null
+
+  const loadHomework = useCallback(async (schedule: TeacherSchedule) => {
+    setLoadingHomework(true)
+    try {
+      const res = await apiFetch(`/homework?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}`, {
+        silent: true,
+      })
+      if (!res.ok) throw new Error()
+      const data = (await res.json()) as Homework[]
+      setHomeworkList(data)
+    } catch {
+      setHomeworkList([])
+    } finally {
+      setLoadingHomework(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selectedSchedule) loadHomework(selectedSchedule)
+  }, [selectedSchedule, loadHomework])
+
+  const visibleHomework = useMemo(() => {
+    const filtered = filter === "ALL" ? homeworkList : homeworkList.filter((h) => h.type === filter)
+    return [...filtered].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+  }, [homeworkList, filter])
+
+  async function openAttachment(key: string) {
+    try {
+      const res = await apiFetch(`/files/url?key=${encodeURIComponent(key)}`, { silent: true })
+      if (!res.ok) throw new Error()
+      const data = (await res.json()) as { url: string }
+      window.open(data.url, "_blank", "noopener,noreferrer")
+    } catch {
+      toast.error("No se pudo abrir el archivo.")
+    }
+  }
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Asignaciones</h1>
+          <p className="mt-1 text-muted-foreground">Crea y gestiona las tareas, exámenes y quices de tus clases.</p>
+        </div>
+        {selectedSchedule ? (
+          <Button className="gap-2" asChild>
+            <Link href={`/profesor/asignaciones/nueva?scheduleId=${selectedScheduleId}`}>
+              <Plus className="h-4 w-4" />
+              Nueva asignación
+            </Link>
+          </Button>
+        ) : (
+          <Button className="gap-2" disabled>
+            <Plus className="h-4 w-4" />
+            Nueva asignación
+          </Button>
+        )}
+      </div>
+
+      {setupError && (
+        <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{setupError}</p>
+        </div>
+      )}
+
+      {!loadingSetup && !setupError && schedules.length === 0 && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <BookOpen className="h-10 w-10 text-muted-foreground" />
+            <p className="mt-3 text-base font-semibold text-foreground">Aún no tienes clases asignadas</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Pide a la administración que te asigne horarios para poder crear asignaciones.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!loadingSetup && schedules.length > 0 && (
+        <>
+          <Card className="mb-6">
+            <CardContent className="p-4">
+              <Label>Clase</Label>
+              <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId}>
+                <SelectTrigger className="mt-2 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {schedules.map((schedule) => (
+                    <SelectItem key={schedule.id} value={schedule.id}>
+                      {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} ·{" "}
+                      {schedule.group.name} · {schedule.subject.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="gap-3 border-b border-border">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle>
+                  {FILTER_LABELS[filter]} ({visibleHomework.length})
+                </CardTitle>
+                <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
+                  <TabsList>
+                    {FILTERS.map((f) => (
+                      <TabsTrigger key={f} value={f}>
+                        {FILTER_LABELS[f]}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {loadingHomework ? (
+                <div className="space-y-3 p-6">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={index} className="h-14 animate-pulse rounded-lg bg-secondary" />
+                  ))}
+                </div>
+              ) : visibleHomework.length === 0 ? (
+                <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                  <FileText className="h-10 w-10 text-muted-foreground" />
+                  <h2 className="mt-3 text-base font-semibold text-foreground">
+                    {homeworkList.length === 0 ? "Aún no hay asignaciones para esta clase" : "No hay nada en esta categoría"}
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {homeworkList.length === 0 ? "Crea la primera con el botón de arriba." : "Prueba con otro filtro."}
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {visibleHomework.map((homework) => {
+                    const totalStudents = homework.group._count?.students ?? 0
+                    const submitted = homework._count?.submissions ?? 0
+                    const graded = homework._count?.marks ?? 0
+                    const submittedPct = totalStudents > 0 ? Math.round((submitted / totalStudents) * 100) : 0
+                    const gradedPct = totalStudents > 0 ? Math.round((graded / totalStudents) * 100) : 0
+                    const isOverdue = homework.status === "ACTIVE" && new Date(homework.dueDate) < new Date()
+
+                    return (
+                      <div key={homework.id} className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-foreground">{homework.title}</p>
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HOMEWORK_TYPE_COLORS[homework.type]}`}>
+                              {HOMEWORK_TYPE_LABELS[homework.type]}
+                            </span>
+                            <Badge variant="outline">{homework.weight}%</Badge>
+                            {homework.status !== "ACTIVE" && <Badge variant="secondary">{homework.status}</Badge>}
+                          </div>
+                          {homework.description && (
+                            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{homework.description}</p>
+                          )}
+                          <p className={`mt-1 flex items-center gap-1 text-xs ${isOverdue ? "font-medium text-red-600" : "text-muted-foreground"}`}>
+                            <CalendarClock className="h-3.5 w-3.5" />
+                            Entrega: {formatDueDate(homework.dueDate)}
+                          </p>
+                        </div>
+
+                        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center">
+                          <div className="grid w-full grid-cols-2 gap-4 sm:w-56">
+                            <div>
+                              <div className="mb-1 flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">Entregas</span>
+                                <span className="font-medium text-foreground">{submitted}/{totalStudents}</span>
+                              </div>
+                              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                                <div className="h-full bg-blue-500 transition-all" style={{ width: `${submittedPct}%` }} />
+                              </div>
+                            </div>
+                            <div>
+                              <div className="mb-1 flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">Calificadas</span>
+                                <span className="font-medium text-foreground">{graded}/{totalStudents}</span>
+                              </div>
+                              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                                <div className="h-full bg-green-500 transition-all" style={{ width: `${gradedPct}%` }} />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {homework.attachmentKey && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5"
+                                onClick={() => openAttachment(homework.attachmentKey!)}
+                              >
+                                <Paperclip className="h-3.5 w-3.5" />
+                                Ver archivo
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="sm" className="gap-1.5" asChild>
+                              <Link href={`/profesor/asignaciones/${homework.id}`}>
+                                <Pencil className="h-3.5 w-3.5" />
+                                Editar
+                              </Link>
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}
+
+export default function AsignacionesProfesorPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl p-4 sm:p-6 lg:p-8">
+          <div className="h-64 animate-pulse rounded-lg bg-secondary" />
+        </div>
+      }
+    >
+      <AsignacionesProfesorPageContent />
+    </Suspense>
+  )
+}

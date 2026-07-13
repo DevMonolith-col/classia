@@ -149,6 +149,7 @@ Estas credenciales salen del seed demo y funcionan tanto en local como en Railwa
 | Tenant admin | demo | rector@demo.classia.com.co | ClassiaDemo2026! |
 | Profesor | demo | lopez@demo.classia.co | ClassiaDemo2026! |
 | Familia | demo | rosa@demo.classia.co | ClassiaDemo2026! |
+| Estudiante | demo | maria@demo.classia.co | ClassiaDemo2026! |
 
 Ejemplo de login por API:
 
