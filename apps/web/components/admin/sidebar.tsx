@@ -26,7 +26,7 @@ const navigation = [
   { name: "Cursos",        href: "/admin/cursos",        icon: BookOpen },
   { name: "Materias",      href: "/admin/materias",      icon: BookOpen },
   { name: "Horarios",      href: "/admin/horarios",      icon: CalendarClock },
-  { name: "Tareas",        href: "/admin/tareas",        icon: FileText },
+  { name: "Asignaciones",  href: "/admin/asignaciones",  icon: FileText },
   { name: "Asistencia",    href: "/admin/asistencia",    icon: ClipboardCheck },
   { name: "Calificaciones", href: "/admin/calificaciones", icon: ClipboardList },
   { name: "Calendario",    href: "/admin/calendario",    icon: Calendar },

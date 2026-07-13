@@ -29,5 +29,6 @@ export type Homework = {
   createdAt: string
   group: { id: string; name: string; grade: string; section: string; _count?: { students: number } }
   subject: { id: string; name: string; code?: string | null }
+  teacher?: { id: string; user: { id: string; firstName: string; lastName: string; email: string } }
   _count?: { submissions: number; marks: number }
 }

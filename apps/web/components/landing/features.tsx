@@ -66,7 +66,7 @@ export function LandingFeatures() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-accent">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Características
           </h2>
           <p className="mt-2 text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
