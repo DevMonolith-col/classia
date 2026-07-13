@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import {
   Activity,
   AlertTriangle,
@@ -248,9 +249,11 @@ export default function SuperAdminDashboardPage() {
               <ClipboardList className="h-4 w-4" />
               Revisar auditoria
             </Button>
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" />
-              Nuevo colegio
+            <Button className="gap-2" asChild>
+              <Link href="/superadmin/tenants">
+                <Plus className="h-4 w-4" />
+                Nuevo colegio
+              </Link>
             </Button>
           </div>
         </div>

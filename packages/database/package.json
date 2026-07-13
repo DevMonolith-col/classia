@@ -9,12 +9,12 @@
     "typecheck": "tsc --noEmit",
     "test": "echo \"test database pendiente\"",
     "build": "echo \"build database pendiente\"",
-    "prisma": "dotenv -e ../../.env.example -e ../../.env -- prisma",
-    "db:generate": "dotenv -e ../../.env.example -e ../../.env -- prisma generate",
-    "db:migrate": "dotenv -e ../../.env.example -e ../../.env -- prisma migrate dev",
-    "db:migrate:init": "dotenv -e ../../.env.example -e ../../.env -- prisma migrate dev --name init_backend_v1",
-    "db:studio": "dotenv -e ../../.env.example -e ../../.env -- prisma studio",
-    "seed:demo": "dotenv -e ../../.env.example -e ../../.env -- tsx prisma/seed.ts"
+    "prisma": "dotenv -e ../../.env -e ../../.env.example -- prisma",
+    "db:generate": "dotenv -e ../../.env -e ../../.env.example -- prisma generate",
+    "db:migrate": "dotenv -e ../../.env -e ../../.env.example -- prisma migrate dev",
+    "db:migrate:init": "dotenv -e ../../.env -e ../../.env.example -- prisma migrate dev --name init_backend_v1",
+    "db:studio": "dotenv -e ../../.env -e ../../.env.example -- prisma studio",
+    "seed:demo": "dotenv -e ../../.env -e ../../.env.example -- tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0"

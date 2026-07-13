@@ -101,8 +101,8 @@ async function main() {
   // Usuario profesor demo
   const teacherUser = await prisma.user.upsert({
     where: { email: "lopez@demo.classia.co" },
-    update: { firstName: "Juan", lastName: "Lopez", status: UserStatus.ACTIVE, passwordHash },
-    create: { email: "lopez@demo.classia.co", passwordHash, firstName: "Juan", lastName: "Lopez", status: UserStatus.ACTIVE },
+    update: { firstName: "Juan", lastName: "López", status: UserStatus.ACTIVE, passwordHash },
+    create: { email: "lopez@demo.classia.co", passwordHash, firstName: "Juan", lastName: "López", status: UserStatus.ACTIVE },
   });
   await prisma.tenantMembership.upsert({
     where: { tenantId_userId: { tenantId: tenant.id, userId: teacherUser.id } },
@@ -168,13 +168,13 @@ async function main() {
       },
       update: {
         tenantId: tenant.id,
-        name: "Matematicas",
+        name: "Matemáticas",
         code: "MAT-01",
       },
       create: {
         id: "33333333-3333-4333-8333-333333333333",
         tenantId: tenant.id,
-        name: "Matematicas",
+        name: "Matemáticas",
         code: "MAT-01",
       },
     }),
@@ -184,13 +184,13 @@ async function main() {
       },
       update: {
         tenantId: tenant.id,
-        name: "Espanol",
+        name: "Español",
         code: "ESP-01",
       },
       create: {
         id: "44444444-4444-4444-8444-444444444444",
         tenantId: tenant.id,
-        name: "Espanol",
+        name: "Español",
         code: "ESP-01",
       },
     }),
@@ -227,15 +227,15 @@ async function main() {
         },
       },
       update: {
-        firstName: "Maria",
-        lastName: "Garcia Lopez",
+        firstName: "María",
+        lastName: "García López",
         groupId: group5A.id,
         isActive: true,
       },
       create: {
         tenantId: tenant.id,
-        firstName: "Maria",
-        lastName: "Garcia Lopez",
+        firstName: "María",
+        lastName: "García López",
         documentId: "STU-1001",
         birthDate: new Date("2014-03-10T00:00:00.000Z"),
         groupId: group5A.id,
