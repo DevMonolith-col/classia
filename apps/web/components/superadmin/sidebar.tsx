@@ -24,7 +24,7 @@ import { getStoredUser, logout } from "@/lib/auth"
 const navigation = [
   { name: "Panel SaaS", href: "/superadmin", icon: Gauge, available: true },
   { name: "Colegios", href: "/superadmin/tenants", icon: Building2, available: true },
-  { name: "Usuarios globales", href: "/superadmin/users", icon: Users, available: false },
+  { name: "Usuarios globales", href: "/superadmin/users", icon: Users, available: true },
   { name: "Auditoria", href: "/superadmin/audit", icon: ClipboardList, available: false },
   { name: "Soporte", href: "/superadmin/support", icon: LifeBuoy, available: false },
   { name: "Seguridad", href: "/superadmin/security", icon: ShieldCheck, available: false },
