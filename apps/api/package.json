@@ -13,6 +13,8 @@
     "test:e2e": "jest --config jest.config.cjs --runInBand"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1085.0",
+    "@aws-sdk/s3-request-presigner": "^3.1085.0",
     "@classia/database": "workspace:*",
     "@classia/shared": "workspace:*",
     "@classia/validators": "workspace:*",
@@ -37,6 +39,7 @@
     "@nestjs/testing": "^11.1.9",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
+    "@types/multer": "^2.2.0",
     "@types/node": "^24.10.1",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.5",
