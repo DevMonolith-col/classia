@@ -1,279 +1,395 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import {
-  Search,
-  Download,
-  Save,
-  ChevronDown,
-} from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useSearchParams } from "next/navigation"
+import { AlertTriangle, BookOpen, FileText, Loader2, RefreshCw } from "lucide-react"
+import { toast } from "sonner"
+import { apiFetch } from "@/lib/api-client"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import type { Homework } from "@/components/profesor/homework-types"
+import { DAY_LABELS, type Mark, type Student, type TeacherSchedule } from "@/components/profesor/marks-types"
 
-const classes = [
-  { id: "1", name: "5to Grado A - Matemáticas" },
-  { id: "2", name: "6to Grado B - Matemáticas" },
-  { id: "3", name: "6to Grado A - Álgebra" },
-  { id: "4", name: "4to Grado A - Matemáticas" },
-]
+function cellKey(studentId: string, homeworkId: string) {
+  return `${studentId}:${homeworkId}`
+}
 
-const evaluations = [
-  { id: "1", name: "Parcial 1", weight: 30 },
-  { id: "2", name: "Parcial 2", weight: 30 },
-  { id: "3", name: "Tareas", weight: 20 },
-  { id: "4", name: "Participación", weight: 20 },
-]
+function CalificacionesProfesorPageContent() {
+  const searchParams = useSearchParams()
+  const scheduleIdParam = searchParams.get("scheduleId")
 
-const students = [
-  {
-    id: "1",
-    name: "María García López",
-    grades: { "1": 95, "2": 88, "3": 92, "4": 90 },
-    average: 91.4,
-  },
-  {
-    id: "2",
-    name: "Carlos Rodríguez Pérez",
-    grades: { "1": 78, "2": 82, "3": 85, "4": 80 },
-    average: 80.6,
-  },
-  {
-    id: "3",
-    name: "Ana Martínez Sánchez",
-    grades: { "1": 92, "2": 95, "3": 90, "4": 95 },
-    average: 93.1,
-  },
-  {
-    id: "4",
-    name: "Diego López Hernández",
-    grades: { "1": 65, "2": 70, "3": 72, "4": 68 },
-    average: 68.4,
-  },
-  {
-    id: "5",
-    name: "Sofía Ramírez Torres",
-    grades: { "1": 88, "2": 85, "3": 90, "4": 92 },
-    average: 88.2,
-  },
-  {
-    id: "6",
-    name: "Javier Moreno Díaz",
-    grades: { "1": 72, "2": 75, "3": 80, "4": 78 },
-    average: 75.8,
-  },
-]
+  const [teacherId, setTeacherId] = useState<string | null>(null)
+  const [schedules, setSchedules] = useState<TeacherSchedule[]>([])
+  const [loadingSetup, setLoadingSetup] = useState(true)
+  const [setupError, setSetupError] = useState("")
 
-export default function CalificacionesPage() {
-  const [selectedClass, setSelectedClass] = useState(classes[0].id)
-  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedScheduleId, setSelectedScheduleId] = useState(scheduleIdParam ?? "")
+  const [homeworkList, setHomeworkList] = useState<Homework[]>([])
+  const [roster, setRoster] = useState<Student[]>([])
+  const [marksByCell, setMarksByCell] = useState<Record<string, Mark>>({})
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [savingCell, setSavingCell] = useState<Record<string, boolean>>({})
+  const [loadingGrid, setLoadingGrid] = useState(false)
+  const [gridError, setGridError] = useState("")
 
-  const filteredStudents = students.filter((student) =>
-    student.name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const loadSetup = useCallback(async () => {
+    setLoadingSetup(true)
+    setSetupError("")
+    try {
+      const bootstrapRes = await apiFetch("/app/bootstrap", { silent: true })
+      if (!bootstrapRes.ok) throw new Error("No se pudo cargar tu perfil de profesor.")
+      const bootstrap = (await bootstrapRes.json()) as {
+        summary?: { kind?: string; teacher?: { id?: string } }
+      }
+      const id = bootstrap.summary?.teacher?.id
+      if (!bootstrap.summary || bootstrap.summary.kind !== "teacher" || !id) {
+        throw new Error("Esta cuenta no tiene un perfil de profesor asociado.")
+      }
+      setTeacherId(id)
 
-  const getGradeColor = (grade: number) => {
-    if (grade >= 90) return "text-success"
-    if (grade >= 70) return "text-foreground"
-    return "text-destructive"
+      const schedulesRes = await apiFetch(`/schedules?teacherId=${id}`, { silent: true })
+      const schedulesData = schedulesRes.ok ? ((await schedulesRes.json()) as TeacherSchedule[]) : []
+      setSchedules(schedulesData)
+      if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
+    } catch (err) {
+      setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
+    } finally {
+      setLoadingSetup(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSetup()
+  }, [loadSetup])
+
+  const selectedSchedule = schedules.find((s) => s.id === selectedScheduleId) ?? null
+
+  const loadGrid = useCallback(async (schedule: TeacherSchedule) => {
+    setLoadingGrid(true)
+    setGridError("")
+    try {
+      const [homeworkRes, rosterRes, marksRes] = await Promise.all([
+        apiFetch(`/homework?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}`, { silent: true }),
+        apiFetch(`/students?groupId=${schedule.group.id}`, { silent: true }),
+        apiFetch(`/marks?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}`, { silent: true }),
+      ])
+
+      if (!rosterRes.ok) throw new Error("No se pudo cargar la lista de estudiantes.")
+
+      const homeworkData = homeworkRes.ok ? ((await homeworkRes.json()) as Homework[]) : []
+      const rosterData = (await rosterRes.json()) as Student[]
+      const marksData = marksRes.ok ? ((await marksRes.json()) as Mark[]) : []
+
+      const sortedHomework = [...homeworkData].sort(
+        (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime(),
+      )
+      setHomeworkList(sortedHomework)
+      setRoster(rosterData)
+
+      const byCell: Record<string, Mark> = {}
+      const draftValues: Record<string, string> = {}
+      for (const mark of marksData) {
+        if (!mark.homeworkId) continue
+        const key = cellKey(mark.student.id, mark.homeworkId)
+        byCell[key] = mark
+        draftValues[key] = String(Math.round(mark.value * 100) / 100)
+      }
+      setMarksByCell(byCell)
+      setDraft(draftValues)
+    } catch (err) {
+      setGridError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
+      setHomeworkList([])
+      setRoster([])
+    } finally {
+      setLoadingGrid(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selectedSchedule) loadGrid(selectedSchedule)
+  }, [selectedSchedule, loadGrid])
+
+  function setCellDraft(studentId: string, homeworkId: string, value: string) {
+    setDraft((current) => ({ ...current, [cellKey(studentId, homeworkId)]: value }))
+  }
+
+  async function saveCell(studentId: string, homework: Homework) {
+    if (!selectedSchedule) return
+    const key = cellKey(studentId, homework.id)
+    const raw = draft[key] ?? ""
+    const existing = marksByCell[key]
+
+    if (raw.trim() === "") {
+      return
+    }
+
+    const value = Number(raw)
+    if (Number.isNaN(value) || value < 0 || value > 100) {
+      toast.error("El valor debe estar entre 0 y 100.")
+      if (existing) setDraft((c) => ({ ...c, [key]: String(existing.value) }))
+      else setDraft((c) => ({ ...c, [key]: "" }))
+      return
+    }
+
+    if (existing && existing.value === value) return
+
+    setSavingCell((c) => ({ ...c, [key]: true }))
+    try {
+      const res = existing
+        ? await apiFetch(`/marks/${existing.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ value }),
+            silent: true,
+          })
+        : await apiFetch("/marks", {
+            method: "POST",
+            body: JSON.stringify({
+              studentId,
+              subjectId: selectedSchedule.subject.id,
+              homeworkId: homework.id,
+              title: homework.title,
+              value,
+              maxValue: 100,
+            }),
+            silent: true,
+          })
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { message?: string | string[] }
+        const message = Array.isArray(body.message) ? body.message.join(" ") : body.message
+        throw new Error(message || "No se pudo guardar la calificación.")
+      }
+
+      const saved = (await res.json()) as Mark
+      setMarksByCell((c) => ({ ...c, [key]: saved }))
+      setDraft((c) => ({ ...c, [key]: String(saved.value) }))
+    } catch (err) {
+      toast.error("No se pudo guardar", {
+        description: err instanceof Error ? err.message : "Intenta de nuevo.",
+      })
+      if (existing) setDraft((c) => ({ ...c, [key]: String(existing.value) }))
+    } finally {
+      setSavingCell((c) => ({ ...c, [key]: false }))
+    }
+  }
+
+  const totalWeight = useMemo(() => homeworkList.reduce((sum, h) => sum + h.weight, 0), [homeworkList])
+
+  function computeFinalGrade(studentId: string) {
+    let total = 0
+    let gradedCount = 0
+    for (const homework of homeworkList) {
+      const mark = marksByCell[cellKey(studentId, homework.id)]
+      if (mark) {
+        total += (mark.value / mark.maxValue) * homework.weight
+        gradedCount++
+      }
+    }
+    return { total, gradedCount }
   }
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      {/* Header */}
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-            Calificaciones
-          </h1>
-          <p className="mt-1 text-muted-foreground">
-            Registra y gestiona las calificaciones de tus estudiantes
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" className="gap-2">
-            <Download className="h-4 w-4" />
-            Exportar
-          </Button>
-          <Button className="gap-2">
-            <Save className="h-4 w-4" />
-            Guardar Cambios
-          </Button>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Calificaciones</h1>
+        <p className="mt-1 text-muted-foreground">
+          Cada columna es una tarea, ponderada según el % que definiste al crearla.
+        </p>
       </div>
 
-      {/* Filters */}
-      <Card className="mb-6">
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-4 sm:flex-row">
-            {/* Class Selector */}
-            <div className="relative">
-              <select
-                value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
-                className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-10 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
-              >
-                {classes.map((cls) => (
-                  <option key={cls.id} value={cls.id}>
-                    {cls.name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            </div>
+      {setupError && (
+        <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{setupError}</p>
+        </div>
+      )}
 
-            {/* Search */}
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar estudiante..."
-                className="pl-10"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {!loadingSetup && !setupError && schedules.length === 0 && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <BookOpen className="h-10 w-10 text-muted-foreground" />
+            <p className="mt-3 text-base font-semibold text-foreground">Aún no tienes clases asignadas</p>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Grades Table - Desktop */}
-      <Card className="hidden lg:block">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-secondary/50">
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">
-                    Estudiante
-                  </th>
-                  {evaluations.map((evaluation) => (
-                    <th
-                      key={evaluation.id}
-                      className="px-4 py-4 text-center text-sm font-semibold text-foreground"
-                    >
-                      <div>{evaluation.name}</div>
-                      <div className="text-xs font-normal text-muted-foreground">
-                        {evaluation.weight}%
-                      </div>
-                    </th>
-                  ))}
-                  <th className="px-6 py-4 text-center text-sm font-semibold text-foreground">
-                    Promedio
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredStudents.map((student) => (
-                  <tr
-                    key={student.id}
-                    className="border-b border-border last:border-0 hover:bg-secondary/30"
-                  >
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                          {student.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .slice(0, 2)
-                            .join("")}
-                        </div>
-                        <span className="font-medium text-foreground">{student.name}</span>
-                      </div>
-                    </td>
-                    {evaluations.map((evaluation) => (
-                      <td key={evaluation.id} className="px-4 py-4 text-center">
-                        <Input
-                          type="number"
-                          min="0"
-                          max="100"
-                          defaultValue={student.grades[evaluation.id as keyof typeof student.grades]}
-                          className={`w-16 text-center ${getGradeColor(
-                            student.grades[evaluation.id as keyof typeof student.grades]
-                          )}`}
-                        />
-                      </td>
+      {!loadingSetup && schedules.length > 0 && (
+        <>
+          <Card className="mb-6">
+            <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <Label>Clase</Label>
+                <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId}>
+                  <SelectTrigger className="mt-2 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {schedules.map((schedule) => (
+                      <SelectItem key={schedule.id} value={schedule.id}>
+                        {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} ·{" "}
+                        {schedule.group.name} · {schedule.subject.name}
+                      </SelectItem>
                     ))}
-                    <td className="px-6 py-4 text-center">
-                      <span
-                        className={`text-lg font-bold ${getGradeColor(student.average)}`}
-                      >
-                        {student.average.toFixed(1)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Grades Cards - Mobile & Tablet */}
-      <div className="grid gap-4 lg:hidden">
-        {filteredStudents.map((student) => (
-          <Card key={student.id}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-                    {student.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .slice(0, 2)
-                      .join("")}
-                  </div>
-                  <span className="font-medium text-foreground">{student.name}</span>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Promedio</p>
-                  <p className={`text-xl font-bold ${getGradeColor(student.average)}`}>
-                    {student.average.toFixed(1)}
-                  </p>
-                </div>
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {evaluations.map((evaluation) => (
-                  <div key={evaluation.id}>
-                    <label className="text-xs text-muted-foreground">
-                      {evaluation.name}
-                    </label>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      defaultValue={student.grades[evaluation.id as keyof typeof student.grades]}
-                      className={`mt-1 text-center ${getGradeColor(
-                        student.grades[evaluation.id as keyof typeof student.grades]
-                      )}`}
-                    />
-                  </div>
-                ))}
-              </div>
+              <Button variant="outline" size="sm" className="gap-2" asChild>
+                <Link href="/profesor/asignaciones">
+                  <FileText className="h-4 w-4" />
+                  Gestionar asignaciones
+                </Link>
+              </Button>
             </CardContent>
           </Card>
-        ))}
-      </div>
 
-      {/* Legend */}
-      <Card className="mt-6">
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-6">
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-success" />
-              <span className="text-sm text-muted-foreground">Excelente (90-100)</span>
+          {gridError && (
+            <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>{gridError}</p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-foreground" />
-              <span className="text-sm text-muted-foreground">Aprobado (70-89)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-destructive" />
-              <span className="text-sm text-muted-foreground">Reprobado (&lt;70)</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          )}
+
+          <Card>
+            <CardHeader className="border-b border-border">
+              <CardTitle>
+                {selectedSchedule ? `${selectedSchedule.group.name} · ${selectedSchedule.subject.name}` : "Notas"}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {homeworkList.length} tarea{homeworkList.length === 1 ? "" : "s"} · peso total {totalWeight}%
+                {totalWeight !== 100 && homeworkList.length > 0 && (
+                  <span className="ml-1 text-amber-600">(debería sumar 100%)</span>
+                )}
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              {loadingGrid ? (
+                <div className="space-y-3 p-6">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} className="h-10 animate-pulse rounded-lg bg-secondary" />
+                  ))}
+                </div>
+              ) : homeworkList.length === 0 ? (
+                <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                  <FileText className="h-10 w-10 text-muted-foreground" />
+                  <h2 className="mt-3 text-base font-semibold text-foreground">Aún no hay asignaciones para esta clase</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Crea asignaciones primero para poder calificar por columna.
+                  </p>
+                  <Button className="mt-4 gap-2" asChild>
+                    <Link href="/profesor/asignaciones">
+                      <FileText className="h-4 w-4" />
+                      Ir a Asignaciones
+                    </Link>
+                  </Button>
+                </div>
+              ) : roster.length === 0 ? (
+                <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                  <p className="text-sm text-muted-foreground">Este grupo no tiene estudiantes activos.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="sticky left-0 bg-background px-4 py-3 text-left font-medium text-muted-foreground">
+                          Estudiante
+                        </th>
+                        {homeworkList.map((homework) => (
+                          <th key={homework.id} className="min-w-[140px] px-3 py-3 text-center font-medium text-muted-foreground">
+                            <p className="truncate" title={homework.title}>
+                              {homework.title}
+                            </p>
+                            <Badge variant="outline" className="mt-1 font-normal">
+                              {homework.weight}%
+                            </Badge>
+                          </th>
+                        ))}
+                        <th className="min-w-[120px] px-4 py-3 text-center font-medium text-muted-foreground">
+                          Nota final
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {roster.map((student) => {
+                        const { total, gradedCount } = computeFinalGrade(student.id)
+                        return (
+                          <tr key={student.id} className="border-b border-border">
+                            <td className="sticky left-0 bg-background px-4 py-2">
+                              <p className="font-medium text-foreground">
+                                {student.firstName} {student.lastName}
+                              </p>
+                              {student.documentId && (
+                                <p className="text-xs text-muted-foreground">{student.documentId}</p>
+                              )}
+                            </td>
+                            {homeworkList.map((homework) => {
+                              const key = cellKey(student.id, homework.id)
+                              return (
+                                <td key={homework.id} className="px-3 py-2 text-center">
+                                  <div className="relative mx-auto w-20">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      value={draft[key] ?? ""}
+                                      onChange={(event) => setCellDraft(student.id, homework.id, event.target.value)}
+                                      onBlur={() => saveCell(student.id, homework)}
+                                      placeholder="—"
+                                      className="h-8 text-center"
+                                      disabled={savingCell[key]}
+                                    />
+                                    {savingCell[key] && (
+                                      <Loader2 className="absolute -right-5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+                                    )}
+                                  </div>
+                                </td>
+                              )
+                            })}
+                            <td className="px-4 py-2 text-center">
+                              {gradedCount > 0 ? (
+                                <Badge variant={gradedCount === homeworkList.length ? "default" : "outline"}>
+                                  {total.toFixed(1)}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
+  )
+}
+
+export default function CalificacionesProfesorPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl p-4 sm:p-6 lg:p-8">
+          <div className="h-64 animate-pulse rounded-lg bg-secondary" />
+        </div>
+      }
+    >
+      <CalificacionesProfesorPageContent />
+    </Suspense>
   )
 }

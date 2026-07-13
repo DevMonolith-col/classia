@@ -140,7 +140,7 @@ export default function AdminHorariosPage() {
 
       <Card className="mb-6">
         <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
-          <div className="flex-1 space-y-2">
+          <div className="w-full space-y-2 sm:w-72">
             <label className="text-sm font-medium text-foreground">Profesor</label>
             <TeacherCombobox
               teachers={teachers}

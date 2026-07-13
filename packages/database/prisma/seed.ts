@@ -218,6 +218,18 @@ async function main() {
     },
   });
 
+  // Usuario estudiante demo (para iniciar sesión en el portal de alumno)
+  const studentUser = await prisma.user.upsert({
+    where: { email: "maria@demo.classia.co" },
+    update: { firstName: "María", lastName: "García López", status: UserStatus.ACTIVE, passwordHash },
+    create: { email: "maria@demo.classia.co", passwordHash, firstName: "María", lastName: "García López", status: UserStatus.ACTIVE },
+  });
+  await prisma.tenantMembership.upsert({
+    where: { tenantId_userId: { tenantId: tenant.id, userId: studentUser.id } },
+    update: { role: UserRole.STUDENT },
+    create: { tenantId: tenant.id, userId: studentUser.id, role: UserRole.STUDENT },
+  });
+
   const [studentMaria, studentDiego] = await Promise.all([
     prisma.student.upsert({
       where: {
@@ -231,6 +243,7 @@ async function main() {
         lastName: "García López",
         groupId: group5A.id,
         isActive: true,
+        userId: studentUser.id,
       },
       create: {
         tenantId: tenant.id,
@@ -240,6 +253,7 @@ async function main() {
         birthDate: new Date("2014-03-10T00:00:00.000Z"),
         groupId: group5A.id,
         isActive: true,
+        userId: studentUser.id,
       },
     }),
     prisma.student.upsert({

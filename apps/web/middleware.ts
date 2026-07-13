@@ -11,10 +11,10 @@ const ROLE_SECTION: Record<string, string> = {
   SECRETARY: "/admin",
   TEACHER: "/profesor",
   GUARDIAN: "/familia",
-  STUDENT: "/familia",
+  STUDENT: "/alumno",
 }
 
-const PROTECTED_SECTIONS = ["/superadmin", "/admin", "/profesor", "/familia"]
+const PROTECTED_SECTIONS = ["/superadmin", "/admin", "/profesor", "/familia", "/alumno"]
 
 function decodeJwtPayload(token: string): { role: string; exp: number } | null {
   try {

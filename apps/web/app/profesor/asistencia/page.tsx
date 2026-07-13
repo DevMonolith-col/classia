@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
   CalendarClock,
@@ -44,14 +45,17 @@ function today() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
 }
 
-export default function AsistenciaProfesorPage() {
+function AsistenciaProfesorPageContent() {
+  const searchParams = useSearchParams()
+  const scheduleIdParam = searchParams.get("scheduleId")
+
   const [teacherId, setTeacherId] = useState<string | null>(null)
   const [schedules, setSchedules] = useState<TeacherSchedule[]>([])
   const [history, setHistory] = useState<AttendanceSession[]>([])
   const [loadingSetup, setLoadingSetup] = useState(true)
   const [setupError, setSetupError] = useState("")
 
-  const [selectedScheduleId, setSelectedScheduleId] = useState("")
+  const [selectedScheduleId, setSelectedScheduleId] = useState(scheduleIdParam ?? "")
   const [selectedDate, setSelectedDate] = useState(today())
   const [session, setSession] = useState<AttendanceSession | null>(null)
   const [draft, setDraft] = useState<Record<string, DraftRecord>>({})
@@ -84,7 +88,7 @@ export default function AsistenciaProfesorPage() {
       const historyData = historyRes.ok ? ((await historyRes.json()) as AttendanceSession[]) : []
       setSchedules(schedulesData)
       setHistory(historyData)
-      if (schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
+      if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
     } catch (err) {
       setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
     } finally {
@@ -483,5 +487,19 @@ export default function AsistenciaProfesorPage() {
         </>
       )}
     </div>
+  )
+}
+
+export default function AsistenciaProfesorPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl p-4 sm:p-6 lg:p-8">
+          <div className="h-64 animate-pulse rounded-lg bg-secondary" />
+        </div>
+      }
+    >
+      <AsistenciaProfesorPageContent />
+    </Suspense>
   )
 }

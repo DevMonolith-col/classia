@@ -28,7 +28,7 @@ const ROLE_ROUTES: Record<string, string> = {
   SECRETARY: "/admin",
   TEACHER: "/profesor",
   GUARDIAN: "/familia",
-  STUDENT: "/familia",
+  STUDENT: "/alumno",
 }
 
 export function getRoleRoute(role: string): string {

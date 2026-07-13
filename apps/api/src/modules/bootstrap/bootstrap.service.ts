@@ -181,6 +181,30 @@ export class BootstrapService {
       };
     }
 
+    if (user.role === UserRole.STUDENT) {
+      const student = await this.prisma.student.findFirst({
+        where: {
+          tenantId: user.tenantId,
+          userId: user.id,
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          documentId: true,
+          groupId: true,
+          group: {
+            select: { id: true, name: true, grade: true, section: true },
+          },
+        },
+      });
+
+      return {
+        kind: "student",
+        student,
+      };
+    }
+
     return {
       kind: "basic",
     };
