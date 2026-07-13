@@ -11,6 +11,19 @@ export function setupApp(app: INestApplication) {
   const webUrl = config.get<string>("app.webUrl", "http://localhost:3000");
   const explicitOrigins = config.get<string[]>("app.corsOrigins") ?? [webUrl];
 
+  // 1. Confiar en proxies inversos (Coolify/Cloudflare) para resolver la IP real del cliente
+  const expressApp = app.getHttpAdapter().getInstance();
+  if (typeof expressApp.set === "function") {
+    expressApp.set("trust proxy", true);
+  }
+
+  // 2. Regex para validar subdominios dinámicos del SaaS (ej. app.colegio.classia.com.co)
+  const domain = config.get<string>("app.domain", "classia.com.co");
+  const escapedDomain = domain.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const tenantOriginRegex = new RegExp(
+    `^https?:\\/\\/([a-zA-Z0-9-]+\\.)*${escapedDomain}(:\\d+)?$`,
+  );
+
   app.use(helmet());
   app.enableCors({
     origin(
@@ -19,6 +32,7 @@ export function setupApp(app: INestApplication) {
     ) {
       if (!origin) return callback(null, true);
 
+      // Permitir IPs privadas / localhost en desarrollo
       if (
         nodeEnv === "development" &&
         PRIVATE_ORIGIN.test(origin)
@@ -26,6 +40,12 @@ export function setupApp(app: INestApplication) {
         return callback(null, true);
       }
 
+      // Permitir dinámicamente cualquier subdominio del dominio principal
+      if (tenantOriginRegex.test(origin)) {
+        return callback(null, true);
+      }
+
+      // Permitir dominios explícitos configurados (dominios propios de colegios)
       if (explicitOrigins.includes(origin)) {
         return callback(null, true);
       }
@@ -34,5 +54,6 @@ export function setupApp(app: INestApplication) {
     },
     credentials: true,
   });
+
   app.useGlobalFilters(new HttpExceptionFilter(config));
 }

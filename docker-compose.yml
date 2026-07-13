@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: classia
       POSTGRES_DB: classia_saas
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - classia_postgres_data:/var/lib/postgresql/data
 

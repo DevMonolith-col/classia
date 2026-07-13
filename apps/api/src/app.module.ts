@@ -9,13 +9,16 @@ import { PrismaModule } from "./core/prisma/prisma.module";
 import { QueueModule } from "./core/queue/queue.module";
 import { RedisModule } from "./core/redis/redis.module";
 import { TenantContextModule } from "./core/tenant-context/tenant-context.module";
+import { AttendanceModule } from "./modules/attendance/attendance.module";
 import { AuditModule } from "./modules/audit/audit.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BootstrapModule } from "./modules/bootstrap/bootstrap.module";
 import { GroupsModule } from "./modules/groups/groups.module";
 import { GuardiansModule } from "./modules/guardians/guardians.module";
 import { HealthModule } from "./modules/health/health.module";
+import { SchedulesModule } from "./modules/schedules/schedules.module";
 import { StudentsModule } from "./modules/students/students.module";
+import { SubjectsModule } from "./modules/subjects/subjects.module";
 import { TeachersModule } from "./modules/teachers/teachers.module";
 import { TenantsModule } from "./modules/tenants/tenants.module";
 import { UsersModule } from "./modules/users/users.module";
@@ -42,6 +45,9 @@ import { UsersModule } from "./modules/users/users.module";
     StudentsModule,
     TeachersModule,
     GuardiansModule,
+    SubjectsModule,
+    SchedulesModule,
+    AttendanceModule,
     AuditModule,
   ],
 })
