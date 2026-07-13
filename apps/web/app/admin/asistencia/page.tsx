@@ -1,584 +1,235 @@
 "use client"
 
-import { useState } from "react"
-import {
-  ChevronLeft,
-  ChevronRight,
-  Check,
-  X,
-  Clock,
-  Search,
-  Download,
-  Filter,
-  Users,
-  GraduationCap,
-  TrendingUp,
-  TrendingDown,
-  ChevronDown,
-} from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { AlertTriangle, CalendarClock, Eye, Lock, LockOpen, RefreshCw } from "lucide-react"
+import { apiFetch } from "@/lib/api-client"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { AttendanceSessionDialog } from "@/components/admin/attendance-session-dialog"
+import { TeacherCombobox } from "@/components/admin/teacher-combobox"
+import { ATTENDANCE_STATUS_LABELS, type AttendanceSession, type AttendanceStatus } from "@/components/admin/attendance-types"
+import type { Teacher } from "@/components/admin/academic-types"
 
-type AttendanceStatus = "presente" | "ausente" | "tardanza" | "justificado" | null
+type StatusFilter = "all" | "open" | "closed"
 
-interface Student {
-  id: string
-  name: string
-  avatar: string
-  attendance: Record<string, AttendanceStatus>
+function countByStatus(session: AttendanceSession) {
+  const counts: Record<AttendanceStatus, number> = {
+    PRESENT: 0,
+    ABSENT: 0,
+    LATE: 0,
+    JUSTIFIED: 0,
+    PERMISSION: 0,
+  }
+  for (const record of session.records) counts[record.status]++
+  return counts
 }
 
-interface Course {
-  id: string
-  name: string
-  grade: string
-  teacher: string
-  students: Student[]
-  schedule: string
-}
+export default function AdminAsistenciaPage() {
+  const [sessions, setSessions] = useState<AttendanceSession[]>([])
+  const [teachers, setTeachers] = useState<Teacher[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [activeSession, setActiveSession] = useState<AttendanceSession | null>(null)
 
-const mockCourses: Course[] = [
-  {
-    id: "1",
-    name: "Matemáticas",
-    grade: "5to A",
-    teacher: "Prof. Juan López",
-    schedule: "Lun, Mié, Vie - 8:00",
-    students: [
-      { id: "1", name: "Ana García López", avatar: "AG", attendance: { "2024-02-12": "presente", "2024-02-13": "presente", "2024-02-14": "tardanza", "2024-02-15": null, "2024-02-16": null } },
-      { id: "2", name: "Carlos Martínez Ruiz", avatar: "CM", attendance: { "2024-02-12": "presente", "2024-02-13": "ausente", "2024-02-14": "presente", "2024-02-15": null, "2024-02-16": null } },
-      { id: "3", name: "Diana Pérez Sánchez", avatar: "DP", attendance: { "2024-02-12": "presente", "2024-02-13": "presente", "2024-02-14": "presente", "2024-02-15": null, "2024-02-16": null } },
-      { id: "4", name: "Eduardo Rodríguez", avatar: "ER", attendance: { "2024-02-12": "tardanza", "2024-02-13": "presente", "2024-02-14": "presente", "2024-02-15": null, "2024-02-16": null } },
-      { id: "5", name: "Fernanda López Vega", avatar: "FL", attendance: { "2024-02-12": "presente", "2024-02-13": "justificado", "2024-02-14": "presente", "2024-02-15": null, "2024-02-16": null } },
-    ],
-  },
-  {
-    id: "2",
-    name: "Lenguaje",
-    grade: "5to A",
-    teacher: "Prof. María Sánchez",
-    schedule: "Mar, Jue - 9:00",
-    students: [
-      { id: "1", name: "Ana García López", avatar: "AG", attendance: { "2024-02-12": "presente", "2024-02-13": "presente", "2024-02-14": "presente", "2024-02-15": null, "2024-02-16": null } },
-      { id: "2", name: "Carlos Martínez Ruiz", avatar: "CM", attendance: { "2024-02-12": "ausente", "2024-02-13": "presente", "2024-02-14": "presente", "2024-02-15": null, "2024-02-16": null } },
-      { id: "3", name: "Diana Pérez Sánchez", avatar: "DP", attendance: { "2024-02-12": "presente", "2024-02-13": "tardanza", "2024-02-14": "presente", "2024-02-15": null, "2024-02-16": null } },
-    ],
-  },
-  {
-    id: "3",
-    name: "Ciencias",
-    grade: "6to B",
-    teacher: "Prof. Roberto Díaz",
-    schedule: "Lun, Mié - 10:00",
-    students: [
-      { id: "6", name: "Gabriel Hernández", avatar: "GH", attendance: { "2024-02-12": "presente", "2024-02-13": "presente", "2024-02-14": "ausente", "2024-02-15": null, "2024-02-16": null } },
-      { id: "7", name: "Helena Torres Mora", avatar: "HT", attendance: { "2024-02-12": "presente", "2024-02-13": "presente", "2024-02-14": "presente", "2024-02-15": null, "2024-02-16": null } },
-      { id: "8", name: "Iván Ramírez Castro", avatar: "IR", attendance: { "2024-02-12": "ausente", "2024-02-13": "justificado", "2024-02-14": "presente", "2024-02-15": null, "2024-02-16": null } },
-    ],
-  },
-  {
-    id: "4",
-    name: "Historia",
-    grade: "4to A",
-    teacher: "Prof. Carmen Ruiz",
-    schedule: "Mar, Jue, Vie - 11:00",
-    students: [
-      { id: "9", name: "Julia Méndez", avatar: "JM", attendance: { "2024-02-12": "presente", "2024-02-13": "presente", "2024-02-14": "presente", "2024-02-15": null, "2024-02-16": null } },
-      { id: "10", name: "Kevin Ortiz", avatar: "KO", attendance: { "2024-02-12": "tardanza", "2024-02-13": "presente", "2024-02-14": "tardanza", "2024-02-15": null, "2024-02-16": null } },
-    ],
-  },
-]
+  const loadAll = useCallback(async () => {
+    setLoading(true)
+    setError("")
+    try {
+      const [sessionsRes, teachersRes] = await Promise.all([
+        apiFetch("/attendance/sessions", { silent: true }),
+        apiFetch("/teachers", { silent: true }),
+      ])
 
-const grades = ["Todos", "4to A", "5to A", "6to B"]
-const weekDays = ["Lun", "Mar", "Mié", "Jue", "Vie"]
-const months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+      if (!sessionsRes.ok) {
+        throw new Error(sessionsRes.status === 403 ? "No tienes permiso para ver la asistencia." : "No se pudo cargar la asistencia.")
+      }
 
-export default function AsistenciaAdminPage() {
-  const [courses, setCourses] = useState(mockCourses)
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null)
-  const [selectedGrade, setSelectedGrade] = useState("Todos")
-  const [currentWeekStart, setCurrentWeekStart] = useState(new Date(2024, 1, 12))
-  const [searchQuery, setSearchQuery] = useState("")
-  const [isEditing, setIsEditing] = useState(false)
-  const [showCourseDropdown, setShowCourseDropdown] = useState(false)
-
-  const filteredCourses = courses.filter((course) => {
-    const matchesGrade = selectedGrade === "Todos" || course.grade === selectedGrade
-    const matchesSearch = course.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      course.teacher.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      course.grade.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesGrade && matchesSearch
-  })
-
-  const getWeekDates = () => {
-    const dates: Date[] = []
-    const start = new Date(currentWeekStart)
-    for (let i = 0; i < 5; i++) {
-      const d = new Date(start)
-      d.setDate(start.getDate() + i)
-      dates.push(d)
+      setSessions(((await sessionsRes.json()) as AttendanceSession[]) ?? [])
+      setTeachers(teachersRes.ok ? (((await teachersRes.json()) as Teacher[]) ?? []) : [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
+      setSessions([])
+    } finally {
+      setLoading(false)
     }
-    return dates
+  }, [])
+
+  useEffect(() => {
+    loadAll()
+  }, [loadAll])
+
+  const filteredSessions = useMemo(() => {
+    let list = sessions
+    if (selectedTeacherId) list = list.filter((s) => s.teacher.id === selectedTeacherId)
+    if (statusFilter === "open") list = list.filter((s) => s.isOpen)
+    if (statusFilter === "closed") list = list.filter((s) => !s.isOpen)
+    return [...list].sort((a, b) => (a.date < b.date ? 1 : -1))
+  }, [sessions, selectedTeacherId, statusFilter])
+
+  function openSessionDialog(session: AttendanceSession) {
+    setActiveSession(session)
+    setDialogOpen(true)
   }
 
-  const formatDate = (date: Date) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+  function handleUpdated(updated: AttendanceSession) {
+    setSessions((current) => current.map((s) => (s.id === updated.id ? updated : s)))
+    setActiveSession(updated)
   }
-
-  const weekDates = getWeekDates()
-
-  const navigateWeek = (direction: "prev" | "next") => {
-    const newDate = new Date(currentWeekStart)
-    newDate.setDate(currentWeekStart.getDate() + (direction === "next" ? 7 : -7))
-    setCurrentWeekStart(newDate)
-  }
-
-  const updateAttendance = (courseId: string, studentId: string, date: string, status: AttendanceStatus) => {
-    setCourses((prev) =>
-      prev.map((course) =>
-        course.id === courseId
-          ? {
-              ...course,
-              students: course.students.map((s) =>
-                s.id === studentId
-                  ? { ...s, attendance: { ...s.attendance, [date]: status } }
-                  : s
-              ),
-            }
-          : course
-      )
-    )
-    if (selectedCourse && selectedCourse.id === courseId) {
-      setSelectedCourse((prev) =>
-        prev
-          ? {
-              ...prev,
-              students: prev.students.map((s) =>
-                s.id === studentId
-                  ? { ...s, attendance: { ...s.attendance, [date]: status } }
-                  : s
-              ),
-            }
-          : null
-      )
-    }
-  }
-
-  const getStatusColor = (status: AttendanceStatus) => {
-    switch (status) {
-      case "presente":
-        return "bg-green-500 text-white"
-      case "ausente":
-        return "bg-red-500 text-white"
-      case "tardanza":
-        return "bg-yellow-500 text-white"
-      case "justificado":
-        return "bg-blue-500 text-white"
-      default:
-        return "bg-muted text-muted-foreground"
-    }
-  }
-
-  const getStatusIcon = (status: AttendanceStatus) => {
-    switch (status) {
-      case "presente":
-        return <Check className="h-4 w-4" />
-      case "ausente":
-        return <X className="h-4 w-4" />
-      case "tardanza":
-        return <Clock className="h-4 w-4" />
-      case "justificado":
-        return <span className="text-xs font-bold">J</span>
-      default:
-        return <span className="text-xs">-</span>
-    }
-  }
-
-  const getCourseStats = (course: Course) => {
-    const today = formatDate(weekDates[0])
-    const total = course.students.length
-    const presentes = course.students.filter((s) => s.attendance[today] === "presente").length
-    const ausentes = course.students.filter((s) => s.attendance[today] === "ausente").length
-    const tardanzas = course.students.filter((s) => s.attendance[today] === "tardanza").length
-    return { total, presentes, ausentes, tardanzas, porcentaje: total > 0 ? Math.round((presentes / total) * 100) : 0 }
-  }
-
-  const getGlobalStats = () => {
-    const today = formatDate(weekDates[0])
-    let totalStudents = 0
-    let totalPresentes = 0
-    let totalAusentes = 0
-    let totalTardanzas = 0
-
-    courses.forEach((course) => {
-      course.students.forEach((student) => {
-        totalStudents++
-        if (student.attendance[today] === "presente") totalPresentes++
-        if (student.attendance[today] === "ausente") totalAusentes++
-        if (student.attendance[today] === "tardanza") totalTardanzas++
-      })
-    })
-
-    return {
-      total: totalStudents,
-      presentes: totalPresentes,
-      ausentes: totalAusentes,
-      tardanzas: totalTardanzas,
-      porcentaje: totalStudents > 0 ? Math.round((totalPresentes / totalStudents) * 100) : 0,
-    }
-  }
-
-  const globalStats = getGlobalStats()
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="lg:pl-64">
-        <div className="px-4 py-6 lg:px-8">
-          {/* Header */}
-          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground lg:text-3xl">Control de Asistencia</h1>
-              <p className="mt-1 text-muted-foreground">
-                Gestiona la asistencia de todos los cursos
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Asistencia</h1>
+          <p className="mt-1 text-muted-foreground">Consulta y audita la asistencia registrada por los profesores.</p>
+        </div>
+        <Button variant="outline" size="sm" className="gap-2" onClick={loadAll} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          Actualizar
+        </Button>
+      </div>
+
+      {error && (
+        <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
+
+      <Card className="mb-6">
+        <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
+          <div className="flex-1 space-y-2">
+            <Label>Profesor</Label>
+            <TeacherCombobox teachers={teachers} value={selectedTeacherId} onChange={setSelectedTeacherId} allowAll />
+          </div>
+          <div className="w-full space-y-2 sm:w-48">
+            <Label>Estado</Label>
+            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                <SelectItem value="open">Abiertas</SelectItem>
+                <SelectItem value="closed">Cerradas</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="border-b border-border">
+          <CardTitle>Sesiones de asistencia</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            {loading ? "Cargando..." : `${filteredSessions.length} sesión${filteredSessions.length === 1 ? "" : "es"}`}
+          </p>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="space-y-3 p-6">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-12 animate-pulse rounded-lg bg-secondary" />
+              ))}
+            </div>
+          ) : filteredSessions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+              <CalendarClock className="h-10 w-10 text-muted-foreground" />
+              <h2 className="mt-3 text-base font-semibold text-foreground">No hay sesiones de asistencia</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {sessions.length === 0
+                  ? "Los profesores aún no han tomado asistencia."
+                  : "Ajusta los filtros para ver otras sesiones."}
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" className="gap-2">
-                <Download className="h-4 w-4" />
-                Exportar Reporte
-              </Button>
-            </div>
-          </div>
-
-          {/* Global Stats */}
-          <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <Card>
-              <CardContent className="p-4 text-center">
-                <p className="text-3xl font-bold text-foreground">{courses.length}</p>
-                <p className="text-xs text-muted-foreground">Cursos Activos</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <p className="text-3xl font-bold text-foreground">{globalStats.total}</p>
-                <p className="text-xs text-muted-foreground">Total Estudiantes</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <p className="text-3xl font-bold text-green-600">{globalStats.presentes}</p>
-                <p className="text-xs text-muted-foreground">Presentes Hoy</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <p className="text-3xl font-bold text-red-600">{globalStats.ausentes}</p>
-                <p className="text-xs text-muted-foreground">Ausentes Hoy</p>
-              </CardContent>
-            </Card>
-            <Card className="col-span-2 lg:col-span-1">
-              <CardContent className="p-4 text-center">
-                <div className="flex items-center justify-center gap-1">
-                  <p className="text-3xl font-bold text-primary">{globalStats.porcentaje}%</p>
-                  {globalStats.porcentaje >= 90 ? (
-                    <TrendingUp className="h-5 w-5 text-green-600" />
-                  ) : (
-                    <TrendingDown className="h-5 w-5 text-red-600" />
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">Asistencia General</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Filters */}
-          <Card className="mb-6">
-            <CardContent className="p-4">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex flex-wrap gap-2">
-                  {grades.map((grade) => (
-                    <Button
-                      key={grade}
-                      variant={selectedGrade === grade ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => {
-                        setSelectedGrade(grade)
-                        setSelectedCourse(null)
-                      }}
-                    >
-                      {grade}
-                    </Button>
-                  ))}
-                </div>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Buscar curso, profesor..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 w-full lg:w-64"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Course List or Selected Course View */}
-          {!selectedCourse ? (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filteredCourses.map((course) => {
-                const stats = getCourseStats(course)
-                return (
-                  <Card
-                    key={course.id}
-                    className="cursor-pointer transition-all hover:ring-2 hover:ring-primary/20"
-                    onClick={() => setSelectedCourse(course)}
-                  >
-                    <CardContent className="p-5">
-                      <div className="mb-4 flex items-start justify-between">
-                        <div>
-                          <h3 className="font-semibold text-foreground">{course.name}</h3>
-                          <p className="text-sm text-muted-foreground">{course.grade}</p>
-                        </div>
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                          <GraduationCap className="h-5 w-5 text-primary" />
-                        </div>
-                      </div>
-                      <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
-                        <Users className="h-4 w-4" />
-                        <span>{course.students.length} estudiantes</span>
-                        <span className="text-border">•</span>
-                        <span>{course.schedule}</span>
-                      </div>
-                      <div className="mb-3 text-xs text-muted-foreground">{course.teacher}</div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-1">
-                          <div className="h-3 w-3 rounded-full bg-green-500" />
-                          <span className="text-sm font-medium">{stats.presentes}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <div className="h-3 w-3 rounded-full bg-red-500" />
-                          <span className="text-sm font-medium">{stats.ausentes}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <div className="h-3 w-3 rounded-full bg-yellow-500" />
-                          <span className="text-sm font-medium">{stats.tardanzas}</span>
-                        </div>
-                        <div className="ml-auto">
-                          <span className={`text-sm font-bold ${stats.porcentaje >= 80 ? "text-green-600" : "text-red-600"}`}>
-                            {stats.porcentaje}%
-                          </span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-            </div>
           ) : (
-            <div>
-              {/* Back button and course info */}
-              <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex items-center gap-4">
-                  <Button variant="ghost" size="icon" onClick={() => setSelectedCourse(null)}>
-                    <ChevronLeft className="h-5 w-5" />
-                  </Button>
-                  <div>
-                    <h2 className="text-xl font-bold text-foreground">
-                      {selectedCourse.name} - {selectedCourse.grade}
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                      {selectedCourse.teacher} • {selectedCourse.schedule}
-                    </p>
-                  </div>
-                </div>
-                <Button onClick={() => setIsEditing(!isEditing)}>
-                  {isEditing ? "Guardar Cambios" : "Editar Asistencia"}
-                </Button>
-              </div>
-
-              {/* Week Navigation */}
-              <Card className="mb-6">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => navigateWeek("prev")}>
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => navigateWeek("next")}>
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                      <span className="font-medium text-foreground">
-                        {weekDates[0].getDate()} - {weekDates[4].getDate()} de {months[currentWeekStart.getMonth()]} {currentWeekStart.getFullYear()}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">
-                        {selectedCourse.students.length} estudiantes
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Attendance Table - Desktop */}
-              <Card className="hidden lg:block">
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-border bg-muted">
-                          <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Estudiante</th>
-                          {weekDates.map((date, index) => {
-                            const isToday = date.getDate() === 12 && date.getMonth() === 1
-                            return (
-                              <th key={index} className={`px-4 py-3 text-center ${isToday ? "bg-primary/10" : ""}`}>
-                                <div className="flex flex-col items-center">
-                                  <span className="text-xs text-muted-foreground">{weekDays[index]}</span>
-                                  <span className={`text-sm font-medium ${isToday ? "text-primary" : "text-foreground"}`}>
-                                    {date.getDate()}
-                                  </span>
-                                </div>
-                              </th>
-                            )
-                          })}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedCourse.students.map((student) => (
-                          <tr key={student.id} className="border-b border-border hover:bg-muted/50">
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-3">
-                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                                  {student.avatar}
-                                </div>
-                                <span className="font-medium text-foreground">{student.name}</span>
-                              </div>
-                            </td>
-                            {weekDates.map((date, index) => {
-                              const dateStr = formatDate(date)
-                              const status = student.attendance[dateStr]
-                              const isToday = date.getDate() === 12 && date.getMonth() === 1
-
-                              return (
-                                <td key={index} className={`px-4 py-3 text-center ${isToday ? "bg-primary/5" : ""}`}>
-                                  {isEditing ? (
-                                    <div className="flex justify-center gap-1">
-                                      {(["presente", "ausente", "tardanza", "justificado"] as NonNullable<AttendanceStatus>[]).map((s) => (
-                                        <button
-                                          key={s}
-                                          onClick={() => updateAttendance(selectedCourse.id, student.id, dateStr, s)}
-                                          className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
-                                            status === s ? getStatusColor(s) : "bg-muted hover:bg-muted-foreground/20"
-                                          }`}
-                                          title={s.charAt(0).toUpperCase() + s.slice(1)}
-                                        >
-                                          {getStatusIcon(s)}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <div className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full ${getStatusColor(status)}`}>
-                                      {getStatusIcon(status)}
-                                    </div>
-                                  )}
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Attendance Cards - Mobile */}
-              <div className="space-y-4 lg:hidden">
-                {selectedCourse.students.map((student) => (
-                  <Card key={student.id}>
-                    <CardContent className="p-4">
-                      <div className="mb-3 flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
-                          {student.avatar}
-                        </div>
-                        <span className="font-medium text-foreground">{student.name}</span>
-                      </div>
-                      <div className="grid grid-cols-5 gap-2">
-                        {weekDates.map((date, index) => {
-                          const dateStr = formatDate(date)
-                          const status = student.attendance[dateStr]
-                          const isToday = date.getDate() === 12 && date.getMonth() === 1
-
-                          return (
-                            <div key={index} className="text-center">
-                              <p className="mb-1 text-xs text-muted-foreground">{weekDays[index]}</p>
-                              <p className={`mb-2 text-sm font-medium ${isToday ? "text-primary" : "text-foreground"}`}>
-                                {date.getDate()}
-                              </p>
-                              {isEditing ? (
-                                <select
-                                  value={status || ""}
-                                  onChange={(e) => updateAttendance(selectedCourse.id, student.id, dateStr, (e.target.value || null) as AttendanceStatus)}
-                                  className="w-full rounded border border-input bg-background p-1 text-xs"
-                                >
-                                  <option value="">-</option>
-                                  <option value="presente">P</option>
-                                  <option value="ausente">A</option>
-                                  <option value="tardanza">T</option>
-                                  <option value="justificado">J</option>
-                                </select>
-                              ) : (
-                                <div className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full ${getStatusColor(status)}`}>
-                                  {getStatusIcon(status)}
-                                </div>
-                              )}
-                            </div>
-                          )
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-6">Fecha</TableHead>
+                  <TableHead>Profesor</TableHead>
+                  <TableHead>Grupo</TableHead>
+                  <TableHead>Materia</TableHead>
+                  <TableHead>Resumen</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="pr-6 text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredSessions.map((session) => {
+                  const counts = countByStatus(session)
+                  return (
+                    <TableRow key={session.id}>
+                      <TableCell className="pl-6 text-sm text-foreground">
+                        {new Date(session.date).toLocaleDateString("es-CO", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                          timeZone: "UTC",
                         })}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-
-              {/* Legend */}
-              <Card className="mt-6">
-                <CardContent className="p-4">
-                  <p className="mb-3 text-sm font-medium text-foreground">Leyenda</p>
-                  <div className="flex flex-wrap gap-4">
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-green-500 text-white">
-                        <Check className="h-3 w-3" />
-                      </div>
-                      <span className="text-sm text-muted-foreground">Presente</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-white">
-                        <X className="h-3 w-3" />
-                      </div>
-                      <span className="text-sm text-muted-foreground">Ausente</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-yellow-500 text-white">
-                        <Clock className="h-3 w-3" />
-                      </div>
-                      <span className="text-sm text-muted-foreground">Tardanza</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-500 text-white">
-                        <span className="text-xs font-bold">J</span>
-                      </div>
-                      <span className="text-sm text-muted-foreground">Justificado</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-foreground">
+                        {session.teacher.user.firstName} {session.teacher.user.lastName}
+                      </TableCell>
+                      <TableCell className="text-sm text-foreground">{session.group.name}</TableCell>
+                      <TableCell className="text-sm text-foreground">{session.schedule?.subject.name ?? "—"}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
+                          {counts.ABSENT > 0 && <span className="text-red-600">{counts.ABSENT} ausente{counts.ABSENT === 1 ? "" : "s"}</span>}
+                          {counts.LATE > 0 && <span>{counts.ABSENT > 0 ? "· " : ""}{counts.LATE} tarde</span>}
+                          {counts.ABSENT === 0 && counts.LATE === 0 && (
+                            <span>{ATTENDANCE_STATUS_LABELS.PRESENT}: {counts.PRESENT}/{session.records.length}</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={session.isOpen ? "outline" : "secondary"} className="gap-1.5">
+                          {session.isOpen ? <LockOpen className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+                          {session.isOpen ? "Abierta" : "Cerrada"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="pr-6 text-right">
+                        <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => openSessionDialog(session)}>
+                          <Eye className="h-3.5 w-3.5" />
+                          Ver
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
           )}
-        </div>
-      </main>
+        </CardContent>
+      </Card>
+
+      <AttendanceSessionDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        session={activeSession}
+        onUpdated={handleUpdated}
+      />
     </div>
   )
 }

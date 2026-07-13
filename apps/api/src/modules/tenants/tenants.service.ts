@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
@@ -41,17 +41,24 @@ export class TenantsService {
   async create(input: CreateTenantInput, user: RequestUser, request: Request) {
     this.assertGlobalAdmin(user);
 
-    const tenant = await this.prisma.tenant.create({
-      data: {
-        name: input.name,
-        slug: input.slug,
-        primaryDomain: input.primaryDomain,
-        status: input.status,
-        logoUrl: input.logoUrl,
-        brandColor: input.brandColor,
-      },
-      select: this.tenantSelect(),
-    });
+    const tenant = await this.prisma.tenant
+      .create({
+        data: {
+          name: input.name,
+          slug: input.slug,
+          primaryDomain: input.primaryDomain,
+          status: input.status,
+          logoUrl: input.logoUrl,
+          brandColor: input.brandColor,
+        },
+        select: this.tenantSelect(),
+      })
+      .catch((error) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          throw new ConflictException("A tenant with this slug already exists.");
+        }
+        throw error;
+      });
 
     await this.audit.record({
       tenantId: tenant.id,
