@@ -63,7 +63,7 @@ export function LandingPricing() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-accent">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Planes
           </h2>
           <p className="mt-2 text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
@@ -86,7 +86,7 @@ export function LandingPricing() {
               } p-8`}
             >
               {plan.highlighted && (
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-accent px-4 py-1 text-xs font-semibold text-accent-foreground">
+                <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-primary px-4 py-1 text-xs font-semibold text-primary-foreground">
                   Más Popular
                 </div>
               )}

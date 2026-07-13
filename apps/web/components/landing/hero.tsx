@@ -27,7 +27,7 @@ export function LandingHero() {
           {/* Headline */}
           <h1 className="max-w-4xl text-balance text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
             La plataforma integral para la{" "}
-            <span className="text-accent">gestión escolar</span> moderna
+            <span className="text-muted-foreground">gestión escolar</span> moderna
           </h1>
 
           {/* Subheadline */}

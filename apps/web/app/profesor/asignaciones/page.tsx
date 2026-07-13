@@ -3,10 +3,9 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { AlertTriangle, BookOpen, CalendarClock, FileText, Paperclip, Pencil, Plus } from "lucide-react"
+import { AlertTriangle, BookOpen, FileText, Plus } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -18,7 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { HOMEWORK_TYPE_COLORS, HOMEWORK_TYPE_LABELS, HOMEWORK_TYPES, type Homework } from "@/components/profesor/homework-types"
+import { AssignmentCard } from "@/components/shared/assignment-card"
+import { HOMEWORK_TYPES, type Homework } from "@/components/profesor/homework-types"
 import { DAY_LABELS, type TeacherSchedule } from "@/components/profesor/marks-types"
 
 const FILTERS = ["ALL", ...HOMEWORK_TYPES] as const
@@ -30,16 +30,6 @@ const FILTER_LABELS: Record<Filter, string> = {
   EXAMEN: "Exámenes",
   QUIZ: "Quices",
   PROYECTO: "Proyectos",
-}
-
-function formatDueDate(iso: string) {
-  return new Date(iso).toLocaleString("es-CO", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
 }
 
 function AsignacionesProfesorPageContent() {
@@ -184,7 +174,7 @@ function AsignacionesProfesorPageContent() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="mb-6">
             <CardHeader className="gap-3 border-b border-border">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle>
@@ -201,101 +191,38 @@ function AsignacionesProfesorPageContent() {
                 </Tabs>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
-              {loadingHomework ? (
-                <div className="space-y-3 p-6">
-                  {Array.from({ length: 3 }).map((_, index) => (
-                    <div key={index} className="h-14 animate-pulse rounded-lg bg-secondary" />
-                  ))}
-                </div>
-              ) : visibleHomework.length === 0 ? (
-                <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-                  <FileText className="h-10 w-10 text-muted-foreground" />
-                  <h2 className="mt-3 text-base font-semibold text-foreground">
-                    {homeworkList.length === 0 ? "Aún no hay asignaciones para esta clase" : "No hay nada en esta categoría"}
-                  </h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {homeworkList.length === 0 ? "Crea la primera con el botón de arriba." : "Prueba con otro filtro."}
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {visibleHomework.map((homework) => {
-                    const totalStudents = homework.group._count?.students ?? 0
-                    const submitted = homework._count?.submissions ?? 0
-                    const graded = homework._count?.marks ?? 0
-                    const submittedPct = totalStudents > 0 ? Math.round((submitted / totalStudents) * 100) : 0
-                    const gradedPct = totalStudents > 0 ? Math.round((graded / totalStudents) * 100) : 0
-                    const isOverdue = homework.status === "ACTIVE" && new Date(homework.dueDate) < new Date()
-
-                    return (
-                      <div key={homework.id} className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-medium text-foreground">{homework.title}</p>
-                            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HOMEWORK_TYPE_COLORS[homework.type]}`}>
-                              {HOMEWORK_TYPE_LABELS[homework.type]}
-                            </span>
-                            <Badge variant="outline">{homework.weight}%</Badge>
-                            {homework.status !== "ACTIVE" && <Badge variant="secondary">{homework.status}</Badge>}
-                          </div>
-                          {homework.description && (
-                            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{homework.description}</p>
-                          )}
-                          <p className={`mt-1 flex items-center gap-1 text-xs ${isOverdue ? "font-medium text-red-600" : "text-muted-foreground"}`}>
-                            <CalendarClock className="h-3.5 w-3.5" />
-                            Entrega: {formatDueDate(homework.dueDate)}
-                          </p>
-                        </div>
-
-                        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center">
-                          <div className="grid w-full grid-cols-2 gap-4 sm:w-56">
-                            <div>
-                              <div className="mb-1 flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">Entregas</span>
-                                <span className="font-medium text-foreground">{submitted}/{totalStudents}</span>
-                              </div>
-                              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-                                <div className="h-full bg-blue-500 transition-all" style={{ width: `${submittedPct}%` }} />
-                              </div>
-                            </div>
-                            <div>
-                              <div className="mb-1 flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">Calificadas</span>
-                                <span className="font-medium text-foreground">{graded}/{totalStudents}</span>
-                              </div>
-                              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-                                <div className="h-full bg-green-500 transition-all" style={{ width: `${gradedPct}%` }} />
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {homework.attachmentKey && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="gap-1.5"
-                                onClick={() => openAttachment(homework.attachmentKey!)}
-                              >
-                                <Paperclip className="h-3.5 w-3.5" />
-                                Ver archivo
-                              </Button>
-                            )}
-                            <Button variant="ghost" size="sm" className="gap-1.5" asChild>
-                              <Link href={`/profesor/asignaciones/${homework.id}`}>
-                                <Pencil className="h-3.5 w-3.5" />
-                                Editar
-                              </Link>
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
           </Card>
+
+          {loadingHomework ? (
+            <div className="space-y-4">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="h-40 animate-pulse rounded-lg bg-secondary" />
+              ))}
+            </div>
+          ) : visibleHomework.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                <FileText className="h-10 w-10 text-muted-foreground" />
+                <h2 className="mt-3 text-base font-semibold text-foreground">
+                  {homeworkList.length === 0 ? "Aún no hay asignaciones para esta clase" : "No hay nada en esta categoría"}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {homeworkList.length === 0 ? "Crea la primera con el botón de arriba." : "Prueba con otro filtro."}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {visibleHomework.map((homework) => (
+                <AssignmentCard
+                  key={homework.id}
+                  homework={homework}
+                  editHref={`/profesor/asignaciones/${homework.id}`}
+                  onAttachmentClick={openAttachment}
+                />
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
