@@ -32,6 +32,7 @@ const navigation = [
   { name: "Calendario",    href: "/admin/calendario",    icon: Calendar },
   { name: "Mensajes",      href: "/admin/mensajes",      icon: MessageSquare },
   { name: "Comunicados",   href: "/admin/comunicados",   icon: Megaphone },
+  { name: "Notificaciones", href: "/admin/notificaciones", icon: Bell },
   { name: "Reportes",      href: "/admin/reportes",      icon: BarChart3 },
   { name: "Plugins",       href: "/admin/plugins",       icon: Puzzle },
   { name: "Configuración", href: "/admin/configuracion", icon: Settings },
