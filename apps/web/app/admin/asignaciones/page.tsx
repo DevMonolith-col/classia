@@ -99,7 +99,7 @@ export default function AdminAsignacionesPage() {
       }
     }
     if (filter !== "ALL") list = list.filter((h) => h.type === filter)
-    return [...list].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+    return [...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [homeworkList, selectedTeacherId, filter, selectedScheduleId, schedules])
 
   const pageCount = Math.max(1, Math.ceil(visibleHomework.length / PAGE_SIZE))

@@ -102,7 +102,7 @@ function AsignacionesProfesorPageContent() {
 
   const visibleHomework = useMemo(() => {
     const filtered = filter === "ALL" ? homeworkList : homeworkList.filter((h) => h.type === filter)
-    return [...filtered].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+    return [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [homeworkList, filter])
 
   const pageCount = Math.max(1, Math.ceil(visibleHomework.length / PAGE_SIZE))
