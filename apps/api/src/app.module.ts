@@ -11,6 +11,7 @@ import { QueueModule } from "./core/queue/queue.module";
 import { RedisModule } from "./core/redis/redis.module";
 import { StorageModule } from "./core/storage/storage.module";
 import { TenantContextModule } from "./core/tenant-context/tenant-context.module";
+import { AnnouncementsModule } from "./modules/announcements/announcements.module";
 import { AttendanceModule } from "./modules/attendance/attendance.module";
 import { AuditModule } from "./modules/audit/audit.module";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -65,6 +66,7 @@ import { UsersModule } from "./modules/users/users.module";
     QuizAttemptsModule,
     FilesModule,
     ConversationsModule,
+    AnnouncementsModule,
     AuditModule,
   ],
 })
