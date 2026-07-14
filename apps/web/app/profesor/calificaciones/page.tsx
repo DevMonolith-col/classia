@@ -37,6 +37,7 @@ function CalificacionesProfesorPageContent() {
   const [setupError, setSetupError] = useState("")
 
   const [selectedScheduleId, setSelectedScheduleId] = useState(scheduleIdParam ?? "")
+  const [periodFilter, setPeriodFilter] = useState<string>("all")
   const [homeworkList, setHomeworkList] = useState<Homework[]>([])
   const [roster, setRoster] = useState<Student[]>([])
   const [marksByCell, setMarksByCell] = useState<Record<string, Mark>>({})
@@ -124,6 +125,15 @@ function CalificacionesProfesorPageContent() {
   useEffect(() => {
     if (selectedSchedule) loadGrid(selectedSchedule)
   }, [selectedSchedule, loadGrid])
+
+  const filteredHomeworkList = useMemo(() => {
+    if (periodFilter === "all") return homeworkList
+    return homeworkList.filter(h => {
+      const anyMark = Object.values(marksByCell).find(m => m.homework?.id === h.id || m.homeworkId === h.id)
+      if (anyMark) return String(anyMark.period) === periodFilter
+      return false
+    })
+  }, [homeworkList, periodFilter, marksByCell])
 
   function setCellDraft(studentId: string, homeworkId: string, value: string) {
     setDraft((current) => ({ ...current, [cellKey(studentId, homeworkId)]: value }))
@@ -261,28 +271,46 @@ function CalificacionesProfesorPageContent() {
         <>
           <Card className="mb-6">
             <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
-              <div className="flex-1">
+              <div className="w-full space-y-2 sm:w-96">
                 <Label>Clase</Label>
-                <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId}>
-                  <SelectTrigger className="mt-2 w-full">
-                    <SelectValue />
+                <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId} disabled={loadingSetup}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={loadingSetup ? "Cargando..." : "Selecciona una clase"} />
                   </SelectTrigger>
                   <SelectContent>
                     {schedules.map((schedule) => (
                       <SelectItem key={schedule.id} value={schedule.id}>
-                        {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} ·{" "}
-                        {schedule.group.name} · {schedule.subject.name}
+                        {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} · {schedule.group.name} ·{" "}
+                        {schedule.subject.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <Button variant="outline" size="sm" className="gap-2" asChild>
-                <Link href="/profesor/asignaciones">
-                  <FileText className="h-4 w-4" />
-                  Gestionar asignaciones
-                </Link>
-              </Button>
+              <div className="w-full space-y-2 sm:w-48">
+                <Label>Periodo / Nota Final</Label>
+                <Select value={periodFilter} onValueChange={setPeriodFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Nota Final (Todos)</SelectItem>
+                    {[1, 2, 3, 4].map((p) => (
+                      <SelectItem key={p} value={String(p)}>
+                        Periodo {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full sm:w-auto ml-auto">
+                <Button variant="outline" asChild className="w-full">
+                  <Link href={`/profesor/asignaciones${selectedScheduleId ? `?scheduleId=${selectedScheduleId}` : ""}`}>
+                    <FileText className="mr-2 h-4 w-4" />
+                    Gestionar asignaciones
+                  </Link>
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -299,9 +327,10 @@ function CalificacionesProfesorPageContent() {
                 {selectedSchedule ? `${selectedSchedule.group.name} · ${selectedSchedule.subject.name}` : "Notas"}
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                {homeworkList.length} tarea{homeworkList.length === 1 ? "" : "s"} · peso total {totalWeight}%
-                {totalWeight !== 100 && homeworkList.length > 0 && (
-                  <span className="ml-1 text-amber-600">(debería sumar 100%)</span>
+                {filteredHomeworkList.length} tarea{filteredHomeworkList.length !== 1 && "s"} · peso total{" "}
+                {filteredHomeworkList.reduce((acc, h) => acc + h.weight, 0)}%{" "}
+                {filteredHomeworkList.reduce((acc, h) => acc + h.weight, 0) !== 100 && (
+                  <span className="text-amber-600">(debería sumar 100%)</span>
                 )}
               </p>
             </CardHeader>
@@ -312,7 +341,7 @@ function CalificacionesProfesorPageContent() {
                     <div key={index} className="h-10 animate-pulse rounded-lg bg-secondary" />
                   ))}
                 </div>
-              ) : homeworkList.length === 0 ? (
+              ) : filteredHomeworkList.length === 0 ? (
                 <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
                   <FileText className="h-10 w-10 text-muted-foreground" />
                   <h2 className="mt-3 text-base font-semibold text-foreground">Aún no hay asignaciones para esta clase</h2>
@@ -320,7 +349,7 @@ function CalificacionesProfesorPageContent() {
                     Crea asignaciones primero para poder calificar por columna.
                   </p>
                   <Button className="mt-4 gap-2" asChild>
-                    <Link href="/profesor/asignaciones">
+                    <Link href={`/profesor/asignaciones${selectedScheduleId ? `?scheduleId=${selectedScheduleId}` : ""}`}>
                       <FileText className="h-4 w-4" />
                       Ir a Asignaciones
                     </Link>
@@ -335,10 +364,10 @@ function CalificacionesProfesorPageContent() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="sticky left-0 bg-background px-4 py-3 text-left font-medium text-muted-foreground">
+                        <th className="sticky left-0 bg-background px-4 py-3 text-left font-medium text-muted-foreground z-10 border-r border-border min-w-[200px]">
                           Estudiante
                         </th>
-                        {homeworkList.map((homework) => (
+                        {filteredHomeworkList.map((homework) => (
                           <th key={homework.id} className="min-w-[140px] px-3 py-3 text-center font-medium text-muted-foreground">
                             <p className="truncate" title={homework.title}>
                               {homework.title}
@@ -358,15 +387,13 @@ function CalificacionesProfesorPageContent() {
                         const { total, gradedCount } = computeFinalGrade(student.id)
                         return (
                           <tr key={student.id} className="border-b border-border">
-                            <td className="sticky left-0 bg-background px-4 py-2">
+                            <td className="sticky left-0 bg-background px-4 py-4 border-r border-border min-w-[200px]">
                               <p className="font-medium text-foreground">
                                 {student.firstName} {student.lastName}
                               </p>
-                              {student.documentId && (
-                                <p className="text-xs text-muted-foreground">{student.documentId}</p>
-                              )}
+                              <p className="text-xs text-muted-foreground mt-0.5">{student.documentId}</p>
                             </td>
-                            {homeworkList.map((homework) => {
+                            {filteredHomeworkList.map((homework) => {
                               const key = cellKey(student.id, homework.id)
                               const existingMark = marksByCell[key]
                               return (
