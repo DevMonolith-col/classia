@@ -11,6 +11,7 @@ const DEMO_PASSWORD = "ClassiaDemo2026!";
 const TENANT_ADMIN_EMAIL = "tenant-admin.e2e@classia.test";
 const TEACHER_EMAIL = "teacher.e2e@classia.test";
 const GUARDIAN_EMAIL = "guardian.e2e@classia.test";
+const CLASSMATE_GUARDIAN_EMAIL = "classmate-guardian.e2e@classia.test";
 const OTHER_TEACHER_EMAIL = "other-teacher.e2e@classia.test";
 
 type ApiResponse<T> = {
@@ -87,9 +88,13 @@ type GuardianScopingFixtures = {
   otherGroupSessionId: string;
   childTeacherUserId: string;
   otherTeacherUserId: string;
+  sharedGroupId: string;
+  otherGroupId: string;
 };
 
 type ContactItem = { id: string; role: string };
+type BroadcastTargetItem = { groupId: string; groupName: string; recipientCount: number };
+type BroadcastResult = { recipientCount: number; conversationIds: string[] };
 type ConversationItem = {
   id: string;
   type: string;
@@ -432,7 +437,8 @@ describe("Backend v1 e2e", () => {
     });
     const teacherConv = teacherList.body.find((c) => c.id === conversationId);
     expect(teacherConv).toBeDefined();
-    expect(teacherConv?.unreadCount).toBe(1);
+    // >= 1 en vez de exactamente 1: la BD de dev es compartida y puede acumular mensajes.
+    expect(teacherConv?.unreadCount).toBeGreaterThanOrEqual(1);
     expect(teacherConv?.messages.some((m) => m.body === "Buenos días profe, ¿cómo va mi hijo?")).toBe(
       true,
     );
@@ -465,6 +471,75 @@ describe("Backend v1 e2e", () => {
     const persisted = await prisma.conversationMessage.findUnique({ where: { id: messageId } });
     expect(persisted).not.toBeNull();
     expect(persisted?.deletedAt).not.toBeNull();
+  });
+
+  it("lets a teacher broadcast to a group, fanning out to private per-family threads", async () => {
+    const broadcastBody = "Reunión de padres este viernes a las 5:00 p. m.";
+
+    const teacher = await loginAs(TEACHER_EMAIL);
+    expect(teacher.status).toBe(201);
+
+    // El profesor ve su grupo como destino de difusión, con 2 acudientes.
+    const targets = await api<BroadcastTargetItem[]>("/conversations/broadcast/targets", {
+      headers: authHeaders(teacher.body.accessToken),
+    });
+    expect(targets.status).toBe(200);
+    const sharedTarget = targets.body.find((t) => t.groupId === guardianFixtures.sharedGroupId);
+    expect(sharedTarget).toBeDefined();
+    expect(sharedTarget?.recipientCount).toBe(2);
+
+    // No puede difundir a un grupo que no enseña.
+    const forbiddenGroup = await api<ErrorResponse>("/conversations/broadcast", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+      body: JSON.stringify({ groupId: guardianFixtures.otherGroupId, body: broadcastBody }),
+    });
+    expect(forbiddenGroup.status).toBe(403);
+    expect(forbiddenGroup.body.message).toBe("Solo puedes difundir a los grupos que enseñas.");
+
+    // Difunde a su grupo: llega a los 2 acudientes en hilos separados.
+    const broadcast = await api<BroadcastResult>("/conversations/broadcast", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+      body: JSON.stringify({ groupId: guardianFixtures.sharedGroupId, body: broadcastBody }),
+    });
+    expect(broadcast.status).toBe(201);
+    expect(broadcast.body.recipientCount).toBe(2);
+    expect(broadcast.body.conversationIds).toHaveLength(2);
+    expect(new Set(broadcast.body.conversationIds).size).toBe(2);
+
+    // Cada acudiente recibe el mensaje en SU propio hilo con el profesor.
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+    const guardianList = await api<ConversationItem[]>("/conversations", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    const guardianConv = guardianList.body.find((c) =>
+      c.messages.some((m) => m.body === broadcastBody),
+    );
+    expect(guardianConv).toBeDefined();
+    expect(guardianConv?.unreadCount).toBeGreaterThanOrEqual(1);
+
+    const classmateGuardian = await loginAs(CLASSMATE_GUARDIAN_EMAIL);
+    const classmateList = await api<ConversationItem[]>("/conversations", {
+      headers: authHeaders(classmateGuardian.body.accessToken),
+    });
+    const classmateConv = classmateList.body.find((c) =>
+      c.messages.some((m) => m.body === broadcastBody),
+    );
+    expect(classmateConv).toBeDefined();
+
+    // Privacidad: son hilos distintos, cada acudiente ve solo el suyo.
+    expect(guardianConv?.id).not.toBe(classmateConv?.id);
+    expect(classmateList.body.some((c) => c.id === guardianConv?.id)).toBe(false);
+
+    // Un acudiente no puede difundir (sin permiso MESSAGING_BROADCAST).
+    const guardianBroadcast = await api<ErrorResponse>("/conversations/broadcast", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(guardian.body.accessToken)),
+      body: JSON.stringify({ groupId: guardianFixtures.sharedGroupId, body: "no permitido" }),
+    });
+    expect(guardianBroadcast.status).toBe(403);
+    expect(guardianBroadcast.body.message).toBe("Insufficient permissions.");
   });
 
   async function loginAs(email: string): Promise<ApiResponse<LoginResponse>> {
@@ -683,6 +758,31 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
     create: { studentId: ownChild.id, guardianId: guardian.id, relationship: "parent", isPrimary: true },
   });
 
+  // Un segundo acudiente, del compañero de curso, para probar el fan-out de la difusión.
+  const classmateGuardianUser = await ensureUserWithMembership(prisma, {
+    tenantId: tenant.id,
+    email: CLASSMATE_GUARDIAN_EMAIL,
+    firstName: "Acudiente",
+    lastName: "Companero E2E",
+    passwordHash,
+    role: UserRole.GUARDIAN,
+  });
+  const classmateGuardian = await prisma.guardian.upsert({
+    where: { userId: classmateGuardianUser.id },
+    update: { tenantId: tenant.id },
+    create: { userId: classmateGuardianUser.id, tenantId: tenant.id },
+  });
+  await prisma.studentGuardian.upsert({
+    where: { studentId_guardianId: { studentId: classmate.id, guardianId: classmateGuardian.id } },
+    update: {},
+    create: {
+      studentId: classmate.id,
+      guardianId: classmateGuardian.id,
+      relationship: "parent",
+      isPrimary: true,
+    },
+  });
+
   let ownChildHomework = await prisma.homework.findFirst({
     where: { tenantId: tenant.id, groupId: sharedGroup.id, title: "Tarea Guardian E2E Propia" },
   });
@@ -832,6 +932,8 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
     otherGroupSessionId: otherGroupSession.id,
     childTeacherUserId: teacherUser.id,
     otherTeacherUserId: otherTeacherUser.id,
+    sharedGroupId: sharedGroup.id,
+    otherGroupId: otherGroup.id,
   };
 }
 
