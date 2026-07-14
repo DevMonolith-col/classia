@@ -137,7 +137,7 @@ export default function AdminAsignacionesPage() {
             <div className="w-full sm:w-64">
               <TeacherCombobox teachers={teachers} value={selectedTeacherId} onChange={setSelectedTeacherId} allowAll />
             </div>
-            {selectedTeacherId && schedules.length > 0 && (
+            {selectedTeacherId && schedules.length > 0 ? (
               <div className="w-full sm:min-w-[250px] sm:max-w-sm">
                 <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId}>
                   <SelectTrigger className="w-full">
@@ -152,6 +152,14 @@ export default function AdminAsignacionesPage() {
                       </SelectItem>
                     ))}
                   </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="w-full sm:min-w-[250px] sm:max-w-sm">
+                <Select disabled>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Primero selecciona un profesor" />
+                  </SelectTrigger>
                 </Select>
               </div>
             )}
