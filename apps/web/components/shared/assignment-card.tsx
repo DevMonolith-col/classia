@@ -94,7 +94,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
             </div>
           </div>
 
-          <div className="border-t border-border bg-muted/40 p-4 sm:p-6 lg:w-72 lg:border-l lg:border-t-0">
+          <div className="border-t border-border bg-muted p-4 sm:p-6 lg:w-72 lg:border-l lg:border-t-0">
             <div className="space-y-4">
               <div>
                 <div className="mb-2 flex items-center justify-between text-sm">

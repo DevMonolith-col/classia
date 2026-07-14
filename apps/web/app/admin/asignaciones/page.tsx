@@ -140,8 +140,6 @@ export default function AdminAsignacionesPage() {
                     key={homework.id}
                     homework={homework}
                     onAttachmentClick={openAttachment}
-                    showTeacher
-                    showGroup
                   />
                 ))}
               </div>
