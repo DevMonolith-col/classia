@@ -6,7 +6,7 @@ import { useState, useEffect } from "react"
 import {
   Home, BookOpen, ClipboardList, Calendar,
   MessageSquare, FileText, Bell, Settings,
-  LogOut, Menu, X,
+  LogOut, Menu, X, Megaphone,
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 
@@ -22,6 +22,7 @@ const navigation = [
   { name: "Horario",         href: "/familia/horario",       icon: Calendar },
   { name: "Asistencia",      href: "/familia/asistencia",    icon: BookOpen },
   { name: "Mensajes",        href: "/familia/mensajes",      icon: MessageSquare },
+  { name: "Comunicados",     href: "/familia/comunicados",   icon: Megaphone },
   { name: "Notificaciones",  href: "/familia/notificaciones",icon: Bell },
   { name: "Ajustes",         href: "/familia/ajustes",       icon: Settings },
 ]
