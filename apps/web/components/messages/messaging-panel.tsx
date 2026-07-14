@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api-client"
 import { getCurrentUser } from "@/lib/auth"
 import {
   ChatInterface,
+  type BroadcastTarget,
   type Contact,
   type Conversation,
   type Message,
@@ -43,6 +44,14 @@ type ApiContact = {
   firstName: string
   lastName: string
   role: string
+}
+
+type ApiBroadcastTarget = {
+  groupId: string
+  groupName: string
+  grade: string
+  section: string
+  recipientCount: number
 }
 
 function roleLabel(role: string | null | undefined): string {
@@ -124,17 +133,22 @@ interface MessagingPanelProps {
 export function MessagingPanel({ userRole }: MessagingPanelProps) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
+  const [broadcastTargets, setBroadcastTargets] = useState<BroadcastTarget[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
 
   const currentUserId = getCurrentUser()?.sub ?? ""
+  const canBroadcast = userRole === "profesor" || userRole === "admin"
 
   const loadData = useCallback(async () => {
     try {
-      const [conversationsRes, contactsRes] = await Promise.all([
+      const [conversationsRes, contactsRes, targetsRes] = await Promise.all([
         apiFetch("/conversations"),
         apiFetch("/conversations/contacts", { silent: true }),
+        canBroadcast
+          ? apiFetch("/conversations/broadcast/targets", { silent: true })
+          : Promise.resolve(null),
       ])
 
       if (!conversationsRes.ok) {
@@ -150,13 +164,18 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
         setContacts(contactsData.map(mapContact))
       }
 
+      if (targetsRes && targetsRes.ok) {
+        const targetsData = (await targetsRes.json()) as ApiBroadcastTarget[]
+        setBroadcastTargets(targetsData)
+      }
+
       setError(false)
     } catch {
       setError(true)
     } finally {
       setLoading(false)
     }
-  }, [currentUserId])
+  }, [currentUserId, canBroadcast])
 
   useEffect(() => {
     void loadData()
@@ -193,6 +212,24 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
     [loadData],
   )
 
+  const handleBroadcast = useCallback(
+    async (groupId: string, body: string) => {
+      const res = await apiFetch("/conversations/broadcast", {
+        method: "POST",
+        body: JSON.stringify({ groupId, body }),
+      })
+      if (!res.ok) return
+      const result = (await res.json()) as { recipientCount: number }
+      await loadData()
+      toast.success(
+        result.recipientCount === 1
+          ? "Mensaje enviado a 1 familia"
+          : `Mensaje enviado a ${result.recipientCount} familias`,
+      )
+    },
+    [loadData],
+  )
+
   return (
     <div className="min-h-screen bg-background">
       <main className="lg:pl-64">
@@ -223,9 +260,12 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
               currentUserId={currentUserId}
               userRole={userRole}
               activeConversationId={activeConversationId}
+              canBroadcast={canBroadcast}
+              broadcastTargets={broadcastTargets}
               onSendMessage={handleSendMessage}
               onOpenConversation={handleOpenConversation}
               onStartConversation={handleStartConversation}
+              onBroadcast={handleBroadcast}
             />
           )}
         </div>

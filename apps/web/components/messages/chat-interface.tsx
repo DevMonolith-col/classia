@@ -51,15 +51,26 @@ export interface Contact {
   role?: string
 }
 
+export interface BroadcastTarget {
+  groupId: string
+  groupName: string
+  grade?: string
+  section?: string
+  recipientCount: number
+}
+
 interface ChatInterfaceProps {
   conversations: Conversation[]
   currentUserId: string
   userRole: "admin" | "profesor" | "familia"
   contacts?: Contact[]
   activeConversationId?: string | null
+  canBroadcast?: boolean
+  broadcastTargets?: BroadcastTarget[]
   onSendMessage?: (conversationId: string, message: string) => void
   onOpenConversation?: (conversationId: string) => void
   onStartConversation?: (contactId: string) => void
+  onBroadcast?: (groupId: string, body: string) => Promise<void> | void
 }
 
 export function ChatInterface({
@@ -68,9 +79,12 @@ export function ChatInterface({
   userRole,
   contacts = [],
   activeConversationId,
+  canBroadcast = false,
+  broadcastTargets = [],
   onSendMessage,
   onOpenConversation,
   onStartConversation,
+  onBroadcast,
 }: ChatInterfaceProps) {
   const [conversations, setConversations] = useState(initialConversations)
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
@@ -79,6 +93,10 @@ export function ChatInterface({
   const [showMobileChat, setShowMobileChat] = useState(false)
   const [showNewConversation, setShowNewConversation] = useState(false)
   const [contactQuery, setContactQuery] = useState("")
+  const [newMode, setNewMode] = useState<"persona" | "grupo">("persona")
+  const [selectedTarget, setSelectedTarget] = useState<BroadcastTarget | null>(null)
+  const [broadcastBody, setBroadcastBody] = useState("")
+  const [broadcasting, setBroadcasting] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Sincroniza con datos recargados desde el backend, preservando la selección actual.
@@ -198,6 +216,25 @@ export function ChatInterface({
     onStartConversation?.(contactId)
   }
 
+  const closeNewConversation = () => {
+    setShowNewConversation(false)
+    setNewMode("persona")
+    setSelectedTarget(null)
+    setBroadcastBody("")
+    setContactQuery("")
+  }
+
+  const sendBroadcast = async () => {
+    if (!selectedTarget || !broadcastBody.trim() || broadcasting) return
+    setBroadcasting(true)
+    try {
+      await onBroadcast?.(selectedTarget.groupId, broadcastBody.trim())
+      closeNewConversation()
+    } finally {
+      setBroadcasting(false)
+    }
+  }
+
   const MessageStatus = ({ status }: { status: Message["status"] }) => {
     if (status === "read") {
       return <CheckCheck className="h-4 w-4 text-blue-500" />
@@ -227,7 +264,9 @@ export function ChatInterface({
               size="icon"
               className="h-9 w-9 rounded-full"
               aria-label={showNewConversation ? "Cerrar" : "Nueva conversación"}
-              onClick={() => setShowNewConversation((prev) => !prev)}
+              onClick={() =>
+                showNewConversation ? closeNewConversation() : setShowNewConversation(true)
+              }
             >
               <Plus
                 className={cn("h-5 w-5 transition-transform", showNewConversation && "rotate-45")}
@@ -238,46 +277,145 @@ export function ChatInterface({
 
         {showNewConversation ? (
           <>
-            {/* New Conversation - Contact Picker */}
-            <div className="p-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar contacto"
-                  value={contactQuery}
-                  onChange={(e) => setContactQuery(e.target.value)}
-                  className="h-9 rounded-lg bg-secondary/50 pl-9 text-sm focus-visible:ring-1"
+            {canBroadcast && (
+              <div className="flex gap-1 px-3 pt-3">
+                <button
+                  onClick={() => {
+                    setNewMode("persona")
+                    setSelectedTarget(null)
+                  }}
+                  className={cn(
+                    "flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                    newMode === "persona"
+                      ? "bg-blue-500 text-white"
+                      : "bg-secondary/50 text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Persona
+                </button>
+                <button
+                  onClick={() => setNewMode("grupo")}
+                  className={cn(
+                    "flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                    newMode === "grupo"
+                      ? "bg-blue-500 text-white"
+                      : "bg-secondary/50 text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Grupo
+                </button>
+              </div>
+            )}
+
+            {newMode === "persona" ? (
+              <>
+                {/* Contact Picker (1:1) */}
+                <div className="p-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar contacto"
+                      value={contactQuery}
+                      onChange={(e) => setContactQuery(e.target.value)}
+                      className="h-9 rounded-lg bg-secondary/50 pl-9 text-sm focus-visible:ring-1"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  {filteredContacts.length === 0 ? (
+                    <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No hay contactos disponibles para iniciar una conversación.
+                    </p>
+                  ) : (
+                    filteredContacts.map((contact) => (
+                      <button
+                        key={contact.id}
+                        onClick={() => startConversation(contact.id)}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50"
+                      >
+                        <Avatar className="h-10 w-10">
+                          <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-sm font-medium">
+                            {contact.initials}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold text-foreground">{contact.name}</span>
+                          {contact.role && (
+                            <span className="block text-xs text-muted-foreground">{contact.role}</span>
+                          )}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </>
+            ) : selectedTarget ? (
+              <div className="flex flex-1 flex-col p-3">
+                <button
+                  onClick={() => setSelectedTarget(null)}
+                  className="mb-2 flex items-center gap-1 text-sm text-blue-500"
+                >
+                  <ArrowLeft className="h-4 w-4" /> {selectedTarget.groupName}
+                </button>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Se enviará como mensaje privado a {selectedTarget.recipientCount}{" "}
+                  {selectedTarget.recipientCount === 1 ? "familia" : "familias"}. Cada acudiente
+                  responde solo contigo, no ve a las demás.
+                </p>
+                <textarea
+                  value={broadcastBody}
+                  onChange={(e) => setBroadcastBody(e.target.value)}
+                  placeholder="Escribe el mensaje para las familias…"
+                  className="min-h-[120px] flex-1 resize-none rounded-lg border border-border bg-secondary/30 p-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
                   autoFocus
                 />
+                <Button
+                  className="mt-3 w-full rounded-lg bg-blue-500 hover:bg-blue-600"
+                  disabled={
+                    !broadcastBody.trim() || broadcasting || selectedTarget.recipientCount === 0
+                  }
+                  onClick={sendBroadcast}
+                >
+                  {broadcasting
+                    ? "Enviando…"
+                    : `Enviar a ${selectedTarget.recipientCount} ${
+                        selectedTarget.recipientCount === 1 ? "familia" : "familias"
+                      }`}
+                </Button>
               </div>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {filteredContacts.length === 0 ? (
-                <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  No hay contactos disponibles para iniciar una conversación.
-                </p>
-              ) : (
-                filteredContacts.map((contact) => (
-                  <button
-                    key={contact.id}
-                    onClick={() => startConversation(contact.id)}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50"
-                  >
-                    <Avatar className="h-10 w-10">
-                      <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-sm font-medium">
-                        {contact.initials}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <span className="font-semibold text-foreground">{contact.name}</span>
-                      {contact.role && (
-                        <span className="block text-xs text-muted-foreground">{contact.role}</span>
-                      )}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto">
+                {broadcastTargets.length === 0 ? (
+                  <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    No tienes grupos disponibles para difundir.
+                  </p>
+                ) : (
+                  broadcastTargets.map((target) => (
+                    <button
+                      key={target.groupId}
+                      onClick={() => setSelectedTarget(target)}
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50"
+                    >
+                      <Avatar className="h-10 w-10">
+                        <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-600 text-sm font-medium text-white">
+                          {(target.grade ?? "").slice(0, 1)}
+                          {(target.section ?? "").slice(0, 1)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <span className="font-semibold text-foreground">{target.groupName}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {target.recipientCount}{" "}
+                          {target.recipientCount === 1 ? "familia" : "familias"}
+                        </span>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </>
         ) : (
           <>
