@@ -150,30 +150,26 @@ function AsignacionesProfesorPageContent() {
       {!loadingSetup && schedules.length > 0 && (
         <>
           <Card className="mb-6">
-            <CardContent className="p-4">
-              <Label>Clase</Label>
-              <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId}>
-                <SelectTrigger className="mt-2 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {schedules.map((schedule) => (
-                    <SelectItem key={schedule.id} value={schedule.id}>
-                      {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} ·{" "}
-                      {schedule.group.name} · {schedule.subject.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-
-          <Card className="mb-6">
-            <CardHeader className="gap-3 border-b border-border">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle>
-                  {FILTER_LABELS[filter]} ({visibleHomework.length})
-                </CardTitle>
+            <CardHeader className="flex flex-col gap-4 border-b border-border sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle>
+                {FILTER_LABELS[filter]} ({visibleHomework.length})
+              </CardTitle>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="w-full sm:w-80">
+                  <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Clase" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {schedules.map((schedule) => (
+                        <SelectItem key={schedule.id} value={schedule.id}>
+                          {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} ·{" "}
+                          {schedule.group.name} · {schedule.subject.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
                   <TabsList>
                     {FILTERS.map((f) => (
