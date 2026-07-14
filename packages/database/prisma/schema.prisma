@@ -70,6 +70,7 @@ model Tenant {
   groups        Group[]
   subjects      Subject[]
   announcements Announcement[]
+  events        Event[]
 
   @@map("tenants")
 }
@@ -436,6 +437,20 @@ model Message {
   to   User @relation("ReceivedMessages", fields: [toId], references: [id])
 
   @@map("messages")
+}
+
+model Event {
+  id        String   @id @default(uuid())
+  tenantId  String
+  title     String
+  date      DateTime
+  location  String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, date])
+  @@map("events")
 }
 
 model Announcement {

@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { AlertTriangle, GraduationCap, Pencil, Plus, RefreshCw, Search } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
@@ -22,7 +23,8 @@ function initials(firstName: string, lastName: string) {
   return `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase()
 }
 
-export default function EstudiantesPage() {
+function EstudiantesPageContent() {
+  const searchParams = useSearchParams()
   const [students, setStudents] = useState<Student[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [guardians, setGuardians] = useState<Guardian[]>([])
@@ -78,6 +80,11 @@ export default function EstudiantesPage() {
     setEditingStudent(null)
     setDialogOpen(true)
   }
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") openCreateDialog()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   function openEditDialog(student: Student) {
     setEditingStudent(student)
@@ -225,5 +232,13 @@ export default function EstudiantesPage() {
         onSaved={handleSaved}
       />
     </div>
+  )
+}
+
+export default function EstudiantesPage() {
+  return (
+    <Suspense fallback={<div className="p-4 sm:p-6 lg:p-8"><div className="h-64 animate-pulse rounded-lg bg-secondary" /></div>}>
+      <EstudiantesPageContent />
+    </Suspense>
   )
 }
