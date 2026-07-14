@@ -1,9 +1,14 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, UserRole } from "@prisma/client";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import { AttendanceStatus, Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import {
+  AttendanceAbsenceEvent,
+  NOTIFICATION_EVENTS,
+} from "../notifications/notifications.events";
 import {
   CreateSessionInput,
   ListSessionsQuery,
@@ -16,6 +21,7 @@ export class AttendanceService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async listSessions(actor: RequestUser, query: ListSessionsQuery) {
@@ -250,6 +256,17 @@ export class AttendanceService {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
+
+    for (const record of input.records) {
+      if (record.status === AttendanceStatus.ABSENT) {
+        this.events.emit(NOTIFICATION_EVENTS.ATTENDANCE_ABSENCE, {
+          tenantId: session.tenantId,
+          sessionId,
+          studentId: record.studentId,
+          date: session.date,
+        } satisfies AttendanceAbsenceEvent);
+      }
+    }
 
     return updated;
   }

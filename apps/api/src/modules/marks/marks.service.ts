@@ -1,9 +1,14 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import {
+  MarkPublishedEvent,
+  NOTIFICATION_EVENTS,
+} from "../notifications/notifications.events";
 import {
   BulkCreateMarksInput,
   CreateMarkInput,
@@ -11,12 +16,37 @@ import {
   UpdateMarkInput,
 } from "./marks.schemas";
 
+type PublishableMark = {
+  id: string;
+  tenantId: string;
+  title: string;
+  value: number;
+  maxValue: number;
+  isPublished: boolean;
+  student: { id: string };
+  subject: { name: string };
+};
+
 @Injectable()
 export class MarksService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
   ) {}
+
+  private emitMarkPublished(mark: PublishableMark) {
+    if (!mark.isPublished) return;
+    this.events.emit(NOTIFICATION_EVENTS.MARK_PUBLISHED, {
+      tenantId: mark.tenantId,
+      markId: mark.id,
+      studentId: mark.student.id,
+      subjectName: mark.subject.name,
+      markTitle: mark.title,
+      value: mark.value,
+      maxValue: mark.maxValue,
+    } satisfies MarkPublishedEvent);
+  }
 
   async list(actor: RequestUser, query: ListMarksQuery) {
     const commonFilter = {
@@ -129,6 +159,8 @@ export class MarksService {
       userAgent: request.headers["user-agent"],
     });
 
+    this.emitMarkPublished(mark);
+
     return mark;
   }
 
@@ -172,6 +204,11 @@ export class MarksService {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
+
+    // Notificar solo cuando la nota pasa de no publicada a publicada.
+    if (!previous.isPublished && mark.isPublished) {
+      this.emitMarkPublished(mark);
+    }
 
     return mark;
   }
@@ -245,6 +282,10 @@ export class MarksService {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
+
+    for (const mark of created) {
+      this.emitMarkPublished(mark);
+    }
 
     return created;
   }
