@@ -107,11 +107,11 @@ export default function AlumnoAsignacionesPage() {
             </Tabs>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="pt-4">
           {loading ? (
-            <div className="space-y-3 p-6">
+            <div className="space-y-4">
               {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-14 animate-pulse rounded-lg bg-secondary" />
+                <div key={i} className="h-40 animate-pulse rounded-lg bg-secondary" />
               ))}
             </div>
           ) : visible.length === 0 ? (
@@ -120,7 +120,7 @@ export default function AlumnoAsignacionesPage() {
               <p className="mt-3 text-sm text-muted-foreground">No hay nada por aquí.</p>
             </div>
           ) : (
-            <div className="space-y-4 p-4">
+            <div className="space-y-4">
               {visible.map((homework) => (
                 <AssignmentCard
                   key={homework.id}

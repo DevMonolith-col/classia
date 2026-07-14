@@ -181,38 +181,37 @@ function AsignacionesProfesorPageContent() {
                 </Tabs>
               </div>
             </CardHeader>
+            <CardContent className="pt-4">
+              {loadingHomework ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={index} className="h-40 animate-pulse rounded-lg bg-secondary" />
+                  ))}
+                </div>
+              ) : visibleHomework.length === 0 ? (
+                <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                  <FileText className="h-10 w-10 text-muted-foreground" />
+                  <h2 className="mt-3 text-base font-semibold text-foreground">
+                    {homeworkList.length === 0 ? "Aún no hay asignaciones para esta clase" : "No hay nada en esta categoría"}
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {homeworkList.length === 0 ? "Crea la primera con el botón de arriba." : "Prueba con otro filtro."}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {visibleHomework.map((homework) => (
+                    <AssignmentCard
+                      key={homework.id}
+                      homework={homework}
+                      editHref={`/profesor/asignaciones/${homework.id}`}
+                      onAttachmentClick={openAttachment}
+                    />
+                  ))}
+                </div>
+              )}
+            </CardContent>
           </Card>
-
-          {loadingHomework ? (
-            <div className="space-y-4">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <div key={index} className="h-40 animate-pulse rounded-lg bg-secondary" />
-              ))}
-            </div>
-          ) : visibleHomework.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center px-6 py-16 text-center">
-                <FileText className="h-10 w-10 text-muted-foreground" />
-                <h2 className="mt-3 text-base font-semibold text-foreground">
-                  {homeworkList.length === 0 ? "Aún no hay asignaciones para esta clase" : "No hay nada en esta categoría"}
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {homeworkList.length === 0 ? "Crea la primera con el botón de arriba." : "Prueba con otro filtro."}
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {visibleHomework.map((homework) => (
-                <AssignmentCard
-                  key={homework.id}
-                  homework={homework}
-                  editHref={`/profesor/asignaciones/${homework.id}`}
-                  onAttachmentClick={openAttachment}
-                />
-              ))}
-            </div>
-          )}
         </>
       )}
 
