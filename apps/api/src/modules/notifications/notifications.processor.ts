@@ -1,0 +1,86 @@
+import { Processor, WorkerHost } from "@nestjs/bullmq";
+import { Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { NotificationDeliveryStatus } from "@prisma/client";
+import { Job } from "bullmq";
+import { PrismaService } from "../../core/prisma/prisma.service";
+import { EmailService } from "./email/email.service";
+import { NOTIFICATIONS_QUEUE } from "./notifications.service";
+
+@Processor(NOTIFICATIONS_QUEUE)
+export class NotificationsProcessor extends WorkerHost {
+  private readonly logger = new Logger(NotificationsProcessor.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+    private readonly config: ConfigService,
+  ) {
+    super();
+  }
+
+  async process(job: Job<{ deliveryId: string }>) {
+    const { deliveryId } = job.data;
+
+    const delivery = await this.prisma.notificationDelivery.findUnique({
+      where: { id: deliveryId },
+      select: {
+        id: true,
+        status: true,
+        notification: {
+          select: { userId: true, title: true, body: true, entityType: true, entityId: true },
+        },
+      },
+    });
+    if (!delivery || delivery.status === NotificationDeliveryStatus.SENT) {
+      return;
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: delivery.notification.userId },
+      select: { email: true, firstName: true },
+    });
+    if (!user) {
+      await this.mark(deliveryId, NotificationDeliveryStatus.FAILED, "usuario no encontrado");
+      return;
+    }
+
+    const webUrl = this.config.get<string>("email.webUrl") ?? "http://localhost:3000";
+    const result = await this.email.send({
+      to: user.email,
+      subject: delivery.notification.title,
+      html:
+        `<p>Hola ${user.firstName},</p>` +
+        `<p><strong>${delivery.notification.title}</strong></p>` +
+        `<p>${delivery.notification.body}</p>` +
+        `<p><a href="${webUrl}">Ver en Classia</a></p>`,
+    });
+
+    if (result.status === "sent") {
+      await this.mark(deliveryId, NotificationDeliveryStatus.SENT);
+    } else if (result.status === "skipped") {
+      await this.mark(deliveryId, NotificationDeliveryStatus.SKIPPED, result.error);
+    } else {
+      await this.prisma.notificationDelivery.update({
+        where: { id: deliveryId },
+        data: {
+          status: NotificationDeliveryStatus.FAILED,
+          error: result.error ?? null,
+          attempts: { increment: 1 },
+        },
+      });
+      throw new Error(result.error ?? "email failed"); // que BullMQ reintente
+    }
+  }
+
+  private async mark(id: string, status: NotificationDeliveryStatus, error?: string) {
+    await this.prisma.notificationDelivery.update({
+      where: { id },
+      data: {
+        status,
+        error: error ?? null,
+        sentAt: status === NotificationDeliveryStatus.SENT ? new Date() : null,
+      },
+    });
+  }
+}

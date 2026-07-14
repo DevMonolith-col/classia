@@ -1,7 +1,9 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { EventEmitterModule } from "@nestjs/event-emitter";
 import appConfig from "./config/app.config";
 import databaseConfig from "./config/database.config";
+import emailConfig from "./config/email.config";
 import { envSchema } from "./config/env.schema";
 import redisConfig from "./config/redis.config";
 import storageConfig from "./config/storage.config";
@@ -12,6 +14,7 @@ import { RedisModule } from "./core/redis/redis.module";
 import { StorageModule } from "./core/storage/storage.module";
 import { TenantContextModule } from "./core/tenant-context/tenant-context.module";
 import { AnnouncementsModule } from "./modules/announcements/announcements.module";
+import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { AttendanceModule } from "./modules/attendance/attendance.module";
 import { AuditModule } from "./modules/audit/audit.module";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -39,8 +42,9 @@ import { UsersModule } from "./modules/users/users.module";
       isGlobal: true,
       envFilePath: ["../../.env", "../../.env.example"],
       validate: (config) => envSchema.parse(config),
-      load: [appConfig, databaseConfig, redisConfig, storageConfig],
+      load: [appConfig, databaseConfig, redisConfig, storageConfig, emailConfig],
     }),
+    EventEmitterModule.forRoot(),
     PrismaModule,
     RedisModule,
     QueueModule,
@@ -67,6 +71,7 @@ import { UsersModule } from "./modules/users/users.module";
     FilesModule,
     ConversationsModule,
     AnnouncementsModule,
+    NotificationsModule,
     AuditModule,
   ],
 })

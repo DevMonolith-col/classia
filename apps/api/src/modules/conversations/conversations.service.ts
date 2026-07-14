@@ -1,9 +1,14 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { ConversationType, MembershipStatus, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import {
+  MessageReceivedEvent,
+  NOTIFICATION_EVENTS,
+} from "../notifications/notifications.events";
 import { BroadcastInput, SendMessageInput } from "./conversations.schemas";
 
 const ADMIN_STAFF_ROLES: UserRole[] = [
@@ -25,6 +30,7 @@ export class ConversationsService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // ─── Lectura ────────────────────────────────────────────────────────────────
@@ -158,13 +164,22 @@ export class ConversationsService {
         actor.id,
         recipientId,
       );
-      await this.prisma.conversationMessage.create({
+      const message = await this.prisma.conversationMessage.create({
         data: { conversationId, fromId: actor.id, body: input.body },
+        select: { id: true },
       });
       await this.prisma.conversationMember.update({
         where: { conversationId_userId: { conversationId, userId: actor.id } },
         data: { lastReadAt: now },
       });
+      this.events.emit(NOTIFICATION_EVENTS.MESSAGE_RECEIVED, {
+        tenantId: actor.tenantId,
+        conversationId,
+        messageId: message.id,
+        fromUserId: actor.id,
+        recipientUserIds: [recipientId],
+        preview: input.body.slice(0, 120),
+      } satisfies MessageReceivedEvent);
       conversationIds.push(conversationId);
     }
 
@@ -235,6 +250,21 @@ export class ConversationsService {
       where: { conversationId_userId: { conversationId, userId: actor.id } },
       data: { lastReadAt: new Date() },
     });
+
+    const otherMembers = await this.prisma.conversationMember.findMany({
+      where: { conversationId, userId: { not: actor.id } },
+      select: { userId: true },
+    });
+    if (otherMembers.length > 0) {
+      this.events.emit(NOTIFICATION_EVENTS.MESSAGE_RECEIVED, {
+        tenantId: actor.tenantId,
+        conversationId,
+        messageId: message.id,
+        fromUserId: actor.id,
+        recipientUserIds: otherMembers.map((member) => member.userId),
+        preview: input.body.slice(0, 120),
+      } satisfies MessageReceivedEvent);
+    }
 
     return message;
   }

@@ -1,9 +1,14 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import {
+  HomeworkAssignedEvent,
+  NOTIFICATION_EVENTS,
+} from "../notifications/notifications.events";
 import { CreateHomeworkInput, ListHomeworkQuery, UpdateHomeworkInput } from "./homework.schemas";
 
 @Injectable()
@@ -11,6 +16,7 @@ export class HomeworkService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async list(actor: RequestUser, query: ListHomeworkQuery) {
@@ -119,6 +125,13 @@ export class HomeworkService {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
+
+    this.events.emit(NOTIFICATION_EVENTS.HOMEWORK_ASSIGNED, {
+      tenantId: homework.tenantId,
+      homeworkId: homework.id,
+      groupId: homework.group.id,
+      title: homework.title,
+    } satisfies HomeworkAssignedEvent);
 
     return homework;
   }

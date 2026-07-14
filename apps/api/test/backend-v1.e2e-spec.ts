@@ -103,6 +103,28 @@ type AnnouncementItem = {
   group: { id: string } | null;
   author: { id: string };
 };
+type NotificationItem = {
+  id: string;
+  eventType: string;
+  title: string;
+  body: string;
+  entityType: string | null;
+  entityId: string | null;
+  isRead: boolean;
+};
+
+async function waitFor<T>(
+  fn: () => Promise<T | undefined>,
+  tries = 25,
+  delayMs = 150,
+): Promise<T | undefined> {
+  for (let i = 0; i < tries; i += 1) {
+    const result = await fn();
+    if (result !== undefined) return result;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return undefined;
+}
 type ConversationItem = {
   id: string;
   type: string;
@@ -634,6 +656,93 @@ describe("Backend v1 e2e", () => {
     });
     expect(guardianCreate.status).toBe(403);
     expect(guardianCreate.body.message).toBe("Insufficient permissions.");
+  });
+
+  it("creates in-app notifications from events, gates email by preference, and skips email when provider disabled", async () => {
+    const prisma = app.get(PrismaService);
+    const teacher = await loginAs(TEACHER_EMAIL);
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+
+    // 1) Publicar un comunicado dispara una notificación in-app al acudiente.
+    const ann1 = await api<AnnouncementItem>("/announcements", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+      body: JSON.stringify({
+        title: "Aviso notif 1",
+        body: "Contenido de prueba.",
+        targetRole: "GUARDIAN",
+        groupId: guardianFixtures.sharedGroupId,
+      }),
+    });
+    expect(ann1.status).toBe(201);
+
+    const notif1 = await waitFor(async () => {
+      const list = await api<NotificationItem[]>("/notifications", {
+        headers: authHeaders(guardian.body.accessToken),
+      });
+      return list.body.find((n) => n.entityType === "Announcement" && n.entityId === ann1.body.id);
+    });
+    expect(notif1).toBeDefined();
+    expect(notif1?.eventType).toBe("ANNOUNCEMENT_PUBLISHED");
+    expect(notif1?.title).toBe("Nuevo comunicado");
+
+    // Con el proveedor deshabilitado, la entrega EMAIL se crea y termina SKIPPED.
+    const delivery1 = await waitFor(async () => {
+      const rows = await prisma.notificationDelivery.findMany({
+        where: { notificationId: notif1!.id },
+      });
+      const row = rows.find((r) => r.channel === "EMAIL");
+      return row && row.status !== "PENDING" ? row : undefined;
+    });
+    expect(delivery1?.channel).toBe("EMAIL");
+    expect(delivery1?.status).toBe("SKIPPED");
+
+    // 2) unread-count + mark-read.
+    const unread = await api<{ count: number }>("/notifications/unread-count", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(unread.body.count).toBeGreaterThanOrEqual(1);
+
+    const read = await api<{ status: string }>(`/notifications/${notif1!.id}/read`, {
+      method: "POST",
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(read.status).toBe(201);
+
+    // 3) Apagar el email para ese evento evita crear la entrega EMAIL.
+    const pref = await api<{ status: string }>("/notifications/preferences", {
+      method: "PUT",
+      headers: jsonHeaders(authHeaders(guardian.body.accessToken)),
+      body: JSON.stringify({ eventType: "ANNOUNCEMENT_PUBLISHED", channel: "EMAIL", enabled: false }),
+    });
+    expect(pref.status).toBe(200);
+
+    const ann2 = await api<AnnouncementItem>("/announcements", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+      body: JSON.stringify({
+        title: "Aviso notif 2",
+        body: "Contenido de prueba 2.",
+        targetRole: "GUARDIAN",
+        groupId: guardianFixtures.sharedGroupId,
+      }),
+    });
+    expect(ann2.status).toBe(201);
+
+    const notif2 = await waitFor(async () => {
+      const list = await api<NotificationItem[]>("/notifications", {
+        headers: authHeaders(guardian.body.accessToken),
+      });
+      return list.body.find((n) => n.entityType === "Announcement" && n.entityId === ann2.body.id);
+    });
+    expect(notif2).toBeDefined(); // la notificación in-app sigue llegando
+
+    // Damos tiempo por si se creara una entrega y confirmamos que NO hay EMAIL.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const deliveries2 = await prisma.notificationDelivery.findMany({
+      where: { notificationId: notif2!.id },
+    });
+    expect(deliveries2.filter((d) => d.channel === "EMAIL")).toHaveLength(0);
   });
 
   async function loginAs(email: string): Promise<ApiResponse<LoginResponse>> {

@@ -1,9 +1,14 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import {
+  AnnouncementPublishedEvent,
+  NOTIFICATION_EVENTS,
+} from "../notifications/notifications.events";
 import { CreateAnnouncementInput } from "./announcements.schemas";
 
 const ADMIN_STAFF_ROLES: UserRole[] = [
@@ -18,6 +23,7 @@ export class AnnouncementsService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async listForUser(actor: RequestUser) {
@@ -111,6 +117,15 @@ export class AnnouncementsService {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
+
+    this.events.emit(NOTIFICATION_EVENTS.ANNOUNCEMENT_PUBLISHED, {
+      tenantId: actor.tenantId,
+      announcementId: announcement.id,
+      authorId: actor.id,
+      title: input.title,
+      targetRole: input.targetRole ?? null,
+      groupId: input.groupId ?? null,
+    } satisfies AnnouncementPublishedEvent);
 
     return this.mapAnnouncement(announcement);
   }
