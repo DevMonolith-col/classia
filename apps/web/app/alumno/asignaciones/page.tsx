@@ -90,7 +90,7 @@ export default function AlumnoAsignacionesPage() {
       filtered = filtered.filter((h) => h.subject.id === selectedSubjectId)
     }
     if (filter !== "ALL") filtered = filtered.filter((h) => h.type === filter)
-    return [...filtered].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+    return [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [homeworkList, filter, selectedSubjectId])
 
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
