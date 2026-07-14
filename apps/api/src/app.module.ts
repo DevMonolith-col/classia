@@ -20,6 +20,7 @@ import { GroupsModule } from "./modules/groups/groups.module";
 import { GuardiansModule } from "./modules/guardians/guardians.module";
 import { HealthModule } from "./modules/health/health.module";
 import { HomeworkModule } from "./modules/homework/homework.module";
+import { HomeworkSubmissionsModule } from "./modules/homework-submissions/homework-submissions.module";
 import { MarksModule } from "./modules/marks/marks.module";
 import { QuestionsModule } from "./modules/questions/questions.module";
 import { QuizAttemptsModule } from "./modules/quiz-attempts/quiz-attempts.module";
@@ -58,6 +59,7 @@ import { UsersModule } from "./modules/users/users.module";
     AttendanceModule,
     MarksModule,
     HomeworkModule,
+    HomeworkSubmissionsModule,
     QuestionsModule,
     QuizAttemptsModule,
     FilesModule,

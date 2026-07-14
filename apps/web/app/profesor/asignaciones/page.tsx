@@ -4,7 +4,6 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { AlertTriangle, BookOpen, FileText, Plus } from "lucide-react"
-import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,6 +17,7 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AssignmentCard } from "@/components/shared/assignment-card"
+import { AttachmentPreviewDialog } from "@/components/shared/attachment-preview-dialog"
 import { HOMEWORK_TYPES, type Homework } from "@/components/profesor/homework-types"
 import { DAY_LABELS, type TeacherSchedule } from "@/components/profesor/marks-types"
 
@@ -44,6 +44,7 @@ function AsignacionesProfesorPageContent() {
   const [homeworkList, setHomeworkList] = useState<Homework[]>([])
   const [loadingHomework, setLoadingHomework] = useState(false)
   const [filter, setFilter] = useState<Filter>("ALL")
+  const [preview, setPreview] = useState<{ key: string; name: string } | null>(null)
 
   const loadSetup = useCallback(async () => {
     setLoadingSetup(true)
@@ -101,15 +102,8 @@ function AsignacionesProfesorPageContent() {
     return [...filtered].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
   }, [homeworkList, filter])
 
-  async function openAttachment(key: string) {
-    try {
-      const res = await apiFetch(`/files/url?key=${encodeURIComponent(key)}`, { silent: true })
-      if (!res.ok) throw new Error()
-      const data = (await res.json()) as { url: string }
-      window.open(data.url, "_blank", "noopener,noreferrer")
-    } catch {
-      toast.error("No se pudo abrir el archivo.")
-    }
+  function openAttachment(key: string, name?: string | null) {
+    setPreview({ key, name: name ?? "Archivo" })
   }
 
   return (
@@ -225,6 +219,13 @@ function AsignacionesProfesorPageContent() {
           )}
         </>
       )}
+
+      <AttachmentPreviewDialog
+        open={Boolean(preview)}
+        onOpenChange={(open) => !open && setPreview(null)}
+        fileKey={preview?.key ?? null}
+        fileName={preview?.name}
+      />
     </div>
   )
 }

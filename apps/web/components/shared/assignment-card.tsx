@@ -32,7 +32,7 @@ function formatDueDate(iso: string) {
 interface Props {
   homework: Homework
   editHref?: string
-  onAttachmentClick?: (key: string) => void
+  onAttachmentClick?: (key: string, name?: string | null) => void
   showTeacher?: boolean
   showGroup?: boolean
 }
@@ -68,6 +68,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
                     {HOMEWORK_TYPE_LABELS[homework.type]}
                   </span>
                   <Badge variant="outline">{homework.weight}%</Badge>
+                  {isOverdue && <Badge className="bg-red-100 text-red-700">Atrasado</Badge>}
                   {homework.status !== "ACTIVE" && <Badge variant="secondary">{homework.status}</Badge>}
                 </div>
                 {subtitleParts.length > 0 && (
@@ -121,7 +122,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
                     variant="outline"
                     size="sm"
                     className="flex-1 gap-1.5"
-                    onClick={() => onAttachmentClick(homework.attachmentKey!)}
+                    onClick={() => onAttachmentClick(homework.attachmentKey!, homework.attachmentName)}
                   >
                     <Paperclip className="h-3.5 w-3.5" />
                     Ver archivo

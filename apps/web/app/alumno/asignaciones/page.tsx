@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { AlertTriangle, CalendarClock, FileText, PenSquare, Paperclip } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { AttachmentPreviewDialog } from "@/components/shared/attachment-preview-dialog"
 import {
   HOMEWORK_TYPE_COLORS,
   HOMEWORK_TYPE_LABELS,
@@ -46,6 +46,7 @@ export default function AlumnoAsignacionesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [filter, setFilter] = useState<Filter>("ALL")
+  const [preview, setPreview] = useState<{ key: string; name: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -70,15 +71,8 @@ export default function AlumnoAsignacionesPage() {
     return [...filtered].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
   }, [homeworkList, filter])
 
-  async function openAttachment(key: string) {
-    try {
-      const res = await apiFetch(`/files/url?key=${encodeURIComponent(key)}`, { silent: true })
-      if (!res.ok) throw new Error()
-      const data = (await res.json()) as { url: string }
-      window.open(data.url, "_blank", "noopener,noreferrer")
-    } catch {
-      toast.error("No se pudo abrir el archivo.")
-    }
+  function openAttachment(key: string, name?: string | null) {
+    setPreview({ key, name: name ?? "Archivo" })
   }
 
   return (
@@ -137,6 +131,7 @@ export default function AlumnoAsignacionesPage() {
                           {HOMEWORK_TYPE_LABELS[homework.type]}
                         </span>
                         <Badge variant="outline">{homework.subject.name}</Badge>
+                        {isOverdue && <Badge className="bg-red-100 text-red-700">Atrasado</Badge>}
                       </div>
                       {homework.description && (
                         <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{homework.description}</p>
@@ -152,13 +147,13 @@ export default function AlumnoAsignacionesPage() {
                           variant="outline"
                           size="sm"
                           className="gap-1.5"
-                          onClick={() => openAttachment(homework.attachmentKey!)}
+                          onClick={() => openAttachment(homework.attachmentKey!, homework.attachmentName)}
                         >
                           <Paperclip className="h-3.5 w-3.5" />
                           Ver archivo
                         </Button>
                       )}
-                      {QUIZ_LIKE_TYPES.has(homework.type) && (
+                      {QUIZ_LIKE_TYPES.has(homework.type) ? (
                         <Button
                           size="sm"
                           className="gap-1.5"
@@ -166,6 +161,15 @@ export default function AlumnoAsignacionesPage() {
                         >
                           <PenSquare className="h-3.5 w-3.5" />
                           {homework.type === "EXAMEN" ? "Presentar examen" : "Realizar quiz"}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={() => router.push(`/alumno/tarea/${homework.id}`)}
+                        >
+                          <PenSquare className="h-3.5 w-3.5" />
+                          Entregar
                         </Button>
                       )}
                     </div>
@@ -176,6 +180,13 @@ export default function AlumnoAsignacionesPage() {
           )}
         </CardContent>
       </Card>
+
+      <AttachmentPreviewDialog
+        open={Boolean(preview)}
+        onOpenChange={(open) => !open && setPreview(null)}
+        fileKey={preview?.key ?? null}
+        fileName={preview?.name}
+      />
     </div>
   )
 }

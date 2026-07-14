@@ -19,10 +19,19 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { AttachmentPreviewDialog } from "@/components/shared/attachment-preview-dialog"
 import { FileUploadField, type UploadedFileValue } from "@/components/shared/file-upload-field"
 import { MathText } from "@/components/shared/math-text"
 import { RemoteImage } from "@/components/shared/remote-image"
-import { HOMEWORK_TYPE_LABELS, HOMEWORK_TYPES, type Homework, type HomeworkType } from "./homework-types"
+import {
+  HOMEWORK_TYPE_LABELS,
+  HOMEWORK_TYPES,
+  SUBMISSION_STATUS_COLORS,
+  SUBMISSION_STATUS_LABELS,
+  type Homework,
+  type HomeworkSubmission,
+  type HomeworkType,
+} from "./homework-types"
 import { QUESTION_TYPE_LABELS, QUESTION_TYPES, type Question, type QuestionType } from "./question-types"
 import type { TeacherSchedule } from "./marks-types"
 
@@ -31,7 +40,9 @@ const QUIZ_LIKE_TYPES = new Set<HomeworkType>(["QUIZ", "EXAMEN"])
 type FormState = {
   title: string
   description: string
+  availableFrom: string
   dueDate: string
+  cutOffDate: string
   weight: string
   type: HomeworkType
   allowNavigation: boolean
@@ -66,12 +77,23 @@ export function HomeworkEditor({ mode, schedule, homework }: Props) {
       ? {
           title: homework.title,
           description: homework.description ?? "",
+          availableFrom: homework.availableFrom ? toDatetimeLocalValue(homework.availableFrom) : "",
           dueDate: toDatetimeLocalValue(homework.dueDate),
+          cutOffDate: homework.cutOffDate ? toDatetimeLocalValue(homework.cutOffDate) : "",
           weight: String(homework.weight),
           type: homework.type,
           allowNavigation: homework.allowNavigation,
         }
-      : { title: "", description: "", dueDate: defaultDueDate(), weight: "10", type: "TAREA", allowNavigation: true },
+      : {
+          title: "",
+          description: "",
+          availableFrom: "",
+          dueDate: defaultDueDate(),
+          cutOffDate: "",
+          weight: "10",
+          type: "TAREA",
+          allowNavigation: true,
+        },
   )
   const [attachment, setAttachment] = useState<UploadedFileValue>(
     homework?.attachmentKey ? { key: homework.attachmentKey, name: homework.attachmentName ?? "Archivo" } : null,
@@ -102,11 +124,15 @@ export function HomeworkEditor({ mode, schedule, homework }: Props) {
     setSubmitting(true)
     try {
       const dueDateIso = new Date(form.dueDate).toISOString()
+      const availableFromIso = form.availableFrom ? new Date(form.availableFrom).toISOString() : null
+      const cutOffDateIso = form.cutOffDate ? new Date(form.cutOffDate).toISOString() : null
       const payload = isEdit
         ? {
             title: form.title.trim(),
             description: form.description.trim() || null,
+            availableFrom: availableFromIso,
             dueDate: dueDateIso,
+            cutOffDate: cutOffDateIso,
             weight,
             type: form.type,
             allowNavigation: form.allowNavigation,
@@ -118,7 +144,9 @@ export function HomeworkEditor({ mode, schedule, homework }: Props) {
             subjectId: schedule!.subject.id,
             title: form.title.trim(),
             description: form.description.trim() || undefined,
+            availableFrom: availableFromIso ?? undefined,
             dueDate: dueDateIso,
+            cutOffDate: cutOffDateIso ?? undefined,
             weight,
             type: form.type,
             allowNavigation: form.allowNavigation,
@@ -252,15 +280,38 @@ export function HomeworkEditor({ mode, schedule, homework }: Props) {
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="homework-due">Fecha y hora de entrega</Label>
-            <Input
-              id="homework-due"
-              type="datetime-local"
-              value={form.dueDate}
-              onChange={(event) => setForm((c) => ({ ...c, dueDate: event.target.value }))}
-              required
-            />
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="homework-available-from">Disponible desde (opcional)</Label>
+              <Input
+                id="homework-available-from"
+                type="datetime-local"
+                value={form.availableFrom}
+                onChange={(event) => setForm((c) => ({ ...c, availableFrom: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="homework-due">Fecha y hora de entrega</Label>
+              <Input
+                id="homework-due"
+                type="datetime-local"
+                value={form.dueDate}
+                onChange={(event) => setForm((c) => ({ ...c, dueDate: event.target.value }))}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="homework-cutoff">Cierre de entregas (opcional)</Label>
+              <Input
+                id="homework-cutoff"
+                type="datetime-local"
+                value={form.cutOffDate}
+                onChange={(event) => setForm((c) => ({ ...c, cutOffDate: event.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Tras esta fecha ya no se aceptan entregas. Si se deja vacío, no hay cierre.
+              </p>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -280,9 +331,204 @@ export function HomeworkEditor({ mode, schedule, homework }: Props) {
       </Card>
 
       {isEdit && currentHomeworkId && QUIZ_LIKE_TYPES.has(form.type) && (
-        <QuestionsSection homeworkId={currentHomeworkId} />
+        <>
+          <div className="mt-6 flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/profesor/quiz/${currentHomeworkId}/calificar`)}
+            >
+              Calificar respuestas cortas
+            </Button>
+          </div>
+          <QuestionsSection homeworkId={currentHomeworkId} />
+        </>
+      )}
+
+      {isEdit && currentHomeworkId && !QUIZ_LIKE_TYPES.has(form.type) && (
+        <SubmissionsSection homeworkId={currentHomeworkId} />
       )}
     </div>
+  )
+}
+
+function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
+  const [submissions, setSubmissions] = useState<HomeworkSubmission[]>([])
+  const [loading, setLoading] = useState(false)
+  const [grading, setGrading] = useState<HomeworkSubmission | null>(null)
+  const [value, setValue] = useState("100")
+  const [maxValue, setMaxValue] = useState("100")
+  const [feedbackComment, setFeedbackComment] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [preview, setPreview] = useState<{ key: string; name: string } | null>(null)
+
+  const loadSubmissions = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await apiFetch(`/homework/${homeworkId}/submissions`, { silent: true })
+      if (!res.ok) throw new Error()
+      setSubmissions((await res.json()) as HomeworkSubmission[])
+    } catch {
+      setSubmissions([])
+    } finally {
+      setLoading(false)
+    }
+  }, [homeworkId])
+
+  useEffect(() => {
+    loadSubmissions()
+  }, [loadSubmissions])
+
+  function openAttachment(key: string, name?: string | null) {
+    setPreview({ key, name: name ?? "Archivo" })
+  }
+
+  function openGradeDialog(submission: HomeworkSubmission) {
+    setGrading(submission)
+    setValue("100")
+    setMaxValue("100")
+    setFeedbackComment(submission.feedbackComment ?? "")
+  }
+
+  async function handleGradeSubmit() {
+    if (!grading) return
+    const numericValue = Number(value)
+    const numericMaxValue = Number(maxValue)
+    if (Number.isNaN(numericValue) || Number.isNaN(numericMaxValue) || numericValue > numericMaxValue) {
+      toast.error("La nota debe ser un número válido y no superar el máximo.")
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const res = await apiFetch(`/homework/${homeworkId}/submissions/${grading.id}/grade`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          value: numericValue,
+          maxValue: numericMaxValue,
+          feedbackComment: feedbackComment.trim() || undefined,
+        }),
+        silent: true,
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { message?: string | string[] }
+        const message = Array.isArray(body.message) ? body.message.join(" ") : body.message
+        throw new Error(message || "No se pudo calificar la entrega.")
+      }
+      toast.success("Entrega calificada")
+      setGrading(null)
+      loadSubmissions()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo calificar la entrega.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Card className="mt-6">
+      <CardHeader>
+        <CardTitle>Entregas</CardTitle>
+        <CardDescription>{submissions.length} entrega{submissions.length === 1 ? "" : "s"} recibida{submissions.length === 1 ? "" : "s"}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="h-16 animate-pulse rounded-lg bg-secondary" />
+            ))}
+          </div>
+        ) : submissions.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
+            Aún no hay entregas de los estudiantes.
+          </p>
+        ) : grading ? (
+          <div className="space-y-4">
+            <p className="text-sm font-medium text-foreground">
+              Calificar a {grading.student.firstName} {grading.student.lastName}
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Nota</Label>
+                <Input type="number" min={0} value={value} onChange={(e) => setValue(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Nota máxima</Label>
+                <Input type="number" min={1} value={maxValue} onChange={(e) => setMaxValue(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Comentario (opcional)</Label>
+              <Textarea
+                value={feedbackComment}
+                onChange={(e) => setFeedbackComment(e.target.value)}
+                placeholder="Retroalimentación para el estudiante..."
+                rows={3}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setGrading(null)} disabled={submitting}>
+                Cancelar
+              </Button>
+              <Button type="button" onClick={handleGradeSubmit} disabled={submitting}>
+                {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Guardar calificación
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {submissions.map((submission) => (
+              <div key={submission.id} className="rounded-lg border border-border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">
+                      {submission.student.firstName} {submission.student.lastName}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <Badge className={SUBMISSION_STATUS_COLORS[submission.status]} variant="outline">
+                        {SUBMISSION_STATUS_LABELS[submission.status]}
+                      </Badge>
+                      {submission.submittedAt && (
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(submission.submittedAt).toLocaleString("es-CO", {
+                            day: "2-digit",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    {submission.attachmentKey && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openAttachment(submission.attachmentKey!, submission.attachmentName)}
+                      >
+                        Ver archivo
+                      </Button>
+                    )}
+                    <Button size="sm" onClick={() => openGradeDialog(submission)}>
+                      {submission.status === "GRADED" ? "Editar nota" : "Calificar"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      <AttachmentPreviewDialog
+        open={Boolean(preview)}
+        onOpenChange={(open) => !open && setPreview(null)}
+        fileKey={preview?.key ?? null}
+        fileName={preview?.name}
+      />
+    </Card>
   )
 }
 

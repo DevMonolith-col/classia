@@ -11,12 +11,15 @@ export type Group = {
   name: string
   grade: string
   section: string
+  tenant?: { id: string; name: string; slug: string }
+  _count?: { students?: number; schedules?: number; attendanceSessions?: number; homework?: number }
 }
 
 export type Teacher = {
   id: string
   tenantId: string
   user: { id: string; email: string; firstName: string; lastName: string; status?: string }
+  _count?: { schedules?: number; attendanceSessions?: number; marks?: number; homework?: number }
 }
 
 export type Schedule = {
