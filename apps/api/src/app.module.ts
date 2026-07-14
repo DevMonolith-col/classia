@@ -20,6 +20,7 @@ import { AuditModule } from "./modules/audit/audit.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BootstrapModule } from "./modules/bootstrap/bootstrap.module";
 import { ConversationsModule } from "./modules/conversations/conversations.module";
+import { EventsModule } from "./modules/events/events.module";
 import { FilesModule } from "./modules/files/files.module";
 import { GroupsModule } from "./modules/groups/groups.module";
 import { GuardiansModule } from "./modules/guardians/guardians.module";
@@ -62,6 +63,7 @@ import { UsersModule } from "./modules/users/users.module";
     GuardiansModule,
     SubjectsModule,
     SchedulesModule,
+    EventsModule,
     AttendanceModule,
     MarksModule,
     HomeworkModule,

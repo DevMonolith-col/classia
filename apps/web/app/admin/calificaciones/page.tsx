@@ -1,9 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, ClipboardList, Pencil } from "lucide-react"
+import Link from "next/link"
+import { AlertTriangle, Users } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -22,7 +22,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { MarkEditDialog } from "@/components/admin/mark-edit-dialog"
 import { TeacherCombobox } from "@/components/admin/teacher-combobox"
 import type { Mark } from "@/components/admin/marks-types"
 import type { Teacher } from "@/components/admin/academic-types"
@@ -36,10 +35,8 @@ export default function AdminCalificacionesPage() {
   const [error, setError] = useState("")
 
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null)
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>("ALL")
   const [periodFilter, setPeriodFilter] = useState<string>("all")
-
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [activeMark, setActiveMark] = useState<Mark | null>(null)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -71,18 +68,35 @@ export default function AdminCalificacionesPage() {
   const filteredMarks = useMemo(() => {
     let list = marks
     if (selectedTeacherId) list = list.filter((m) => m.teacher.id === selectedTeacherId)
+    if (selectedSubjectId !== "ALL") list = list.filter((m) => m.subject.id === selectedSubjectId)
     if (periodFilter !== "all") list = list.filter((m) => String(m.period) === periodFilter)
     return [...list].sort((a, b) => (a.date < b.date ? 1 : -1))
-  }, [marks, selectedTeacherId, periodFilter])
+  }, [marks, selectedTeacherId, selectedSubjectId, periodFilter])
 
-  function openEdit(mark: Mark) {
-    setActiveMark(mark)
-    setDialogOpen(true)
-  }
+  const availableSubjects = useMemo(() => {
+    let list = marks
+    if (selectedTeacherId) list = list.filter((m) => m.teacher.id === selectedTeacherId)
+    const map = new Map<string, { id: string; name: string }>()
+    list.forEach(m => map.set(m.subject.id, { id: m.subject.id, name: m.subject.name }))
+    return Array.from(map.values())
+  }, [marks, selectedTeacherId])
 
-  function handleSaved(saved: Mark) {
-    setMarks((current) => current.map((m) => (m.id === saved.id ? saved : m)))
-  }
+  // Reset subject filter if teacher changes and selected subject is no longer available
+  useEffect(() => {
+    if (selectedSubjectId !== "ALL" && !availableSubjects.find(s => s.id === selectedSubjectId)) {
+      setSelectedSubjectId("ALL")
+    }
+  }, [availableSubjects, selectedSubjectId])
+
+  const uniqueStudents = useMemo(() => {
+    const map = new Map<string, typeof marks[0]['student']>()
+    for (const mark of filteredMarks) {
+      if (!map.has(mark.student.id)) {
+        map.set(mark.student.id, mark.student)
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.firstName.localeCompare(b.firstName))
+  }, [filteredMarks])
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
@@ -104,14 +118,30 @@ export default function AdminCalificacionesPage() {
             <Label>Profesor</Label>
             <TeacherCombobox teachers={teachers} value={selectedTeacherId} onChange={setSelectedTeacherId} allowAll />
           </div>
+          <div className="w-full space-y-2 sm:w-64">
+            <Label>Materia</Label>
+            <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Todas las materias</SelectItem>
+                {availableSubjects.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="w-full space-y-2 sm:w-48">
-            <Label>Periodo</Label>
+            <Label>Periodo / Nota Final</Label>
             <Select value={periodFilter} onValueChange={setPeriodFilter}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todos los periodos</SelectItem>
+                <SelectItem value="all">Nota Final (Todos)</SelectItem>
                 {PERIOD_OPTIONS.map((p) => (
                   <SelectItem key={p} value={String(p)}>
                     Periodo {p}
@@ -125,9 +155,9 @@ export default function AdminCalificacionesPage() {
 
       <Card>
         <CardHeader className="border-b border-border">
-          <CardTitle>Calificaciones registradas</CardTitle>
+          <CardTitle>Estudiantes con calificaciones</CardTitle>
           <p className="text-sm text-muted-foreground">
-            {loading ? "Cargando..." : `${filteredMarks.length} calificación${filteredMarks.length === 1 ? "" : "es"}`}
+            {loading ? "Cargando..." : `${uniqueStudents.length} estudiante${uniqueStudents.length === 1 ? "" : "s"}`}
           </p>
         </CardHeader>
         <CardContent className="p-0">
@@ -137,55 +167,37 @@ export default function AdminCalificacionesPage() {
                 <div key={index} className="h-12 animate-pulse rounded-lg bg-secondary" />
               ))}
             </div>
-          ) : filteredMarks.length === 0 ? (
+          ) : uniqueStudents.length === 0 ? (
             <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-              <ClipboardList className="h-10 w-10 text-muted-foreground" />
-              <h2 className="mt-3 text-base font-semibold text-foreground">No hay calificaciones para estos filtros</h2>
+              <Users className="h-10 w-10 text-muted-foreground" />
+              <h2 className="mt-3 text-base font-semibold text-foreground">No hay estudiantes para estos filtros</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                {marks.length === 0 ? "Los profesores aún no han registrado calificaciones." : "Ajusta los filtros para ver otras."}
+                {marks.length === 0 ? "Los profesores aún no han registrado calificaciones." : "Ajusta los filtros para ver otros resultados."}
               </p>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="pl-6">Título</TableHead>
-                  <TableHead>Estudiante</TableHead>
-                  <TableHead>Materia</TableHead>
-                  <TableHead>Profesor</TableHead>
-                  <TableHead>Periodo</TableHead>
-                  <TableHead>Valor</TableHead>
+                  <TableHead className="pl-6">Estudiante</TableHead>
+                  <TableHead>Documento</TableHead>
                   <TableHead className="pr-6 text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredMarks.map((mark) => (
-                  <TableRow key={mark.id}>
-                    <TableCell className="pl-6">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{mark.title}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(mark.date).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}
-                        </p>
-                      </div>
+                {uniqueStudents.map((student) => (
+                  <TableRow key={student.id}>
+                    <TableCell className="pl-6 font-medium text-foreground">
+                      {student.firstName} {student.lastName}
                     </TableCell>
-                    <TableCell className="text-sm text-foreground">
-                      {mark.student.firstName} {mark.student.lastName}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{mark.subject.name}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {mark.teacher.user.firstName} {mark.teacher.user.lastName}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{mark.period}</TableCell>
-                    <TableCell>
-                      <Badge variant={mark.isPublished ? "outline" : "secondary"}>
-                        {mark.value} / {mark.maxValue}
-                      </Badge>
+                      {student.documentId ?? "-"}
                     </TableCell>
                     <TableCell className="pr-6 text-right">
-                      <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => openEdit(mark)}>
-                        <Pencil className="h-3.5 w-3.5" />
-                        Editar
+                      <Button variant="outline" size="sm" asChild>
+                         <Link href={`/admin/calificaciones/${student.id}`}>
+                           Ver boletín
+                         </Link>
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -195,8 +207,6 @@ export default function AdminCalificacionesPage() {
           )}
         </CardContent>
       </Card>
-
-      <MarkEditDialog open={dialogOpen} onOpenChange={setDialogOpen} mark={activeMark} onSaved={handleSaved} />
     </div>
   )
 }

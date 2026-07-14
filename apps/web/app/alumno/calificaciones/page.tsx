@@ -1,16 +1,30 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { AlertTriangle, ClipboardList } from "lucide-react"
+import { useCallback, useEffect, useState, useMemo } from "react"
+import { AlertTriangle } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import type { Mark } from "@/components/profesor/marks-types"
+
+import { StudentGradesTable } from "@/components/shared/student-grades-table"
+
+const PERIOD_OPTIONS = [1, 2, 3, 4]
 
 export default function AlumnoCalificacionesPage() {
   const [marks, setMarks] = useState<Mark[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>("ALL")
+  const [periodFilter, setPeriodFilter] = useState<string>("all")
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -30,11 +44,18 @@ export default function AlumnoCalificacionesPage() {
     load()
   }, [load])
 
-  const bySubject = marks.reduce<Record<string, Mark[]>>((acc, mark) => {
-    const key = mark.subject.name
-    acc[key] = acc[key] ? [...acc[key], mark] : [mark]
-    return acc
-  }, {})
+  const availableSubjects = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>()
+    marks.forEach(m => map.set(m.subject.id, { id: m.subject.id, name: m.subject.name }))
+    return Array.from(map.values())
+  }, [marks])
+
+  const filteredMarks = useMemo(() => {
+    let list = marks
+    if (selectedSubjectId !== "ALL") list = list.filter((m) => m.subject.id === selectedSubjectId)
+    if (periodFilter !== "all") list = list.filter((m) => String(m.period) === periodFilter)
+    return list
+  }, [marks, selectedSubjectId, periodFilter])
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
@@ -50,47 +71,51 @@ export default function AlumnoCalificacionesPage() {
         </div>
       )}
 
+      <Card className="mb-6">
+        <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
+          <div className="w-full space-y-2 sm:w-64">
+            <Label>Materia</Label>
+            <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Todas las materias</SelectItem>
+                {availableSubjects.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-full space-y-2 sm:w-48">
+            <Label>Periodo / Nota Final</Label>
+            <Select value={periodFilter} onValueChange={setPeriodFilter}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Nota Final (Todos)</SelectItem>
+                {PERIOD_OPTIONS.map((p) => (
+                  <SelectItem key={p} value={String(p)}>
+                    Periodo {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="h-24 animate-pulse rounded-lg bg-secondary" />
           ))}
         </div>
-      ) : marks.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <ClipboardList className="h-10 w-10 text-muted-foreground" />
-            <p className="mt-3 text-sm text-muted-foreground">Aún no tienes calificaciones registradas.</p>
-          </CardContent>
-        </Card>
       ) : (
-        <div className="space-y-4">
-          {Object.entries(bySubject).map(([subjectName, subjectMarks]) => (
-            <Card key={subjectName}>
-              <CardHeader className="border-b border-border">
-                <CardTitle>{subjectName}</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="divide-y divide-border">
-                  {subjectMarks.map((mark) => (
-                    <div key={mark.id} className="flex items-center justify-between gap-3 p-4">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">{mark.title}</p>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                          {mark.homework && <Badge variant="outline">{mark.homework.weight}% de la nota</Badge>}
-                          <span>{new Date(mark.date).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" })}</span>
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-lg font-semibold text-foreground">
-                        {mark.value}/{mark.maxValue}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <StudentGradesTable marks={filteredMarks} />
       )}
     </div>
   )
