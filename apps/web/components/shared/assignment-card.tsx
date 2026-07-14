@@ -33,11 +33,10 @@ interface Props {
   homework: Homework
   editHref?: string
   onAttachmentClick?: (key: string, name?: string | null) => void
-  showTeacher?: boolean
-  showGroup?: boolean
+  actionButton?: React.ReactNode
 }
 
-export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeacher, showGroup }: Props) {
+export function AssignmentCard({ homework, editHref, onAttachmentClick, actionButton }: Props) {
   const Icon = TYPE_ICONS[homework.type]
   const totalStudents = homework.group._count?.students ?? 0
   const submitted = homework._count?.submissions ?? 0
@@ -47,9 +46,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
   const isOverdue = homework.status === "ACTIVE" && new Date(homework.dueDate) < new Date()
 
   const subtitleParts = [
-    showGroup ? homework.group.name : null,
     homework.subject.name,
-    showTeacher && homework.teacher ? `Prof. ${homework.teacher.user.firstName} ${homework.teacher.user.lastName}` : null,
   ].filter(Boolean)
 
   return (
@@ -136,6 +133,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
                     </Link>
                   </Button>
                 )}
+                {actionButton}
               </div>
             </div>
           </div>

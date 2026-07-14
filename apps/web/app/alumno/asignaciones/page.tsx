@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { AssignmentCard } from "@/components/shared/assignment-card"
 import { AttachmentPreviewDialog } from "@/components/shared/attachment-preview-dialog"
 import {
   HOMEWORK_TYPE_COLORS,
@@ -119,63 +120,35 @@ export default function AlumnoAsignacionesPage() {
               <p className="mt-3 text-sm text-muted-foreground">No hay nada por aquí.</p>
             </div>
           ) : (
-            <div className="divide-y divide-border">
-              {visible.map((homework) => {
-                const isOverdue = new Date(homework.dueDate) < new Date()
-                return (
-                  <div key={homework.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-foreground">{homework.title}</p>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HOMEWORK_TYPE_COLORS[homework.type]}`}>
-                          {HOMEWORK_TYPE_LABELS[homework.type]}
-                        </span>
-                        <Badge variant="outline">{homework.subject.name}</Badge>
-                        {isOverdue && <Badge className="bg-red-100 text-red-700">Atrasado</Badge>}
-                      </div>
-                      {homework.description && (
-                        <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{homework.description}</p>
-                      )}
-                      <p className={`mt-1 flex items-center gap-1 text-xs ${isOverdue ? "font-medium text-red-600" : "text-muted-foreground"}`}>
-                        <CalendarClock className="h-3.5 w-3.5" />
-                        Entrega: {formatDueDate(homework.dueDate)}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {homework.attachmentKey && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5"
-                          onClick={() => openAttachment(homework.attachmentKey!, homework.attachmentName)}
-                        >
-                          <Paperclip className="h-3.5 w-3.5" />
-                          Ver archivo
-                        </Button>
-                      )}
-                      {QUIZ_LIKE_TYPES.has(homework.type) ? (
-                        <Button
-                          size="sm"
-                          className="gap-1.5"
-                          onClick={() => router.push(`/alumno/quiz/${homework.id}`)}
-                        >
-                          <PenSquare className="h-3.5 w-3.5" />
-                          {homework.type === "EXAMEN" ? "Presentar examen" : "Realizar quiz"}
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          className="gap-1.5"
-                          onClick={() => router.push(`/alumno/tarea/${homework.id}`)}
-                        >
-                          <PenSquare className="h-3.5 w-3.5" />
-                          Entregar
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+            <div className="space-y-4 p-4">
+              {visible.map((homework) => (
+                <AssignmentCard
+                  key={homework.id}
+                  homework={homework}
+                  onAttachmentClick={openAttachment}
+                  actionButton={
+                    QUIZ_LIKE_TYPES.has(homework.type) ? (
+                      <Button
+                        size="sm"
+                        className="flex-1 gap-1.5"
+                        onClick={() => router.push(`/alumno/quiz/${homework.id}`)}
+                      >
+                        <PenSquare className="h-3.5 w-3.5" />
+                        {homework.type === "EXAMEN" ? "Presentar examen" : "Realizar quiz"}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="flex-1 gap-1.5"
+                        onClick={() => router.push(`/alumno/tarea/${homework.id}`)}
+                      >
+                        <PenSquare className="h-3.5 w-3.5" />
+                        Entregar
+                      </Button>
+                    )
+                  }
+                />
+              ))}
             </div>
           )}
         </CardContent>
