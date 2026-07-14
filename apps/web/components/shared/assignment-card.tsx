@@ -80,7 +80,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, actionBu
             <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
-                <span>Creada: {new Date(homework.createdAt).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                <span>Creada: {formatDueDate(homework.createdAt)}</span>
               </div>
               <div className="flex items-center gap-1">
                 <Clock className="h-4 w-4" />
