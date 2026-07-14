@@ -91,6 +91,8 @@ model User {
   student                 Student?
   conversationMemberships ConversationMember[]
   conversationMessages    ConversationMessage[]
+  announcementsAuthored   Announcement[]        @relation("AnnouncementAuthor")
+  announcementReads       AnnouncementRead[]
 
   @@map("users")
 }
@@ -142,6 +144,7 @@ model Group {
   schedules          Schedule[]
   attendanceSessions AttendanceSession[]
   homework           Homework[]
+  announcements      Announcement[]
 
   @@map("groups")
 }
@@ -479,16 +482,35 @@ model ConversationMessage {
 }
 
 model Announcement {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   tenantId   String
+  authorId   String
   title      String
   body       String
-  targetRole String?
-  createdAt  DateTime @default(now())
+  targetRole UserRole? // null = todos los roles; si no, solo ese rol
+  groupId    String? // null = todo el colegio; si no, solo ese curso/grupo
+  createdAt  DateTime  @default(now())
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant Tenant             @relation(fields: [tenantId], references: [id])
+  author User               @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+  group  Group?             @relation(fields: [groupId], references: [id])
+  reads  AnnouncementRead[]
 
+  @@index([tenantId, groupId])
   @@map("announcements")
+}
+
+model AnnouncementRead {
+  id             String   @id @default(uuid())
+  announcementId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([announcementId, userId])
+  @@map("announcement_reads")
 }
 
 // ─── Audit ───────────────────────────────────────────────────────────────────

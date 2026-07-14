@@ -95,6 +95,14 @@ type GuardianScopingFixtures = {
 type ContactItem = { id: string; role: string };
 type BroadcastTargetItem = { groupId: string; groupName: string; recipientCount: number };
 type BroadcastResult = { recipientCount: number; conversationIds: string[] };
+type AnnouncementItem = {
+  id: string;
+  title: string;
+  targetRole: string | null;
+  isRead: boolean;
+  group: { id: string } | null;
+  author: { id: string };
+};
 type ConversationItem = {
   id: string;
   type: string;
@@ -540,6 +548,92 @@ describe("Backend v1 e2e", () => {
     });
     expect(guardianBroadcast.status).toBe(403);
     expect(guardianBroadcast.body.message).toBe("Insufficient permissions.");
+  });
+
+  it("scopes announcements by role/group, and lets teachers publish only to their groups", async () => {
+    const admin = await loginAs(TENANT_ADMIN_EMAIL);
+    expect(admin.status).toBe(201);
+
+    // Admin publica a todo el colegio.
+    const schoolWide = await api<AnnouncementItem>("/announcements", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(admin.body.accessToken)),
+      body: JSON.stringify({ title: "Cierre institucional", body: "El viernes no habrá clases." }),
+    });
+    expect(schoolWide.status).toBe(201);
+
+    // Admin publica a un grupo ajeno al acudiente (otherGroup), dirigido a acudientes.
+    const otherGroupAnn = await api<AnnouncementItem>("/announcements", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(admin.body.accessToken)),
+      body: JSON.stringify({
+        title: "Salida pedagógica 5B",
+        body: "Solo para el grupo 5B.",
+        targetRole: "GUARDIAN",
+        groupId: guardianFixtures.otherGroupId,
+      }),
+    });
+    expect(otherGroupAnn.status).toBe(201);
+
+    // El profesor publica a su grupo (lo enseña).
+    const teacher = await loginAs(TEACHER_EMAIL);
+    const teacherAnn = await api<AnnouncementItem>("/announcements", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+      body: JSON.stringify({
+        title: "Reunión de apoderados 5A",
+        body: "Los espero el jueves.",
+        targetRole: "GUARDIAN",
+        groupId: guardianFixtures.sharedGroupId,
+      }),
+    });
+    expect(teacherAnn.status).toBe(201);
+
+    // El profesor NO puede publicar a un grupo que no enseña.
+    const forbiddenGroup = await api<ErrorResponse>("/announcements", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+      body: JSON.stringify({ title: "No permitido", body: "x", groupId: guardianFixtures.otherGroupId }),
+    });
+    expect(forbiddenGroup.status).toBe(403);
+    expect(forbiddenGroup.body.message).toBe(
+      "Solo puedes publicar comunicados a los grupos que enseñas.",
+    );
+
+    // El acudiente ve el general y el de su grupo, pero NO el del grupo ajeno.
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+    const list = await api<AnnouncementItem[]>("/announcements", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(list.status).toBe(200);
+    const ids = list.body.map((a) => a.id);
+    expect(ids).toContain(schoolWide.body.id);
+    expect(ids).toContain(teacherAnn.body.id);
+    expect(ids).not.toContain(otherGroupAnn.body.id);
+
+    // El comunicado de su grupo está no-leído; marcarlo leído lo actualiza.
+    const before = list.body.find((a) => a.id === teacherAnn.body.id);
+    expect(before?.isRead).toBe(false);
+
+    const marked = await api<{ status: string }>(`/announcements/${teacherAnn.body.id}/read`, {
+      method: "POST",
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(marked.status).toBe(201);
+
+    const listAfter = await api<AnnouncementItem[]>("/announcements", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(listAfter.body.find((a) => a.id === teacherAnn.body.id)?.isRead).toBe(true);
+
+    // El acudiente no puede publicar comunicados.
+    const guardianCreate = await api<ErrorResponse>("/announcements", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(guardian.body.accessToken)),
+      body: JSON.stringify({ title: "no permitido", body: "x" }),
+    });
+    expect(guardianCreate.status).toBe(403);
+    expect(guardianCreate.body.message).toBe("Insufficient permissions.");
   });
 
   async function loginAs(email: string): Promise<ApiResponse<LoginResponse>> {
