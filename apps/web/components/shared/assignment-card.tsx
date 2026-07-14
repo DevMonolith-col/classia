@@ -94,14 +94,14 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
             </div>
           </div>
 
-          <div className="border-t border-border bg-secondary/30 p-4 sm:p-6 lg:w-72 lg:border-l lg:border-t-0">
+          <div className="border-t border-border bg-muted/40 p-4 sm:p-6 lg:w-72 lg:border-l lg:border-t-0">
             <div className="space-y-4">
               <div>
                 <div className="mb-2 flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Entregas</span>
                   <span className="font-medium text-foreground">{submitted}/{totalStudents}</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-secondary">
+                <div className="h-2 overflow-hidden rounded-full bg-background shadow-inner">
                   <div className="h-full bg-blue-500 transition-all" style={{ width: `${submittedPct}%` }} />
                 </div>
               </div>
@@ -111,7 +111,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
                   <span className="text-muted-foreground">Calificadas</span>
                   <span className="font-medium text-foreground">{graded}/{totalStudents}</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-secondary">
+                <div className="h-2 overflow-hidden rounded-full bg-background shadow-inner">
                   <div className="h-full bg-green-500 transition-all" style={{ width: `${gradedPct}%` }} />
                 </div>
               </div>
