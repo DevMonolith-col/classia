@@ -6,11 +6,19 @@ import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TeacherCombobox } from "@/components/admin/teacher-combobox"
 import { AssignmentCard } from "@/components/shared/assignment-card"
 import { AttachmentPreviewDialog } from "@/components/shared/attachment-preview-dialog"
 import { HOMEWORK_TYPES, type Homework } from "@/components/profesor/homework-types"
+import { DAY_LABELS, type TeacherSchedule } from "@/components/profesor/marks-types"
 import type { Teacher } from "@/components/admin/academic-types"
 
 const FILTERS = ["ALL", ...HOMEWORK_TYPES] as const
@@ -33,6 +41,8 @@ export default function AdminAsignacionesPage() {
   const [error, setError] = useState("")
 
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null)
+  const [schedules, setSchedules] = useState<TeacherSchedule[]>([])
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string>("ALL")
   const [filter, setFilter] = useState<Filter>("ALL")
   const [page, setPage] = useState(1)
   const [preview, setPreview] = useState<{ key: string; name: string } | null>(null)
@@ -64,12 +74,33 @@ export default function AdminAsignacionesPage() {
     loadAll()
   }, [loadAll])
 
+  useEffect(() => {
+    if (!selectedTeacherId) {
+      setSchedules([])
+      setSelectedScheduleId("ALL")
+      return
+    }
+    apiFetch(`/schedules?teacherId=${selectedTeacherId}`, { silent: true })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        setSchedules(data)
+        setSelectedScheduleId("ALL")
+      })
+      .catch(() => setSchedules([]))
+  }, [selectedTeacherId])
+
   const visibleHomework = useMemo(() => {
     let list = homeworkList
     if (selectedTeacherId) list = list.filter((h) => h.teacher?.id === selectedTeacherId)
+    if (selectedScheduleId !== "ALL") {
+      const sched = schedules.find((s) => s.id === selectedScheduleId)
+      if (sched) {
+        list = list.filter((h) => h.group?.id === sched.group.id && h.subject?.id === sched.subject.id)
+      }
+    }
     if (filter !== "ALL") list = list.filter((h) => h.type === filter)
     return [...list].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-  }, [homeworkList, selectedTeacherId, filter])
+  }, [homeworkList, selectedTeacherId, filter, selectedScheduleId, schedules])
 
   const pageCount = Math.max(1, Math.ceil(visibleHomework.length / PAGE_SIZE))
   const currentPage = Math.min(page, pageCount)
@@ -77,7 +108,7 @@ export default function AdminAsignacionesPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [selectedTeacherId, filter])
+  }, [selectedTeacherId, filter, selectedScheduleId])
 
   function openAttachment(key: string, name?: string | null) {
     setPreview({ key, name: name ?? "Archivo" })
@@ -106,6 +137,24 @@ export default function AdminAsignacionesPage() {
             <div className="w-full sm:w-64">
               <TeacherCombobox teachers={teachers} value={selectedTeacherId} onChange={setSelectedTeacherId} allowAll />
             </div>
+            {selectedTeacherId && schedules.length > 0 && (
+              <div className="w-full sm:min-w-[250px] sm:max-w-sm">
+                <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Clase" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Todas las clases</SelectItem>
+                    {schedules.map((schedule) => (
+                      <SelectItem key={schedule.id} value={schedule.id}>
+                        {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} ·{" "}
+                        {schedule.group.name} · {schedule.subject.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
               <TabsList>
                 {FILTERS.map((f) => (
