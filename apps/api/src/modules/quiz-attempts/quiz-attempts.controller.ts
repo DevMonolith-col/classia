@@ -7,7 +7,12 @@ import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { PERMISSIONS } from "../../common/permissions/permissions";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
-import { SaveAnswerInput, saveAnswerSchema } from "./quiz-attempts.schemas";
+import {
+  GradeAnswerInput,
+  SaveAnswerInput,
+  gradeAnswerSchema,
+  saveAnswerSchema,
+} from "./quiz-attempts.schemas";
 import { QuizAttemptsService } from "./quiz-attempts.service";
 
 @Controller("homework/:homeworkId/quiz")
@@ -19,6 +24,12 @@ export class QuizAttemptsController {
   @Permissions(PERMISSIONS.QUIZ_ATTEMPTS_READ)
   getQuiz(@Param("homeworkId") homeworkId: string, @CurrentUser() user: RequestUser) {
     return this.quizAttempts.getQuiz(homeworkId, user);
+  }
+
+  @Get("attempts")
+  @Permissions(PERMISSIONS.QUIZ_ATTEMPTS_LIST)
+  listAttempts(@Param("homeworkId") homeworkId: string, @CurrentUser() user: RequestUser) {
+    return this.quizAttempts.listAttempts(homeworkId, user);
   }
 
   @Post("attempts")
@@ -47,5 +58,18 @@ export class QuizAttemptsController {
     @Req() request: Request,
   ) {
     return this.quizAttempts.submit(homeworkId, attemptId, user, request);
+  }
+
+  @Patch("attempts/:attemptId/questions/:questionId/grade")
+  @Permissions(PERMISSIONS.QUIZ_ATTEMPTS_GRADE)
+  gradeAnswer(
+    @Param("homeworkId") homeworkId: string,
+    @Param("attemptId") attemptId: string,
+    @Param("questionId") questionId: string,
+    @Body(new ZodValidationPipe(gradeAnswerSchema)) body: GradeAnswerInput,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+  ) {
+    return this.quizAttempts.gradeAnswer(homeworkId, attemptId, questionId, body, user, request);
   }
 }

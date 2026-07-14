@@ -11,3 +11,9 @@ export const saveAnswerSchema = z
   });
 
 export type SaveAnswerInput = z.infer<typeof saveAnswerSchema>;
+
+export const gradeAnswerSchema = z.object({
+  pointsAwarded: z.number().min(0),
+});
+
+export type GradeAnswerInput = z.infer<typeof gradeAnswerSchema>;
