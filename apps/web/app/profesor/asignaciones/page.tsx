@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { AlertTriangle, BookOpen, FileText, Plus } from "lucide-react"
+import { AlertTriangle, BookOpen, ChevronLeft, ChevronRight, FileText, Plus } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,6 +32,8 @@ const FILTER_LABELS: Record<Filter, string> = {
   PROYECTO: "Proyectos",
 }
 
+const PAGE_SIZE = 5
+
 function AsignacionesProfesorPageContent() {
   const searchParams = useSearchParams()
   const scheduleIdParam = searchParams.get("scheduleId")
@@ -44,6 +46,7 @@ function AsignacionesProfesorPageContent() {
   const [homeworkList, setHomeworkList] = useState<Homework[]>([])
   const [loadingHomework, setLoadingHomework] = useState(false)
   const [filter, setFilter] = useState<Filter>("ALL")
+  const [page, setPage] = useState(1)
   const [preview, setPreview] = useState<{ key: string; name: string } | null>(null)
 
   const loadSetup = useCallback(async () => {
@@ -99,8 +102,16 @@ function AsignacionesProfesorPageContent() {
 
   const visibleHomework = useMemo(() => {
     const filtered = filter === "ALL" ? homeworkList : homeworkList.filter((h) => h.type === filter)
-    return [...filtered].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+    return [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [homeworkList, filter])
+
+  const pageCount = Math.max(1, Math.ceil(visibleHomework.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedHomework = visibleHomework.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [selectedScheduleId, filter])
 
   function openAttachment(key: string, name?: string | null) {
     setPreview({ key, name: name ?? "Archivo" })
@@ -150,30 +161,26 @@ function AsignacionesProfesorPageContent() {
       {!loadingSetup && schedules.length > 0 && (
         <>
           <Card className="mb-6">
-            <CardContent className="p-4">
-              <Label>Clase</Label>
-              <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId}>
-                <SelectTrigger className="mt-2 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {schedules.map((schedule) => (
-                    <SelectItem key={schedule.id} value={schedule.id}>
-                      {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} ·{" "}
-                      {schedule.group.name} · {schedule.subject.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-
-          <Card className="mb-6">
-            <CardHeader className="gap-3 border-b border-border">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle>
-                  {FILTER_LABELS[filter]} ({visibleHomework.length})
-                </CardTitle>
+            <CardHeader className="flex flex-col gap-4 border-b border-border sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle>
+                {FILTER_LABELS[filter]} ({visibleHomework.length})
+              </CardTitle>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="w-full sm:min-w-[300px] sm:max-w-md">
+                  <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Clase" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {schedules.map((schedule) => (
+                        <SelectItem key={schedule.id} value={schedule.id}>
+                          {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} ·{" "}
+                          {schedule.group.name} · {schedule.subject.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
                   <TabsList>
                     {FILTERS.map((f) => (
@@ -185,38 +192,71 @@ function AsignacionesProfesorPageContent() {
                 </Tabs>
               </div>
             </CardHeader>
-          </Card>
+            <CardContent className="pt-4">
+              {loadingHomework ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={index} className="h-40 animate-pulse rounded-lg bg-secondary" />
+                  ))}
+                </div>
+              ) : visibleHomework.length === 0 ? (
+                <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                  <FileText className="h-10 w-10 text-muted-foreground" />
+                  <h2 className="mt-3 text-base font-semibold text-foreground">
+                    {homeworkList.length === 0 ? "Aún no hay asignaciones para esta clase" : "No hay nada en esta categoría"}
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {homeworkList.length === 0 ? "Crea la primera con el botón de arriba." : "Prueba con otro filtro."}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-4">
+                    {paginatedHomework.map((homework) => (
+                      <AssignmentCard
+                        key={homework.id}
+                        homework={homework}
+                        editHref={`/profesor/asignaciones/${homework.id}`}
+                        onAttachmentClick={openAttachment}
+                      />
+                    ))}
+                  </div>
 
-          {loadingHomework ? (
-            <div className="space-y-4">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <div key={index} className="h-40 animate-pulse rounded-lg bg-secondary" />
-              ))}
-            </div>
-          ) : visibleHomework.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center px-6 py-16 text-center">
-                <FileText className="h-10 w-10 text-muted-foreground" />
-                <h2 className="mt-3 text-base font-semibold text-foreground">
-                  {homeworkList.length === 0 ? "Aún no hay asignaciones para esta clase" : "No hay nada en esta categoría"}
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {homeworkList.length === 0 ? "Crea la primera con el botón de arriba." : "Prueba con otro filtro."}
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {visibleHomework.map((homework) => (
-                <AssignmentCard
-                  key={homework.id}
-                  homework={homework}
-                  editHref={`/profesor/asignaciones/${homework.id}`}
-                  onAttachmentClick={openAttachment}
-                />
-              ))}
-            </div>
-          )}
+                  {pageCount > 1 && (
+                    <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+                      <p className="text-sm text-muted-foreground">
+                        Página {currentPage} de {pageCount}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={currentPage <= 1}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                          Anterior
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                          disabled={currentPage >= pageCount}
+                        >
+                          Siguiente
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
 

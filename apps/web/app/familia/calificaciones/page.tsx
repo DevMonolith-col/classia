@@ -1,108 +1,91 @@
-import {
-  TrendingUp,
-  TrendingDown,
-  Download,
-} from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+"use client"
+
+import { useCallback, useEffect, useState, useMemo } from "react"
+import { Download, AlertTriangle, Users } from "lucide-react"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { apiFetch } from "@/lib/api-client"
+import type { Mark } from "@/components/profesor/marks-types"
+import { StudentGradesTable } from "@/components/shared/student-grades-table"
 
-const subjects = [
-  {
-    id: "1",
-    name: "Matemáticas",
-    teacher: "Prof. Juan López",
-    grades: [
-      { period: "Parcial 1", grade: 95, weight: 30 },
-      { period: "Parcial 2", grade: 88, weight: 30 },
-      { period: "Tareas", grade: 92, weight: 20 },
-      { period: "Participación", grade: 90, weight: 20 },
-    ],
-    average: 91.4,
-    trend: "up",
-  },
-  {
-    id: "2",
-    name: "Español",
-    teacher: "Prof. Ana Martínez",
-    grades: [
-      { period: "Parcial 1", grade: 88, weight: 30 },
-      { period: "Parcial 2", grade: 90, weight: 30 },
-      { period: "Tareas", grade: 85, weight: 20 },
-      { period: "Participación", grade: 92, weight: 20 },
-    ],
-    average: 88.8,
-    trend: "up",
-  },
-  {
-    id: "3",
-    name: "Ciencias Naturales",
-    teacher: "Prof. Carlos Ruiz",
-    grades: [
-      { period: "Parcial 1", grade: 92, weight: 30 },
-      { period: "Parcial 2", grade: 85, weight: 30 },
-      { period: "Tareas", grade: 90, weight: 20 },
-      { period: "Participación", grade: 88, weight: 20 },
-    ],
-    average: 88.7,
-    trend: "down",
-  },
-  {
-    id: "4",
-    name: "Historia",
-    teacher: "Prof. María Gómez",
-    grades: [
-      { period: "Parcial 1", grade: 85, weight: 30 },
-      { period: "Parcial 2", grade: 88, weight: 30 },
-      { period: "Tareas", grade: 90, weight: 20 },
-      { period: "Participación", grade: 85, weight: 20 },
-    ],
-    average: 87.0,
-    trend: "up",
-  },
-  {
-    id: "5",
-    name: "Inglés",
-    teacher: "Prof. Lisa Johnson",
-    grades: [
-      { period: "Parcial 1", grade: 98, weight: 30 },
-      { period: "Parcial 2", grade: 95, weight: 30 },
-      { period: "Tareas", grade: 100, weight: 20 },
-      { period: "Participación", grade: 95, weight: 20 },
-    ],
-    average: 97.0,
-    trend: "up",
-  },
-  {
-    id: "6",
-    name: "Educación Física",
-    teacher: "Prof. Roberto Sánchez",
-    grades: [
-      { period: "Parcial 1", grade: 90, weight: 30 },
-      { period: "Parcial 2", grade: 92, weight: 30 },
-      { period: "Tareas", grade: 95, weight: 20 },
-      { period: "Participación", grade: 98, weight: 20 },
-    ],
-    average: 93.2,
-    trend: "up",
-  },
-]
+const PERIOD_OPTIONS = [1, 2, 3, 4]
 
-const generalAverage = (
-  subjects.reduce((acc, subject) => acc + subject.average, 0) / subjects.length
-).toFixed(1)
+interface Student {
+  id: string
+  firstName: string
+  lastName: string
+  group: { name: string } | null
+}
 
 export default function CalificacionesFamiliaPage() {
-  const getGradeColor = (grade: number) => {
-    if (grade >= 90) return "text-success"
-    if (grade >= 70) return "text-foreground"
-    return "text-destructive"
-  }
+  const [students, setStudents] = useState<Student[]>([])
+  const [selectedStudentId, setSelectedStudentId] = useState<string>("")
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>("ALL")
+  const [periodFilter, setPeriodFilter] = useState<string>("all")
+  const [marks, setMarks] = useState<Mark[]>([])
+  
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
 
-  const getGradeBg = (grade: number) => {
-    if (grade >= 90) return "bg-success/10"
-    if (grade >= 70) return "bg-secondary"
-    return "bg-destructive/10"
-  }
+  const loadStudents = useCallback(async () => {
+    setLoading(true)
+    setError("")
+    try {
+      // In a real scenario, this endpoint should only return the parent's children.
+      const res = await apiFetch("/students", { silent: true })
+      if (!res.ok) throw new Error("No se pudieron cargar los estudiantes vinculados.")
+      const data = (await res.json()) as Student[]
+      setStudents(data)
+      if (data.length > 0) {
+        setSelectedStudentId(data[0].id)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al conectar.")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadStudents()
+  }, [loadStudents])
+
+  const loadMarks = useCallback(async (studentId: string) => {
+    setLoading(true)
+    setError("")
+    try {
+      const res = await apiFetch(`/marks?studentId=${studentId}`, { silent: true })
+      if (!res.ok) throw new Error("No se pudieron cargar las calificaciones.")
+      setMarks((await res.json()) as Mark[])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al cargar las notas.")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selectedStudentId) {
+      loadMarks(selectedStudentId)
+    }
+  }, [selectedStudentId, loadMarks])
+
+  const activeStudent = useMemo(() => students.find(s => s.id === selectedStudentId), [students, selectedStudentId])
+
+  const availableSubjects = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>()
+    marks.forEach(m => map.set(m.subject.id, { id: m.subject.id, name: m.subject.name }))
+    return Array.from(map.values())
+  }, [marks])
+
+  const filteredMarks = useMemo(() => {
+    let list = marks
+    if (selectedSubjectId !== "ALL") list = list.filter((m) => m.subject.id === selectedSubjectId)
+    if (periodFilter !== "all") list = list.filter((m) => String(m.period) === periodFilter)
+    return list
+  }, [marks, selectedSubjectId, periodFilter])
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
@@ -113,7 +96,7 @@ export default function CalificacionesFamiliaPage() {
             Calificaciones
           </h1>
           <p className="mt-1 text-muted-foreground">
-            María García López • 5to Grado A • Ciclo Escolar 2024
+            Consulta el boletín de calificaciones
           </p>
         </div>
         <Button variant="outline" className="gap-2">
@@ -122,110 +105,84 @@ export default function CalificacionesFamiliaPage() {
         </Button>
       </div>
 
-      {/* General Average Card */}
-      <Card className="mb-8">
-        <CardContent className="p-6">
-          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Promedio General
-              </p>
-              <p className={`text-4xl font-bold ${getGradeColor(Number(generalAverage))}`}>
-                {generalAverage}
-              </p>
-            </div>
-            <div className="flex flex-wrap justify-center gap-4 sm:justify-end">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-success">5</p>
-                <p className="text-xs text-muted-foreground">Excelente</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-foreground">1</p>
-                <p className="text-xs text-muted-foreground">Bueno</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-destructive">0</p>
-                <p className="text-xs text-muted-foreground">Por mejorar</p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {error && (
+        <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
 
-      {/* Subjects Grid */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {subjects.map((subject) => (
-          <Card key={subject.id}>
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between">
-                <div>
-                  <CardTitle className="text-lg">{subject.name}</CardTitle>
-                  <p className="text-sm text-muted-foreground">{subject.teacher}</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span
-                    className={`text-2xl font-bold ${getGradeColor(subject.average)}`}
-                  >
-                    {subject.average.toFixed(1)}
-                  </span>
-                  {subject.trend === "up" ? (
-                    <TrendingUp className="h-4 w-4 text-success" />
-                  ) : (
-                    <TrendingDown className="h-4 w-4 text-destructive" />
-                  )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {subject.grades.map((grade) => (
-                  <div
-                    key={grade.period}
-                    className="flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">
-                        {grade.period}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        ({grade.weight}%)
-                      </span>
-                    </div>
-                    <span
-                      className={`rounded-md px-2 py-0.5 text-sm font-medium ${getGradeBg(
-                        grade.grade
-                      )} ${getGradeColor(grade.grade)}`}
-                    >
-                      {grade.grade}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {students.length > 0 && (
+        <Card className="mb-6">
+          <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
+            <div className="w-full space-y-2 sm:w-64">
+              <Label>Estudiante</Label>
+              <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {students.map(student => (
+                    <SelectItem key={student.id} value={student.id}>
+                      {student.firstName} {student.lastName} {student.group ? `(${student.group.name})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="w-full space-y-2 sm:w-64">
+              <Label>Materia</Label>
+              <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Todas las materias</SelectItem>
+                  {availableSubjects.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-      {/* Legend */}
-      <Card className="mt-6">
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-6">
-            <p className="text-sm font-medium text-foreground">Escala de calificaciones:</p>
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-success" />
-              <span className="text-sm text-muted-foreground">90-100 Excelente</span>
+            <div className="w-full space-y-2 sm:w-48">
+              <Label>Periodo / Nota Final</Label>
+              <Select value={periodFilter} onValueChange={setPeriodFilter}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Nota Final (Todos)</SelectItem>
+                  {PERIOD_OPTIONS.map((p) => (
+                    <SelectItem key={p} value={String(p)}>
+                      Periodo {p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-foreground" />
-              <span className="text-sm text-muted-foreground">70-89 Bueno</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-destructive" />
-              <span className="text-sm text-muted-foreground">&lt;70 Por mejorar</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
+
+      {loading && students.length === 0 ? (
+        <div className="space-y-4">
+          <div className="h-24 animate-pulse rounded-lg bg-secondary" />
+          <div className="h-24 animate-pulse rounded-lg bg-secondary" />
+        </div>
+      ) : activeStudent ? (
+        <StudentGradesTable 
+          marks={filteredMarks} 
+          studentName={`${activeStudent.firstName} ${activeStudent.lastName}`} 
+        />
+      ) : (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-center">
+          <p className="text-sm text-muted-foreground">No tienes estudiantes vinculados.</p>
+        </div>
+      )}
     </div>
   )
 }

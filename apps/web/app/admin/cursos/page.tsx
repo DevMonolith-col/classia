@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { AlertTriangle, BookOpen, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
@@ -17,7 +18,8 @@ import {
 import { GroupFormDialog } from "@/components/admin/group-form-dialog"
 import type { Group } from "@/components/admin/academic-types"
 
-export default function AdminCursosPage() {
+function AdminCursosPageContent() {
+  const searchParams = useSearchParams()
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -68,6 +70,11 @@ export default function AdminCursosPage() {
     setEditingGroup(null)
     setDialogOpen(true)
   }
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") openCreateDialog()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   function openEditDialog(group: Group) {
     setEditingGroup(group)
@@ -236,5 +243,13 @@ export default function AdminCursosPage() {
 
       <GroupFormDialog open={dialogOpen} onOpenChange={setDialogOpen} group={editingGroup} onSaved={handleSaved} />
     </div>
+  )
+}
+
+export default function AdminCursosPage() {
+  return (
+    <Suspense fallback={<div className="p-4 sm:p-6 lg:p-8"><div className="h-64 animate-pulse rounded-lg bg-secondary" /></div>}>
+      <AdminCursosPageContent />
+    </Suspense>
   )
 }
