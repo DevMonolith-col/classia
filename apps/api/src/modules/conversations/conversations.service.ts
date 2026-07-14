@@ -4,7 +4,7 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
-import { SendMessageInput } from "./conversations.schemas";
+import { BroadcastInput, SendMessageInput } from "./conversations.schemas";
 
 const ADMIN_STAFF_ROLES: UserRole[] = [
   UserRole.TENANT_ADMIN,
@@ -78,6 +78,44 @@ export class ConversationsService {
     return [];
   }
 
+  async listBroadcastTargets(actor: RequestUser) {
+    let groupIds: string[];
+
+    if (this.isAdminStaff(actor.role)) {
+      const groups = await this.prisma.group.findMany({
+        where: { tenantId: actor.tenantId },
+        select: { id: true },
+      });
+      groupIds = groups.map((group) => group.id);
+    } else if (actor.role === UserRole.TEACHER) {
+      groupIds = await this.resolveTeacherGroupIds(actor);
+    } else {
+      return [];
+    }
+
+    if (groupIds.length === 0) return [];
+
+    const groups = await this.prisma.group.findMany({
+      where: { id: { in: groupIds } },
+      select: { id: true, name: true, grade: true, section: true },
+      orderBy: [{ grade: "asc" }, { section: "asc" }],
+    });
+
+    const targets = [];
+    for (const group of groups) {
+      const guardianUserIds = await this.resolveGroupGuardianUserIds(actor.tenantId, group.id);
+      targets.push({
+        groupId: group.id,
+        groupName: group.name,
+        grade: group.grade,
+        section: group.section,
+        recipientCount: new Set(guardianUserIds.filter((id) => id !== actor.id)).size,
+      });
+    }
+
+    return targets;
+  }
+
   // ─── Escritura ───────────────────────────────────────────────────────────────
 
   async createOrGetDirect(actor: RequestUser, participantId: string) {
@@ -87,34 +125,95 @@ export class ConversationsService {
 
     await this.assertCanMessage(actor, participantId);
 
+    const conversationId = await this.getOrCreateDirectConversationId(
+      actor.tenantId,
+      actor.id,
+      participantId,
+    );
+    return this.getConversationSummary(actor, conversationId);
+  }
+
+  /**
+   * Difusión a un grupo (patrón "mass message"): el mismo mensaje se entrega a cada
+   * acudiente del grupo en su propio hilo DIRECT privado con el emisor. Las familias
+   * NO comparten hilo ni ven las respuestas de las demás (decisión de producto:
+   * respuestas privadas al profesor).
+   */
+  async broadcast(actor: RequestUser, input: BroadcastInput, request: Request) {
+    await this.assertCanBroadcastToGroup(actor, input.groupId);
+
+    const guardianUserIds = await this.resolveGroupGuardianUserIds(actor.tenantId, input.groupId);
+    const recipients = [...new Set(guardianUserIds)].filter((id) => id !== actor.id);
+
+    if (recipients.length === 0) {
+      return { recipientCount: 0, conversationIds: [] as string[] };
+    }
+
+    const now = new Date();
+    const conversationIds: string[] = [];
+
+    for (const recipientId of recipients) {
+      const conversationId = await this.getOrCreateDirectConversationId(
+        actor.tenantId,
+        actor.id,
+        recipientId,
+      );
+      await this.prisma.conversationMessage.create({
+        data: { conversationId, fromId: actor.id, body: input.body },
+      });
+      await this.prisma.conversationMember.update({
+        where: { conversationId_userId: { conversationId, userId: actor.id } },
+        data: { lastReadAt: now },
+      });
+      conversationIds.push(conversationId);
+    }
+
+    await this.audit.record({
+      tenantId: actor.tenantId,
+      userId: actor.id,
+      actorRole: actor.role,
+      action: "conversation.broadcast",
+      entityType: "Group",
+      entityId: input.groupId,
+      newValues: { recipientCount: recipients.length },
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    });
+
+    return { recipientCount: recipients.length, conversationIds };
+  }
+
+  private async getOrCreateDirectConversationId(
+    tenantId: string,
+    userIdA: string,
+    userIdB: string,
+  ): Promise<string> {
     const existing = await this.prisma.conversation.findFirst({
       where: {
-        tenantId: actor.tenantId,
+        tenantId,
         type: ConversationType.DIRECT,
         archivedAt: null,
         AND: [
-          { members: { some: { userId: actor.id } } },
-          { members: { some: { userId: participantId } } },
+          { members: { some: { userId: userIdA } } },
+          { members: { some: { userId: userIdB } } },
         ],
       },
       select: { id: true },
     });
 
-    if (existing) {
-      return this.getConversationSummary(actor, existing.id);
-    }
+    if (existing) return existing.id;
 
     const created = await this.prisma.conversation.create({
       data: {
-        tenantId: actor.tenantId,
+        tenantId,
         type: ConversationType.DIRECT,
-        createdById: actor.id,
-        members: { create: [{ userId: actor.id }, { userId: participantId }] },
+        createdById: userIdA,
+        members: { create: [{ userId: userIdA }, { userId: userIdB }] },
       },
       select: { id: true },
     });
 
-    return this.getConversationSummary(actor, created.id);
+    return created.id;
   }
 
   async sendMessage(actor: RequestUser, conversationId: string, input: SendMessageInput) {
@@ -216,6 +315,34 @@ export class ConversationsService {
     if (!member || member.conversation.tenantId !== actor.tenantId) {
       throw new ForbiddenException("No perteneces a esta conversación.");
     }
+  }
+
+  private async assertCanBroadcastToGroup(actor: RequestUser, groupId: string) {
+    const group = await this.prisma.group.findFirst({
+      where: { id: groupId, tenantId: actor.tenantId },
+      select: { id: true },
+    });
+    if (!group) {
+      throw new ForbiddenException("El grupo no pertenece a tu institución.");
+    }
+
+    if (this.isAdminStaff(actor.role)) return;
+
+    if (actor.role === UserRole.TEACHER) {
+      const teacherGroupIds = await this.resolveTeacherGroupIds(actor);
+      if (teacherGroupIds.includes(groupId)) return;
+      throw new ForbiddenException("Solo puedes difundir a los grupos que enseñas.");
+    }
+
+    throw new ForbiddenException("No tienes permiso para difundir mensajes.");
+  }
+
+  private async resolveGroupGuardianUserIds(tenantId: string, groupId: string): Promise<string[]> {
+    const links = await this.prisma.studentGuardian.findMany({
+      where: { student: { tenantId, groupId } },
+      select: { guardian: { select: { userId: true } } },
+    });
+    return links.map((link) => link.guardian.userId);
   }
 
   // ─── Resolución de contactos ──────────────────────────────────────────────────

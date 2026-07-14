@@ -17,8 +17,10 @@ import { PERMISSIONS } from "../../common/permissions/permissions";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
 import {
+  BroadcastInput,
   CreateConversationInput,
   SendMessageInput,
+  broadcastSchema,
   createConversationSchema,
   sendMessageSchema,
 } from "./conversations.schemas";
@@ -39,6 +41,22 @@ export class ConversationsController {
   @Permissions(PERMISSIONS.MESSAGING_LIST)
   contacts(@CurrentUser() user: RequestUser) {
     return this.conversations.listContacts(user);
+  }
+
+  @Get("broadcast/targets")
+  @Permissions(PERMISSIONS.MESSAGING_BROADCAST)
+  broadcastTargets(@CurrentUser() user: RequestUser) {
+    return this.conversations.listBroadcastTargets(user);
+  }
+
+  @Post("broadcast")
+  @Permissions(PERMISSIONS.MESSAGING_BROADCAST)
+  broadcast(
+    @Body(new ZodValidationPipe(broadcastSchema)) body: BroadcastInput,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+  ) {
+    return this.conversations.broadcast(user, body, request);
   }
 
   @Post()
