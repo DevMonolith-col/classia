@@ -26,6 +26,7 @@ const navigation = [
   { name: "Horario",        href: "/profesor/horario",       icon: Calendar },
   { name: "Mensajes",       href: "/profesor/mensajes",      icon: MessageSquare },
   { name: "Comunicados",    href: "/profesor/comunicados",   icon: Megaphone },
+  { name: "Notificaciones", href: "/profesor/notificaciones",icon: Bell },
   { name: "Configuración",  href: "/profesor/configuracion", icon: Settings },
 ]
 
