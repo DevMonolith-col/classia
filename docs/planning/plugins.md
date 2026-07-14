@@ -56,6 +56,11 @@ Para garantizar la estabilidad y la seguridad del sistema global, Classia **no p
 * **Propósito:** Jalar notas y tareas de un Moodle existente para procesarlas en el boletín final consolidado de Classia.
 * **Integración:** Moodle REST Web Services.
 
+#### 4. Compilador LaTeX Completo (estilo Overleaf) — futuro, sin priorizar aún
+* **Propósito:** Permitir a un profesor redactar un examen/documento completo en LaTeX real (con `\usepackage`, diagramas TikZ, bibliografía, numeración de páginas, `\ref`/`\label`) y compilarlo a PDF dentro de la plataforma — un salto cualitativo distinto de renderizar fórmulas sueltas, que es lo que hace KaTeX hoy en preguntas/tareas.
+* **Integración:** Requiere un motor de compilación real (`pdflatex`/`xelatex`/`tectonic`) corriendo en un contenedor aislado y efímero (sandboxing obligatorio, ya que el usuario sube código arbitrario) — candidato a microservicio separado o a un servicio gestionado tipo Overleaf/LaTeX-on-demand vía API, no una librería cliente como KaTeX.
+* **Nota:** No confundir con el soporte de fórmulas matemáticas actual. `apps/web/components/shared/math-text.tsx` ya usa KaTeX con sintaxis 100% estándar de LaTeX (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) para expresiones aisladas dentro de texto — eso no requiere ningún cambio. Este plugin cubriría el caso de uso distinto y mucho más grande de compilar documentos completos, no fórmulas embebidas.
+
 ---
 
 ### Módulo D: Control de Acceso y Hardware (Operativo)

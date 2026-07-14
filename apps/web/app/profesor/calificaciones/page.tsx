@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { AlertTriangle, BookOpen, FileText, Loader2, RefreshCw } from "lucide-react"
+import { AlertTriangle, BookOpen, FileText, Loader2, MessageSquare, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -18,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 import type { Homework } from "@/components/profesor/homework-types"
 import { DAY_LABELS, type Mark, type Student, type TeacherSchedule } from "@/components/profesor/marks-types"
 
@@ -40,6 +42,9 @@ function CalificacionesProfesorPageContent() {
   const [marksByCell, setMarksByCell] = useState<Record<string, Mark>>({})
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [savingCell, setSavingCell] = useState<Record<string, boolean>>({})
+  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({})
+  const [savingComment, setSavingComment] = useState<Record<string, boolean>>({})
+  const [openComment, setOpenComment] = useState<string | null>(null)
   const [loadingGrid, setLoadingGrid] = useState(false)
   const [gridError, setGridError] = useState("")
 
@@ -181,6 +186,34 @@ function CalificacionesProfesorPageContent() {
       if (existing) setDraft((c) => ({ ...c, [key]: String(existing.value) }))
     } finally {
       setSavingCell((c) => ({ ...c, [key]: false }))
+    }
+  }
+
+  async function saveComment(studentId: string, homework: Homework) {
+    const key = cellKey(studentId, homework.id)
+    const existing = marksByCell[key]
+    if (!existing) return
+
+    const comment = (commentDraft[key] ?? existing.comment ?? "").trim()
+
+    setSavingComment((c) => ({ ...c, [key]: true }))
+    try {
+      const res = await apiFetch(`/marks/${existing.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ comment: comment || null }),
+        silent: true,
+      })
+      if (!res.ok) {
+        throw new Error("No se pudo guardar el comentario.")
+      }
+      const saved = (await res.json()) as Mark
+      setMarksByCell((c) => ({ ...c, [key]: saved }))
+      toast.success("Comentario guardado")
+      setOpenComment(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo guardar el comentario.")
+    } finally {
+      setSavingComment((c) => ({ ...c, [key]: false }))
     }
   }
 
@@ -335,22 +368,68 @@ function CalificacionesProfesorPageContent() {
                             </td>
                             {homeworkList.map((homework) => {
                               const key = cellKey(student.id, homework.id)
+                              const existingMark = marksByCell[key]
                               return (
                                 <td key={homework.id} className="px-3 py-2 text-center">
-                                  <div className="relative mx-auto w-20">
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      max={100}
-                                      value={draft[key] ?? ""}
-                                      onChange={(event) => setCellDraft(student.id, homework.id, event.target.value)}
-                                      onBlur={() => saveCell(student.id, homework)}
-                                      placeholder="—"
-                                      className="h-8 text-center"
-                                      disabled={savingCell[key]}
-                                    />
-                                    {savingCell[key] && (
-                                      <Loader2 className="absolute -right-5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+                                  <div className="flex items-center justify-center gap-1">
+                                    <div className="relative w-20">
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={draft[key] ?? ""}
+                                        onChange={(event) => setCellDraft(student.id, homework.id, event.target.value)}
+                                        onBlur={() => saveCell(student.id, homework)}
+                                        placeholder="—"
+                                        className="h-8 text-center"
+                                        disabled={savingCell[key]}
+                                      />
+                                      {savingCell[key] && (
+                                        <Loader2 className="absolute -right-5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+                                      )}
+                                    </div>
+                                    {existingMark && (
+                                      <Popover
+                                        open={openComment === key}
+                                        onOpenChange={(open) => {
+                                          setOpenComment(open ? key : null)
+                                          if (open) setCommentDraft((c) => ({ ...c, [key]: existingMark.comment ?? "" }))
+                                        }}
+                                      >
+                                        <PopoverTrigger asChild>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 shrink-0"
+                                            title={existingMark.comment ? "Ver/editar comentario" : "Agregar comentario"}
+                                          >
+                                            <MessageSquare
+                                              className={`h-3.5 w-3.5 ${existingMark.comment ? "text-foreground" : "text-muted-foreground"}`}
+                                            />
+                                          </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-72 space-y-2">
+                                          <Label className="text-xs">Comentario para el estudiante</Label>
+                                          <Textarea
+                                            value={commentDraft[key] ?? ""}
+                                            onChange={(e) => setCommentDraft((c) => ({ ...c, [key]: e.target.value }))}
+                                            placeholder="Retroalimentación opcional..."
+                                            rows={3}
+                                          />
+                                          <div className="flex justify-end">
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              onClick={() => saveComment(student.id, homework)}
+                                              disabled={savingComment[key]}
+                                            >
+                                              {savingComment[key] && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                                              Guardar
+                                            </Button>
+                                          </div>
+                                        </PopoverContent>
+                                      </Popover>
                                     )}
                                   </div>
                                 </td>

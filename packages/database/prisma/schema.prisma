@@ -289,6 +289,7 @@ model Mark {
   title       String
   value       Float
   maxValue    Float    @default(100)
+  comment     String?
   period      Int      @default(1)
   date        DateTime @default(now())
   isPublished Boolean  @default(true)
@@ -309,7 +310,9 @@ model Homework {
   groupId        String
   title          String
   description    String?
+  availableFrom  DateTime?
   dueDate        DateTime
+  cutOffDate     DateTime?
   weight         Float    @default(0)
   type           String   @default("TAREA")
   allowNavigation Boolean @default(true)
@@ -398,13 +401,17 @@ model QuizAnswer {
 }
 
 model HomeworkSubmission {
-  id             String    @id @default(uuid())
-  homeworkId     String
-  studentId      String
-  status         String    @default("PENDING")
-  attachmentKey  String?
-  attachmentName String?
-  submittedAt    DateTime?
+  id              String    @id @default(uuid())
+  homeworkId      String
+  studentId       String
+  status          String    @default("PENDING")
+  attachmentKey   String?
+  attachmentName  String?
+  submittedAt     DateTime?
+  feedbackComment String?
+  feedbackKey     String?
+  feedbackName    String?
+  gradedAt        DateTime?
 
   homework Homework @relation(fields: [homeworkId], references: [id])
   student  Student  @relation(fields: [studentId], references: [id])

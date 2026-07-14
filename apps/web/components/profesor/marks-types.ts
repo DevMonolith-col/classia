@@ -31,6 +31,7 @@ export type Mark = {
   title: string
   value: number
   maxValue: number
+  comment?: string | null
   period: number
   date: string
   isPublished: boolean

@@ -1,10 +1,10 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
-import { SaveAnswerInput } from "./quiz-attempts.schemas";
+import { GradeAnswerInput, SaveAnswerInput } from "./quiz-attempts.schemas";
 
 @Injectable()
 export class QuizAttemptsService {
@@ -149,10 +149,6 @@ export class QuizAttemptsService {
       where: { id: homeworkId },
       select: {
         id: true,
-        tenantId: true,
-        teacherId: true,
-        subjectId: true,
-        title: true,
         questions: {
           select: {
             id: true,
@@ -167,24 +163,14 @@ export class QuizAttemptsService {
     const answers = await this.prisma.quizAnswer.findMany({ where: { attemptId } });
     const answersByQuestion = new Map(answers.map((answer) => [answer.questionId, answer]));
 
-    let totalScore = 0;
-    let maxScore = 0;
-    let hasUngraded = false;
-
     await this.prisma.$transaction(async (tx) => {
       for (const question of homework.questions) {
-        maxScore += question.points;
+        if (question.type === "SHORT_ANSWER") continue;
+
         const answer = answersByQuestion.get(question.id);
-
-        if (question.type === "SHORT_ANSWER") {
-          hasUngraded = true;
-          continue;
-        }
-
         const correctOption = question.options.find((option) => option.isCorrect);
         const isCorrect = Boolean(answer?.selectedOptionId) && answer!.selectedOptionId === correctOption?.id;
         const pointsAwarded = isCorrect ? question.points : 0;
-        totalScore += pointsAwarded;
 
         if (answer) {
           await tx.quizAnswer.update({
@@ -200,42 +186,11 @@ export class QuizAttemptsService {
 
       await tx.quizAttempt.update({
         where: { id: attemptId },
-        data: {
-          status: hasUngraded ? "SUBMITTED" : "GRADED",
-          score: totalScore,
-          maxScore,
-          submittedAt: new Date(),
-        },
+        data: { submittedAt: new Date() },
       });
-
-      if (!hasUngraded && maxScore > 0) {
-        const value = Math.round((totalScore / maxScore) * 100 * 100) / 100;
-        const existingMark = await tx.mark.findFirst({
-          where: { studentId: student.id, homeworkId },
-          select: { id: true },
-        });
-
-        if (existingMark) {
-          await tx.mark.update({
-            where: { id: existingMark.id },
-            data: { value, maxValue: 100 },
-          });
-        } else {
-          await tx.mark.create({
-            data: {
-              tenantId: homework.tenantId,
-              studentId: student.id,
-              subjectId: homework.subjectId,
-              teacherId: homework.teacherId,
-              homeworkId,
-              title: homework.title,
-              value,
-              maxValue: 100,
-            },
-          });
-        }
-      }
     });
+
+    const result = await this.finalizeAttemptIfComplete(homeworkId, attemptId, student.id);
 
     await this.audit.record({
       tenantId: student.tenantId,
@@ -244,7 +199,7 @@ export class QuizAttemptsService {
       action: "quiz.submitted",
       entityType: "QuizAttempt",
       entityId: attemptId,
-      newValues: { homeworkId, studentId: student.id, totalScore, maxScore, hasUngraded },
+      newValues: { homeworkId, studentId: student.id, score: result.score, maxScore: result.maxScore },
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
@@ -253,6 +208,170 @@ export class QuizAttemptsService {
       where: { id: attemptId },
       include: { answers: true },
     });
+  }
+
+  async listAttempts(homeworkId: string, actor: RequestUser) {
+    await this.getHomeworkForTeacherCheck(homeworkId, actor);
+
+    return this.prisma.quizAttempt.findMany({
+      where: { homeworkId, status: { not: "IN_PROGRESS" } },
+      select: {
+        id: true,
+        status: true,
+        score: true,
+        maxScore: true,
+        startedAt: true,
+        submittedAt: true,
+        student: { select: { id: true, firstName: true, lastName: true } },
+        answers: {
+          select: {
+            id: true,
+            questionId: true,
+            selectedOptionId: true,
+            textAnswer: true,
+            isCorrect: true,
+            pointsAwarded: true,
+            question: { select: { id: true, type: true, text: true, points: true, order: true } },
+          },
+        },
+      },
+      orderBy: [{ submittedAt: "desc" }],
+    });
+  }
+
+  async gradeAnswer(
+    homeworkId: string,
+    attemptId: string,
+    questionId: string,
+    input: GradeAnswerInput,
+    actor: RequestUser,
+    request: Request,
+  ) {
+    const homework = await this.getHomeworkForTeacherCheck(homeworkId, actor);
+
+    const attempt = await this.prisma.quizAttempt.findUnique({ where: { id: attemptId } });
+    if (!attempt || attempt.homeworkId !== homeworkId) {
+      throw new NotFoundException("Quiz attempt not found.");
+    }
+
+    const question = await this.prisma.question.findFirst({
+      where: { id: questionId, homeworkId },
+      select: { id: true, type: true, points: true },
+    });
+    if (!question) {
+      throw new NotFoundException("Question not found for this assignment.");
+    }
+    if (question.type !== "SHORT_ANSWER") {
+      throw new ForbiddenException("Only short-answer questions can be graded manually.");
+    }
+    if (input.pointsAwarded > question.points) {
+      throw new ForbiddenException("pointsAwarded cannot exceed the question's points.");
+    }
+
+    await this.prisma.quizAnswer.upsert({
+      where: { attemptId_questionId: { attemptId, questionId } },
+      create: {
+        attemptId,
+        questionId,
+        pointsAwarded: input.pointsAwarded,
+        isCorrect: input.pointsAwarded > 0,
+      },
+      update: {
+        pointsAwarded: input.pointsAwarded,
+        isCorrect: input.pointsAwarded > 0,
+      },
+    });
+
+    const result = await this.finalizeAttemptIfComplete(homeworkId, attemptId, attempt.studentId);
+
+    await this.audit.record({
+      tenantId: homework.tenantId,
+      userId: actor.id,
+      actorRole: actor.role,
+      action: "quiz_answer.graded",
+      entityType: "QuizAttempt",
+      entityId: attemptId,
+      newValues: { questionId, pointsAwarded: input.pointsAwarded },
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    });
+
+    return result;
+  }
+
+  private async finalizeAttemptIfComplete(homeworkId: string, attemptId: string, studentId: string) {
+    const homework = await this.prisma.homework.findUniqueOrThrow({
+      where: { id: homeworkId },
+      select: {
+        tenantId: true,
+        teacherId: true,
+        subjectId: true,
+        title: true,
+        questions: { select: { id: true, type: true, points: true } },
+      },
+    });
+
+    const answers = await this.prisma.quizAnswer.findMany({ where: { attemptId } });
+    const answersByQuestion = new Map(answers.map((answer) => [answer.questionId, answer]));
+
+    let totalScore = 0;
+    let maxScore = 0;
+    let hasUngraded = false;
+
+    for (const question of homework.questions) {
+      maxScore += question.points;
+      const answer = answersByQuestion.get(question.id);
+
+      if (question.type === "SHORT_ANSWER") {
+        if (!answer || answer.pointsAwarded === null) {
+          hasUngraded = true;
+        } else {
+          totalScore += answer.pointsAwarded;
+        }
+        continue;
+      }
+
+      totalScore += answer?.pointsAwarded ?? 0;
+    }
+
+    const attempt = await this.prisma.quizAttempt.update({
+      where: { id: attemptId },
+      data: {
+        status: hasUngraded ? "SUBMITTED" : "GRADED",
+        score: totalScore,
+        maxScore,
+      },
+    });
+
+    if (!hasUngraded && maxScore > 0) {
+      const value = Math.round((totalScore / maxScore) * 100 * 100) / 100;
+      const existingMark = await this.prisma.mark.findFirst({
+        where: { studentId, homeworkId },
+        select: { id: true },
+      });
+
+      if (existingMark) {
+        await this.prisma.mark.update({
+          where: { id: existingMark.id },
+          data: { value, maxValue: 100 },
+        });
+      } else {
+        await this.prisma.mark.create({
+          data: {
+            tenantId: homework.tenantId,
+            studentId,
+            subjectId: homework.subjectId,
+            teacherId: homework.teacherId,
+            homeworkId,
+            title: homework.title,
+            value,
+            maxValue: 100,
+          },
+        });
+      }
+    }
+
+    return attempt;
   }
 
   private async assertOwnAttempt(attemptId: string, homeworkId: string, studentId: string) {
@@ -312,5 +431,37 @@ export class QuizAttemptsService {
     }
 
     return homework;
+  }
+
+  private async getHomeworkForTeacherCheck(homeworkId: string, actor: RequestUser) {
+    const homework = await this.prisma.homework.findUniqueOrThrow({
+      where: { id: homeworkId },
+      select: { id: true, tenantId: true, teacherId: true, subjectId: true, title: true },
+    });
+
+    if (!this.isGlobalAdmin(actor) && actor.tenantId !== homework.tenantId) {
+      throw new ForbiddenException("Tenant is outside of current context.");
+    }
+
+    if (actor.role === UserRole.TEACHER) {
+      const ownTeacherId = await this.resolveOwnTeacherId(actor);
+      if (ownTeacherId !== homework.teacherId) {
+        throw new ForbiddenException("You can only manage attempts for your own classes.");
+      }
+    }
+
+    return homework;
+  }
+
+  private async resolveOwnTeacherId(actor: RequestUser) {
+    const teacher = await this.prisma.teacher.findFirst({
+      where: { userId: actor.id, tenantId: actor.tenantId },
+      select: { id: true },
+    });
+    return teacher?.id;
+  }
+
+  private isGlobalAdmin(actor: RequestUser) {
+    return actor.role === UserRole.SUPER_ADMIN || actor.role === UserRole.SUPPORT_AGENT;
   }
 }
