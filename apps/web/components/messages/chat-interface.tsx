@@ -44,25 +44,61 @@ export interface Conversation {
   role?: string
 }
 
+export interface Contact {
+  id: string
+  name: string
+  initials: string
+  role?: string
+}
+
 interface ChatInterfaceProps {
   conversations: Conversation[]
   currentUserId: string
   userRole: "admin" | "profesor" | "familia"
+  contacts?: Contact[]
+  activeConversationId?: string | null
   onSendMessage?: (conversationId: string, message: string) => void
+  onOpenConversation?: (conversationId: string) => void
+  onStartConversation?: (contactId: string) => void
 }
 
 export function ChatInterface({
   conversations: initialConversations,
   currentUserId,
   userRole,
+  contacts = [],
+  activeConversationId,
   onSendMessage,
+  onOpenConversation,
+  onStartConversation,
 }: ChatInterfaceProps) {
   const [conversations, setConversations] = useState(initialConversations)
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [messageInput, setMessageInput] = useState("")
   const [showMobileChat, setShowMobileChat] = useState(false)
+  const [showNewConversation, setShowNewConversation] = useState(false)
+  const [contactQuery, setContactQuery] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Sincroniza con datos recargados desde el backend, preservando la selección actual.
+  useEffect(() => {
+    setConversations(initialConversations)
+    setSelectedConversation((prev) =>
+      prev ? initialConversations.find((c) => c.id === prev.id) ?? prev : null,
+    )
+  }, [initialConversations])
+
+  // Permite que el contenedor seleccione una conversación (p. ej. al crearla).
+  useEffect(() => {
+    if (!activeConversationId) return
+    const match = conversations.find((c) => c.id === activeConversationId)
+    if (match) {
+      setSelectedConversation(match)
+      setShowMobileChat(true)
+      setShowNewConversation(false)
+    }
+  }, [activeConversationId, conversations])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -140,12 +176,26 @@ export function ChatInterface({
   const selectConversation = (conversation: Conversation) => {
     setSelectedConversation(conversation)
     setShowMobileChat(true)
-    // Mark as read
+    setShowNewConversation(false)
+    // Marca como leído localmente y notifica al backend.
     setConversations((prev) =>
       prev.map((c) =>
         c.id === conversation.id ? { ...c, unreadCount: 0 } : c
       )
     )
+    if (conversation.unreadCount > 0) {
+      onOpenConversation?.(conversation.id)
+    }
+  }
+
+  const filteredContacts = contacts.filter((c) =>
+    c.name.toLowerCase().includes(contactQuery.toLowerCase())
+  )
+
+  const startConversation = (contactId: string) => {
+    setContactQuery("")
+    setShowNewConversation(false)
+    onStartConversation?.(contactId)
   }
 
   const MessageStatus = ({ status }: { status: Message["status"] }) => {
@@ -168,30 +218,90 @@ export function ChatInterface({
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-xl font-semibold text-foreground">Mensajes</h2>
+          <h2 className="text-xl font-semibold text-foreground">
+            {showNewConversation ? "Nueva conversación" : "Mensajes"}
+          </h2>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
-              <Plus className="h-5 w-5" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 rounded-full"
+              aria-label={showNewConversation ? "Cerrar" : "Nueva conversación"}
+              onClick={() => setShowNewConversation((prev) => !prev)}
+            >
+              <Plus
+                className={cn("h-5 w-5 transition-transform", showNewConversation && "rotate-45")}
+              />
             </Button>
           </div>
         </div>
 
-        {/* Search - iOS Style */}
-        <div className="p-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9 rounded-lg bg-secondary/50 pl-9 text-sm focus-visible:ring-1"
-            />
-          </div>
-        </div>
+        {showNewConversation ? (
+          <>
+            {/* New Conversation - Contact Picker */}
+            <div className="p-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar contacto"
+                  value={contactQuery}
+                  onChange={(e) => setContactQuery(e.target.value)}
+                  className="h-9 rounded-lg bg-secondary/50 pl-9 text-sm focus-visible:ring-1"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {filteredContacts.length === 0 ? (
+                <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  No hay contactos disponibles para iniciar una conversación.
+                </p>
+              ) : (
+                filteredContacts.map((contact) => (
+                  <button
+                    key={contact.id}
+                    onClick={() => startConversation(contact.id)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50"
+                  >
+                    <Avatar className="h-10 w-10">
+                      <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-sm font-medium">
+                        {contact.initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <span className="font-semibold text-foreground">{contact.name}</span>
+                      {contact.role && (
+                        <span className="block text-xs text-muted-foreground">{contact.role}</span>
+                      )}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Search - iOS Style */}
+            <div className="p-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 rounded-lg bg-secondary/50 pl-9 text-sm focus-visible:ring-1"
+                />
+              </div>
+            </div>
 
-        {/* Conversation List */}
-        <div className="flex-1 overflow-y-auto">
-          {filteredConversations.map((conversation) => (
+            {/* Conversation List */}
+            <div className="flex-1 overflow-y-auto">
+              {filteredConversations.length === 0 ? (
+                <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  Aún no tienes conversaciones. Toca + para iniciar una.
+                </p>
+              ) : (
+                filteredConversations.map((conversation) => (
             <button
               key={conversation.id}
               onClick={() => selectConversation(conversation)}
@@ -241,8 +351,11 @@ export function ChatInterface({
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
             </button>
-          ))}
-        </div>
+                ))
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Chat Area - iOS Style */}
