@@ -49,6 +49,17 @@ export class MarksService {
       });
     }
 
+    if (actor.role === UserRole.GUARDIAN) {
+      const childIds = await this.resolveOwnChildIds(actor);
+      if (childIds.length === 0) return [];
+
+      return this.prisma.mark.findMany({
+        where: { ...commonFilter, studentId: { in: childIds } },
+        select: this.markSelect(),
+        orderBy: [{ date: "desc" }],
+      });
+    }
+
     const scopedTenantId = this.resolveTenantScope(actor, query.tenantId);
 
     return this.prisma.mark.findMany({
@@ -323,6 +334,13 @@ export class MarksService {
         throw new ForbiddenException("You can only view your own marks.");
       }
     }
+
+    if (actor.role === UserRole.GUARDIAN) {
+      const childIds = await this.resolveOwnChildIds(actor);
+      if (!childIds.includes(studentId)) {
+        throw new ForbiddenException("You can only view your own children's marks.");
+      }
+    }
   }
 
   private async resolveOwnStudentId(actor: RequestUser) {
@@ -331,6 +349,14 @@ export class MarksService {
       select: { id: true },
     });
     return student?.id;
+  }
+
+  private async resolveOwnChildIds(actor: RequestUser): Promise<string[]> {
+    const guardian = await this.prisma.guardian.findFirst({
+      where: { userId: actor.id, tenantId: actor.tenantId },
+      select: { students: { select: { studentId: true } } },
+    });
+    return guardian?.students.map((s) => s.studentId) ?? [];
   }
 
   private resolveTenantScope(actor: RequestUser, tenantId?: string) {

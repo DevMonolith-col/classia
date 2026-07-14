@@ -1,6 +1,6 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { MembershipStatus, TenantStatus, UserRole, UserStatus } from "@prisma/client";
+import { AttendanceStatus, MembershipStatus, TenantStatus, UserRole, UserStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { AppModule } from "../src/app.module";
 import { setupApp } from "../src/app.setup";
@@ -10,6 +10,7 @@ const DEMO_TENANT_SLUG = "demo";
 const DEMO_PASSWORD = "ClassiaDemo2026!";
 const TENANT_ADMIN_EMAIL = "tenant-admin.e2e@classia.test";
 const TEACHER_EMAIL = "teacher.e2e@classia.test";
+const GUARDIAN_EMAIL = "guardian.e2e@classia.test";
 
 type ApiResponse<T> = {
   status: number;
@@ -66,9 +67,29 @@ type AuditLogsResponse = {
   };
 };
 
+type HomeworkListItem = { id: string };
+type MarkListItem = { id: string };
+type AttendanceSessionItem = {
+  id: string;
+  records: Array<{ studentId: string }>;
+};
+
+type GuardianScopingFixtures = {
+  ownChildHomeworkId: string;
+  otherGroupHomeworkId: string;
+  ownChildMarkId: string;
+  classmateMarkId: string;
+  otherChildMarkId: string;
+  sharedSessionId: string;
+  ownChildStudentId: string;
+  classmateStudentId: string;
+  otherGroupSessionId: string;
+};
+
 describe("Backend v1 e2e", () => {
   let app: INestApplication;
   let baseUrl: string;
+  let guardianFixtures: GuardianScopingFixtures;
 
   beforeAll(async () => {
     process.env.NODE_ENV = "test";
@@ -82,6 +103,7 @@ describe("Backend v1 e2e", () => {
     await app.listen(0);
     baseUrl = await app.getUrl();
     await ensureDemoE2eUsers(app.get(PrismaService));
+    guardianFixtures = await ensureGuardianScopingFixtures(app.get(PrismaService));
   });
 
   afterAll(async () => {
@@ -253,6 +275,87 @@ describe("Backend v1 e2e", () => {
     expect(forbidden.body.message).toBe("Insufficient permissions.");
   });
 
+  it("scopes a GUARDIAN to homework of their own child's group only", async () => {
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+    expect(guardian.status).toBe(201);
+
+    const list = await api<HomeworkListItem[]>("/homework", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(list.status).toBe(200);
+    const listedIds = list.body.map((h) => h.id);
+    expect(listedIds).toContain(guardianFixtures.ownChildHomeworkId);
+    expect(listedIds).not.toContain(guardianFixtures.otherGroupHomeworkId);
+
+    const ownRead = await api<HomeworkListItem>(`/homework/${guardianFixtures.ownChildHomeworkId}`, {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(ownRead.status).toBe(200);
+
+    const otherRead = await api<ErrorResponse>(`/homework/${guardianFixtures.otherGroupHomeworkId}`, {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(otherRead.status).toBe(403);
+    expect(otherRead.body.message).toBe("You can only view assignments for your own children's group.");
+  });
+
+  it("scopes a GUARDIAN to marks of their own child only, even within the same class", async () => {
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+
+    const list = await api<MarkListItem[]>("/marks", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(list.status).toBe(200);
+    const listedIds = list.body.map((m) => m.id);
+    expect(listedIds).toContain(guardianFixtures.ownChildMarkId);
+    expect(listedIds).not.toContain(guardianFixtures.classmateMarkId);
+    expect(listedIds).not.toContain(guardianFixtures.otherChildMarkId);
+
+    const ownRead = await api<MarkListItem>(`/marks/${guardianFixtures.ownChildMarkId}`, {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(ownRead.status).toBe(200);
+
+    const classmateRead = await api<ErrorResponse>(`/marks/${guardianFixtures.classmateMarkId}`, {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(classmateRead.status).toBe(403);
+    expect(classmateRead.body.message).toBe("You can only view your own children's marks.");
+  });
+
+  it("scopes a GUARDIAN to attendance of their own child's group, hiding classmates' records", async () => {
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+
+    const list = await api<AttendanceSessionItem[]>("/attendance/sessions", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(list.status).toBe(200);
+    const listedIds = list.body.map((s) => s.id);
+    expect(listedIds).toContain(guardianFixtures.sharedSessionId);
+    expect(listedIds).not.toContain(guardianFixtures.otherGroupSessionId);
+
+    const sharedSession = list.body.find((s) => s.id === guardianFixtures.sharedSessionId);
+    const sharedRecordStudentIds = sharedSession?.records.map((r) => r.studentId) ?? [];
+    expect(sharedRecordStudentIds).toContain(guardianFixtures.ownChildStudentId);
+    expect(sharedRecordStudentIds).not.toContain(guardianFixtures.classmateStudentId);
+
+    const sharedRead = await api<AttendanceSessionItem>(
+      `/attendance/sessions/${guardianFixtures.sharedSessionId}`,
+      { headers: authHeaders(guardian.body.accessToken) },
+    );
+    expect(sharedRead.status).toBe(200);
+    const readRecordStudentIds = sharedRead.body.records.map((r) => r.studentId);
+    expect(readRecordStudentIds).toContain(guardianFixtures.ownChildStudentId);
+    expect(readRecordStudentIds).not.toContain(guardianFixtures.classmateStudentId);
+
+    const otherRead = await api<ErrorResponse>(
+      `/attendance/sessions/${guardianFixtures.otherGroupSessionId}`,
+      { headers: authHeaders(guardian.body.accessToken) },
+    );
+    expect(otherRead.status).toBe(403);
+    expect(otherRead.body.message).toBe("You can only view attendance for your own children's group.");
+  });
+
   async function loginAs(email: string): Promise<ApiResponse<LoginResponse>> {
     return api<LoginResponse>("/auth/login", {
       method: "POST",
@@ -377,4 +480,215 @@ async function ensureUserWithMembership(
       status: MembershipStatus.ACTIVE,
     },
   });
+
+  return user;
+}
+
+async function findOrCreateGroup(prisma: PrismaService, tenantId: string, name: string) {
+  const existing = await prisma.group.findFirst({ where: { tenantId, name } });
+  if (existing) return existing;
+  return prisma.group.create({ data: { tenantId, name, grade: "5", section: "E2E" } });
+}
+
+async function findOrCreateSubject(prisma: PrismaService, tenantId: string, name: string) {
+  const existing = await prisma.subject.findFirst({ where: { tenantId, name } });
+  if (existing) return existing;
+  return prisma.subject.create({ data: { tenantId, name, code: "GUARD-E2E" } });
+}
+
+async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<GuardianScopingFixtures> {
+  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: DEMO_TENANT_SLUG } });
+  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 12);
+
+  const teacherUser = await ensureUserWithMembership(prisma, {
+    tenantId: tenant.id,
+    email: TEACHER_EMAIL,
+    firstName: "Teacher",
+    lastName: "E2E",
+    passwordHash,
+    role: UserRole.TEACHER,
+  });
+  const teacher = await prisma.teacher.upsert({
+    where: { userId: teacherUser.id },
+    update: { tenantId: tenant.id },
+    create: { userId: teacherUser.id, tenantId: tenant.id },
+  });
+
+  const guardianUser = await ensureUserWithMembership(prisma, {
+    tenantId: tenant.id,
+    email: GUARDIAN_EMAIL,
+    firstName: "Guardian",
+    lastName: "E2E",
+    passwordHash,
+    role: UserRole.GUARDIAN,
+  });
+  const guardian = await prisma.guardian.upsert({
+    where: { userId: guardianUser.id },
+    update: { tenantId: tenant.id },
+    create: { userId: guardianUser.id, tenantId: tenant.id },
+  });
+
+  const subject = await findOrCreateSubject(prisma, tenant.id, "Matematicas Guardian E2E");
+  const sharedGroup = await findOrCreateGroup(prisma, tenant.id, "5A Guardian E2E Shared");
+  const otherGroup = await findOrCreateGroup(prisma, tenant.id, "5B Guardian E2E Other");
+
+  const ownChild = await prisma.student.upsert({
+    where: { tenantId_documentId: { tenantId: tenant.id, documentId: "GUARDIAN-E2E-OWN-CHILD" } },
+    update: { groupId: sharedGroup.id },
+    create: {
+      tenantId: tenant.id,
+      documentId: "GUARDIAN-E2E-OWN-CHILD",
+      firstName: "Hijo",
+      lastName: "Propio E2E",
+      groupId: sharedGroup.id,
+    },
+  });
+  const classmate = await prisma.student.upsert({
+    where: { tenantId_documentId: { tenantId: tenant.id, documentId: "GUARDIAN-E2E-CLASSMATE" } },
+    update: { groupId: sharedGroup.id },
+    create: {
+      tenantId: tenant.id,
+      documentId: "GUARDIAN-E2E-CLASSMATE",
+      firstName: "Companero",
+      lastName: "Clase E2E",
+      groupId: sharedGroup.id,
+    },
+  });
+  const otherChild = await prisma.student.upsert({
+    where: { tenantId_documentId: { tenantId: tenant.id, documentId: "GUARDIAN-E2E-OTHER-CHILD" } },
+    update: { groupId: otherGroup.id },
+    create: {
+      tenantId: tenant.id,
+      documentId: "GUARDIAN-E2E-OTHER-CHILD",
+      firstName: "Hijo",
+      lastName: "Ajeno E2E",
+      groupId: otherGroup.id,
+    },
+  });
+
+  await prisma.studentGuardian.upsert({
+    where: { studentId_guardianId: { studentId: ownChild.id, guardianId: guardian.id } },
+    update: {},
+    create: { studentId: ownChild.id, guardianId: guardian.id, relationship: "parent", isPrimary: true },
+  });
+
+  let ownChildHomework = await prisma.homework.findFirst({
+    where: { tenantId: tenant.id, groupId: sharedGroup.id, title: "Tarea Guardian E2E Propia" },
+  });
+  ownChildHomework ??= await prisma.homework.create({
+    data: {
+      tenantId: tenant.id,
+      teacherId: teacher.id,
+      subjectId: subject.id,
+      groupId: sharedGroup.id,
+      title: "Tarea Guardian E2E Propia",
+      dueDate: new Date("2026-08-01T00:00:00.000Z"),
+    },
+  });
+
+  let otherGroupHomework = await prisma.homework.findFirst({
+    where: { tenantId: tenant.id, groupId: otherGroup.id, title: "Tarea Guardian E2E Ajena" },
+  });
+  otherGroupHomework ??= await prisma.homework.create({
+    data: {
+      tenantId: tenant.id,
+      teacherId: teacher.id,
+      subjectId: subject.id,
+      groupId: otherGroup.id,
+      title: "Tarea Guardian E2E Ajena",
+      dueDate: new Date("2026-08-01T00:00:00.000Z"),
+    },
+  });
+
+  let ownChildMark = await prisma.mark.findFirst({
+    where: { tenantId: tenant.id, studentId: ownChild.id, title: "Nota Guardian E2E Propia" },
+  });
+  ownChildMark ??= await prisma.mark.create({
+    data: {
+      tenantId: tenant.id,
+      studentId: ownChild.id,
+      subjectId: subject.id,
+      teacherId: teacher.id,
+      title: "Nota Guardian E2E Propia",
+      value: 4.5,
+      maxValue: 5,
+    },
+  });
+
+  let classmateMark = await prisma.mark.findFirst({
+    where: { tenantId: tenant.id, studentId: classmate.id, title: "Nota Guardian E2E Companero" },
+  });
+  classmateMark ??= await prisma.mark.create({
+    data: {
+      tenantId: tenant.id,
+      studentId: classmate.id,
+      subjectId: subject.id,
+      teacherId: teacher.id,
+      title: "Nota Guardian E2E Companero",
+      value: 4.0,
+      maxValue: 5,
+    },
+  });
+
+  let otherChildMark = await prisma.mark.findFirst({
+    where: { tenantId: tenant.id, studentId: otherChild.id, title: "Nota Guardian E2E Ajena" },
+  });
+  otherChildMark ??= await prisma.mark.create({
+    data: {
+      tenantId: tenant.id,
+      studentId: otherChild.id,
+      subjectId: subject.id,
+      teacherId: teacher.id,
+      title: "Nota Guardian E2E Ajena",
+      value: 3.5,
+      maxValue: 5,
+    },
+  });
+
+  let sharedSession = await prisma.attendanceSession.findFirst({
+    where: { tenantId: tenant.id, groupId: sharedGroup.id },
+  });
+  sharedSession ??= await prisma.attendanceSession.create({
+    data: {
+      tenantId: tenant.id,
+      groupId: sharedGroup.id,
+      teacherId: teacher.id,
+      date: new Date("2026-07-01T00:00:00.000Z"),
+      isOpen: true,
+      records: {
+        create: [
+          { studentId: ownChild.id, status: AttendanceStatus.PRESENT },
+          { studentId: classmate.id, status: AttendanceStatus.ABSENT },
+        ],
+      },
+    },
+  });
+
+  let otherGroupSession = await prisma.attendanceSession.findFirst({
+    where: { tenantId: tenant.id, groupId: otherGroup.id },
+  });
+  otherGroupSession ??= await prisma.attendanceSession.create({
+    data: {
+      tenantId: tenant.id,
+      groupId: otherGroup.id,
+      teacherId: teacher.id,
+      date: new Date("2026-07-01T00:00:00.000Z"),
+      isOpen: true,
+      records: {
+        create: [{ studentId: otherChild.id, status: AttendanceStatus.PRESENT }],
+      },
+    },
+  });
+
+  return {
+    ownChildHomeworkId: ownChildHomework.id,
+    otherGroupHomeworkId: otherGroupHomework.id,
+    ownChildMarkId: ownChildMark.id,
+    classmateMarkId: classmateMark.id,
+    otherChildMarkId: otherChildMark.id,
+    sharedSessionId: sharedSession.id,
+    ownChildStudentId: ownChild.id,
+    classmateStudentId: classmate.id,
+    otherGroupSessionId: otherGroupSession.id,
+  };
 }
