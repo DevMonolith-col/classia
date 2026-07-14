@@ -41,6 +41,17 @@ export class HomeworkService {
       });
     }
 
+    if (actor.role === UserRole.GUARDIAN) {
+      const childGroupIds = await this.resolveOwnChildGroupIds(actor);
+      if (childGroupIds.length === 0) return [];
+
+      return this.prisma.homework.findMany({
+        where: { ...commonFilter, groupId: { in: childGroupIds } },
+        select: this.homeworkSelect(),
+        orderBy: [{ dueDate: "desc" }],
+      });
+    }
+
     const scopedTenantId = this.resolveTenantScope(actor, query.tenantId);
 
     return this.prisma.homework.findMany({
@@ -224,6 +235,13 @@ export class HomeworkService {
         throw new ForbiddenException("You can only view assignments for your own group.");
       }
     }
+
+    if (actor.role === UserRole.GUARDIAN) {
+      const childGroupIds = await this.resolveOwnChildGroupIds(actor);
+      if (!childGroupIds.includes(groupId)) {
+        throw new ForbiddenException("You can only view assignments for your own children's group.");
+      }
+    }
   }
 
   private async resolveOwnStudentGroupId(actor: RequestUser) {
@@ -232,6 +250,25 @@ export class HomeworkService {
       select: { groupId: true },
     });
     return student?.groupId ?? undefined;
+  }
+
+  private async resolveOwnChildIds(actor: RequestUser): Promise<string[]> {
+    const guardian = await this.prisma.guardian.findFirst({
+      where: { userId: actor.id, tenantId: actor.tenantId },
+      select: { students: { select: { studentId: true } } },
+    });
+    return guardian?.students.map((s) => s.studentId) ?? [];
+  }
+
+  private async resolveOwnChildGroupIds(actor: RequestUser): Promise<string[]> {
+    const childIds = await this.resolveOwnChildIds(actor);
+    if (childIds.length === 0) return [];
+
+    const children = await this.prisma.student.findMany({
+      where: { id: { in: childIds } },
+      select: { groupId: true },
+    });
+    return [...new Set(children.map((c) => c.groupId).filter((groupId): groupId is string => Boolean(groupId)))];
   }
 
   private resolveTenantScope(actor: RequestUser, tenantId?: string) {
