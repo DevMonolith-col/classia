@@ -11,6 +11,7 @@ const DEMO_PASSWORD = "ClassiaDemo2026!";
 const TENANT_ADMIN_EMAIL = "tenant-admin.e2e@classia.test";
 const TEACHER_EMAIL = "teacher.e2e@classia.test";
 const GUARDIAN_EMAIL = "guardian.e2e@classia.test";
+const OTHER_TEACHER_EMAIL = "other-teacher.e2e@classia.test";
 
 type ApiResponse<T> = {
   status: number;
@@ -84,7 +85,19 @@ type GuardianScopingFixtures = {
   ownChildStudentId: string;
   classmateStudentId: string;
   otherGroupSessionId: string;
+  childTeacherUserId: string;
+  otherTeacherUserId: string;
 };
+
+type ContactItem = { id: string; role: string };
+type ConversationItem = {
+  id: string;
+  type: string;
+  otherParticipants: Array<{ id: string; role: string | null }>;
+  unreadCount: number;
+  messages: Array<{ id: string; fromId: string; body: string }>;
+};
+type MessageItem = { id: string; fromId: string; body: string };
 
 describe("Backend v1 e2e", () => {
   let app: INestApplication;
@@ -354,6 +367,104 @@ describe("Backend v1 e2e", () => {
     );
     expect(otherRead.status).toBe(403);
     expect(otherRead.body.message).toBe("You can only view attendance for your own children's group.");
+  });
+
+  it("restricts a GUARDIAN's 1:1 chat to their children's teachers and preserves soft-deleted messages", async () => {
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+    expect(guardian.status).toBe(201);
+
+    // Contactos: el profesor del hijo sí; un profesor ajeno no.
+    const contacts = await api<ContactItem[]>("/conversations/contacts", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(contacts.status).toBe(200);
+    const contactIds = contacts.body.map((c) => c.id);
+    expect(contactIds).toContain(guardianFixtures.childTeacherUserId);
+    expect(contactIds).not.toContain(guardianFixtures.otherTeacherUserId);
+
+    // No puede iniciar conversación con un profesor que no le da clase a sus hijos.
+    const forbidden = await api<ErrorResponse>("/conversations", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(guardian.body.accessToken)),
+      body: JSON.stringify({ participantId: guardianFixtures.otherTeacherUserId }),
+    });
+    expect(forbidden.status).toBe(403);
+    expect(forbidden.body.message).toBe(
+      "No tienes permiso para iniciar una conversación con este usuario.",
+    );
+
+    // Sí puede con el profesor de su hijo.
+    const created = await api<ConversationItem>("/conversations", {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(guardian.body.accessToken)),
+      body: JSON.stringify({ participantId: guardianFixtures.childTeacherUserId }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.type).toBe("DIRECT");
+    expect(created.body.otherParticipants.map((p) => p.id)).toContain(
+      guardianFixtures.childTeacherUserId,
+    );
+    const conversationId = created.body.id;
+
+    // Envía un mensaje.
+    const sent = await api<MessageItem>(`/conversations/${conversationId}/messages`, {
+      method: "POST",
+      headers: jsonHeaders(authHeaders(guardian.body.accessToken)),
+      body: JSON.stringify({ body: "Buenos días profe, ¿cómo va mi hijo?" }),
+    });
+    expect(sent.status).toBe(201);
+    expect(sent.body.body).toBe("Buenos días profe, ¿cómo va mi hijo?");
+    const messageId = sent.body.id;
+
+    // El guardian ve la conversación con su propio mensaje y sin no-leídos.
+    const guardianList = await api<ConversationItem[]>("/conversations", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(guardianList.status).toBe(200);
+    const guardianConv = guardianList.body.find((c) => c.id === conversationId);
+    expect(guardianConv?.messages.map((m) => m.id)).toContain(messageId);
+    expect(guardianConv?.unreadCount).toBe(0);
+
+    // El profesor ve la conversación con 1 no-leído, luego marca leído.
+    const teacher = await loginAs(TEACHER_EMAIL);
+    const teacherList = await api<ConversationItem[]>("/conversations", {
+      headers: authHeaders(teacher.body.accessToken),
+    });
+    const teacherConv = teacherList.body.find((c) => c.id === conversationId);
+    expect(teacherConv).toBeDefined();
+    expect(teacherConv?.unreadCount).toBe(1);
+    expect(teacherConv?.messages.some((m) => m.body === "Buenos días profe, ¿cómo va mi hijo?")).toBe(
+      true,
+    );
+
+    const marked = await api<{ status: string }>(`/conversations/${conversationId}/read`, {
+      method: "POST",
+      headers: authHeaders(teacher.body.accessToken),
+    });
+    expect(marked.status).toBe(201);
+    const teacherListAfter = await api<ConversationItem[]>("/conversations", {
+      headers: authHeaders(teacher.body.accessToken),
+    });
+    expect(teacherListAfter.body.find((c) => c.id === conversationId)?.unreadCount).toBe(0);
+
+    // Soft-delete del propio mensaje: desaparece de la vista...
+    const deleted = await api<{ status: string }>(
+      `/conversations/${conversationId}/messages/${messageId}`,
+      { method: "DELETE", headers: authHeaders(guardian.body.accessToken) },
+    );
+    expect(deleted.status).toBe(200);
+
+    const guardianListAfter = await api<ConversationItem[]>("/conversations", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    const convAfter = guardianListAfter.body.find((c) => c.id === conversationId);
+    expect(convAfter?.messages.map((m) => m.id)).not.toContain(messageId);
+
+    // ...pero la fila permanece en la BD con deletedAt (retención Ley 1620 / Ley 527).
+    const prisma = app.get(PrismaService);
+    const persisted = await prisma.conversationMessage.findUnique({ where: { id: messageId } });
+    expect(persisted).not.toBeNull();
+    expect(persisted?.deletedAt).not.toBeNull();
   });
 
   async function loginAs(email: string): Promise<ApiResponse<LoginResponse>> {
@@ -680,6 +791,35 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
     },
   });
 
+  // El teacher da clase al grupo del hijo del guardian -> es contacto válido para mensajería.
+  await findOrCreateSchedule(prisma, {
+    tenantId: tenant.id,
+    groupId: sharedGroup.id,
+    subjectId: subject.id,
+    teacherId: teacher.id,
+  });
+
+  // Un profesor que NO da clase a ningún hijo del guardian -> NO debe ser contacto válido.
+  const otherTeacherUser = await ensureUserWithMembership(prisma, {
+    tenantId: tenant.id,
+    email: OTHER_TEACHER_EMAIL,
+    firstName: "Profesor",
+    lastName: "Ajeno E2E",
+    passwordHash,
+    role: UserRole.TEACHER,
+  });
+  const otherTeacher = await prisma.teacher.upsert({
+    where: { userId: otherTeacherUser.id },
+    update: { tenantId: tenant.id },
+    create: { userId: otherTeacherUser.id, tenantId: tenant.id },
+  });
+  await findOrCreateSchedule(prisma, {
+    tenantId: tenant.id,
+    groupId: otherGroup.id,
+    subjectId: subject.id,
+    teacherId: otherTeacher.id,
+  });
+
   return {
     ownChildHomeworkId: ownChildHomework.id,
     otherGroupHomeworkId: otherGroupHomework.id,
@@ -690,5 +830,33 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
     ownChildStudentId: ownChild.id,
     classmateStudentId: classmate.id,
     otherGroupSessionId: otherGroupSession.id,
+    childTeacherUserId: teacherUser.id,
+    otherTeacherUserId: otherTeacherUser.id,
   };
+}
+
+async function findOrCreateSchedule(
+  prisma: PrismaService,
+  input: { tenantId: string; groupId: string; subjectId: string; teacherId: string },
+) {
+  const existing = await prisma.schedule.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      groupId: input.groupId,
+      subjectId: input.subjectId,
+      teacherId: input.teacherId,
+    },
+  });
+  if (existing) return existing;
+  return prisma.schedule.create({
+    data: {
+      tenantId: input.tenantId,
+      groupId: input.groupId,
+      subjectId: input.subjectId,
+      teacherId: input.teacherId,
+      dayOfWeek: 1,
+      startTime: "08:00",
+      endTime: "09:00",
+    },
+  });
 }

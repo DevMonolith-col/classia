@@ -84,13 +84,13 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  memberships      TenantMembership[]
-  sessions         AuthSession[]
-  teacher          Teacher?
-  guardian         Guardian?
-  student          Student?
-  sentMessages     Message[]          @relation("SentMessages")
-  receivedMessages Message[]          @relation("ReceivedMessages")
+  memberships             TenantMembership[]
+  sessions                AuthSession[]
+  teacher                 Teacher?
+  guardian                Guardian?
+  student                 Student?
+  conversationMemberships ConversationMember[]
+  conversationMessages    ConversationMessage[]
 
   @@map("users")
 }
@@ -422,20 +422,60 @@ model HomeworkSubmission {
 
 // ─── Comunicaciones ──────────────────────────────────────────────────────────
 
-model Message {
-  id        String   @id @default(uuid())
-  tenantId  String
-  fromId    String
-  toId      String
-  subject   String?
-  body      String
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+enum ConversationType {
+  DIRECT // 1:1 (acudiente <-> profesor, etc.)
+  GROUP // difusión de un profesor a varios acudientes (reservado para Fase 2)
+}
 
-  from User @relation("SentMessages", fields: [fromId], references: [id])
-  to   User @relation("ReceivedMessages", fields: [toId], references: [id])
+model Conversation {
+  id          String           @id @default(uuid())
+  tenantId    String
+  type        ConversationType @default(DIRECT)
+  title       String? // requerido para type = GROUP
+  groupId     String? // curso de origen, si el hilo se derivó de un curso
+  subjectId   String? // materia de origen, si aplica
+  createdById String
+  createdAt   DateTime         @default(now())
+  archivedAt  DateTime?
 
-  @@map("messages")
+  members  ConversationMember[]
+  messages ConversationMessage[]
+
+  @@index([tenantId, type])
+  @@map("conversations")
+}
+
+model ConversationMember {
+  id             String    @id @default(uuid())
+  conversationId String
+  userId         String
+  joinedAt       DateTime  @default(now())
+  lastReadAt     DateTime?
+  mutedAt        DateTime? // "quiet hours" estilo ClassDojo, a nivel de miembro
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_members")
+}
+
+model ConversationMessage {
+  id             String    @id @default(uuid())
+  conversationId String
+  fromId         String
+  body           String
+  attachmentKey  String?
+  attachmentName String?
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime? // soft-delete: oculta al usuario pero NUNCA se borra de la BD (Ley 1620 / Ley 527)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  from         User         @relation(fields: [fromId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@map("conversation_messages")
 }
 
 model Announcement {
