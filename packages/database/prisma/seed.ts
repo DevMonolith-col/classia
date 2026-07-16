@@ -361,6 +361,61 @@ async function main() {
     },
   });
 
+  // ── Configuración académica por defecto (Colombia) ──────────────────────────
+  const academicYear = await prisma.academicYear.upsert({
+    where: { tenantId_name: { tenantId: tenant.id, name: "2026" } },
+    update: { isActive: true },
+    create: {
+      tenantId: tenant.id,
+      name: "2026",
+      startDate: new Date("2026-01-27"),
+      endDate: new Date("2026-11-27"),
+      isActive: true,
+    },
+  });
+
+  // 4 periodos iguales (25% c/u), como en Colombia. Configurable después vía API.
+  for (let i = 1; i <= 4; i++) {
+    await prisma.academicPeriod.upsert({
+      where: { academicYearId_sequence: { academicYearId: academicYear.id, sequence: i } },
+      update: { weight: 25 },
+      create: {
+        tenantId: tenant.id,
+        academicYearId: academicYear.id,
+        name: `Periodo ${i}`,
+        sequence: i,
+        weight: 25,
+      },
+    });
+  }
+
+  // Escala nacional 1.0–5.0 (aprueba 3.0) con bandas cualitativas. Genérica: el
+  // modelo soporta cualquier escala; esta es solo la semilla por defecto.
+  const existingScale = await prisma.gradingScale.findFirst({
+    where: { tenantId: tenant.id, isDefault: true },
+    select: { id: true },
+  });
+  if (!existingScale) {
+    await prisma.gradingScale.create({
+      data: {
+        tenantId: tenant.id,
+        name: "Escala nacional (1.0–5.0)",
+        minValue: 1,
+        maxValue: 5,
+        passingValue: 3,
+        isDefault: true,
+        bands: {
+          create: [
+            { label: "Bajo", minValue: 1.0, maxValue: 2.99, order: 0 },
+            { label: "Básico", minValue: 3.0, maxValue: 3.99, order: 1 },
+            { label: "Alto", minValue: 4.0, maxValue: 4.59, order: 2 },
+            { label: "Superior", minValue: 4.6, maxValue: 5.0, order: 3 },
+          ],
+        },
+      },
+    });
+  }
+
   await prisma.auditLog.create({
     data: {
       tenantId: tenant.id,

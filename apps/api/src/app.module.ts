@@ -15,6 +15,7 @@ import { StorageModule } from "./core/storage/storage.module";
 import { TenantContextModule } from "./core/tenant-context/tenant-context.module";
 import { AnnouncementsModule } from "./modules/announcements/announcements.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { AcademicModule } from "./modules/academic/academic.module";
 import { AttendanceModule } from "./modules/attendance/attendance.module";
 import { AuditModule } from "./modules/audit/audit.module";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -27,6 +28,7 @@ import { GuardiansModule } from "./modules/guardians/guardians.module";
 import { HealthModule } from "./modules/health/health.module";
 import { HomeworkModule } from "./modules/homework/homework.module";
 import { HomeworkSubmissionsModule } from "./modules/homework-submissions/homework-submissions.module";
+import { GradingModule } from "./modules/grading/grading.module";
 import { MarksModule } from "./modules/marks/marks.module";
 import { QuestionsModule } from "./modules/questions/questions.module";
 import { QuizAttemptsModule } from "./modules/quiz-attempts/quiz-attempts.module";
@@ -64,6 +66,8 @@ import { UsersModule } from "./modules/users/users.module";
     SubjectsModule,
     SchedulesModule,
     EventsModule,
+    AcademicModule,
+    GradingModule,
     AttendanceModule,
     MarksModule,
     HomeworkModule,
