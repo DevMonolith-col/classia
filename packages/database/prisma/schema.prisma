@@ -305,6 +305,11 @@ model Mark {
   teacher  Teacher   @relation(fields: [teacherId], references: [id])
   homework Homework? @relation(fields: [homeworkId], references: [id])
 
+  // Una sola nota por (estudiante, tarea). Postgres trata NULL como distinto,
+  // así que las notas manuales sueltas (homeworkId = null) no se ven afectadas,
+  // pero la carrera de los tres writers sobre la misma tarea queda imposibilitada.
+  @@unique([studentId, homeworkId])
+  @@index([tenantId, period])
   @@map("marks")
 }
 
