@@ -32,6 +32,7 @@ import { GradingModule } from "./modules/grading/grading.module";
 import { MarksModule } from "./modules/marks/marks.module";
 import { QuestionsModule } from "./modules/questions/questions.module";
 import { QuizAttemptsModule } from "./modules/quiz-attempts/quiz-attempts.module";
+import { ReportCardsModule } from "./modules/report-cards/report-cards.module";
 import { SchedulesModule } from "./modules/schedules/schedules.module";
 import { StudentsModule } from "./modules/students/students.module";
 import { SubjectsModule } from "./modules/subjects/subjects.module";
@@ -70,6 +71,7 @@ import { UsersModule } from "./modules/users/users.module";
     GradingModule,
     AttendanceModule,
     MarksModule,
+    ReportCardsModule,
     HomeworkModule,
     HomeworkSubmissionsModule,
     QuestionsModule,
