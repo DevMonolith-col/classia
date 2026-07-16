@@ -56,10 +56,18 @@ docker              -> compose y scripts
 - Biblioteca.
 - Enfermería.
 - Nómina.
-- Chat complejo tipo WhatsApp.
 - IA.
 - Biometría.
 - Firma digital avanzada.
+
+## Aprobado explícitamente
+
+- **Chat complejo tipo WhatsApp** — aprobado por el dueño del producto el 2026-07-16, con
+  alcance completo: entrega en vivo, "escribiendo...", presencia, checks de leído en vivo,
+  adjuntos y silenciar hilos. Implementar siguiendo `docs/planning/chat-tiempo-real.md`.
+  La aprobación cubre ese alcance; llamadas de voz/video **no** están aprobadas (los
+  botones de Video/Phone que hay hoy en la UI son decorativos y deben quitarse o
+  implementarse aparte, con su propia decisión).
 
 ---
 
