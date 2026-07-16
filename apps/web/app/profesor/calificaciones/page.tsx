@@ -22,6 +22,8 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import type { Homework } from "@/components/profesor/homework-types"
 import { DAY_LABELS, type Mark, type Student, type TeacherSchedule } from "@/components/profesor/marks-types"
+import { computeWeightedFinal } from "@/lib/grading"
+import { ReportCardDialog } from "@/components/shared/report-card-view"
 
 function cellKey(studentId: string, homeworkId: string) {
   return `${studentId}:${homeworkId}`
@@ -128,10 +130,12 @@ function CalificacionesProfesorPageContent() {
 
   const filteredHomeworkList = useMemo(() => {
     if (periodFilter === "all") return homeworkList
-    return homeworkList.filter(h => {
-      const anyMark = Object.values(marksByCell).find(m => m.homework?.id === h.id || m.homeworkId === h.id)
-      if (anyMark) return String(anyMark.period) === periodFilter
-      return false
+    // Antes escondía las tareas SIN nota al filtrar por periodo — justo las que
+    // hay que calificar. Ahora una tarea aparece si su nota es de ese periodo o
+    // si todavía no tiene nota (sigue disponible para calificar).
+    return homeworkList.filter((h) => {
+      const anyMark = Object.values(marksByCell).find((m) => m.homework?.id === h.id || m.homeworkId === h.id)
+      return !anyMark || String(anyMark.period) === periodFilter
     })
   }, [homeworkList, periodFilter, marksByCell])
 
@@ -176,6 +180,9 @@ function CalificacionesProfesorPageContent() {
               title: homework.title,
               value,
               maxValue: 100,
+              // Guarda la nota en el periodo seleccionado (si hay uno), para que
+              // el filtro de periodo sea real y no todo caiga en el periodo 1.
+              ...(periodFilter !== "all" ? { period: Number(periodFilter) } : {}),
             }),
             silent: true,
           })
@@ -227,19 +234,16 @@ function CalificacionesProfesorPageContent() {
     }
   }
 
-  const totalWeight = useMemo(() => homeworkList.reduce((sum, h) => sum + h.weight, 0), [homeworkList])
-
+  // Definitiva de la superficie de edición: fuente única compartida, y respeta
+  // el filtro de periodo (antes iteraba la lista sin filtrar).
   function computeFinalGrade(studentId: string) {
-    let total = 0
-    let gradedCount = 0
-    for (const homework of homeworkList) {
-      const mark = marksByCell[cellKey(studentId, homework.id)]
-      if (mark) {
-        total += (mark.value / mark.maxValue) * homework.weight
-        gradedCount++
-      }
-    }
-    return { total, gradedCount }
+    const entries = filteredHomeworkList
+      .map((homework) => {
+        const mark = marksByCell[cellKey(studentId, homework.id)]
+        return mark ? { value: mark.value, maxValue: mark.maxValue, weight: homework.weight } : null
+      })
+      .filter((e): e is { value: number; maxValue: number; weight: number } => e !== null)
+    return computeWeightedFinal(entries)
   }
 
   return (
@@ -384,14 +388,20 @@ function CalificacionesProfesorPageContent() {
                     </thead>
                     <tbody>
                       {roster.map((student) => {
-                        const { total, gradedCount } = computeFinalGrade(student.id)
+                        const finalGrade = computeFinalGrade(student.id)
                         return (
                           <tr key={student.id} className="border-b border-border">
                             <td className="sticky left-0 bg-background px-4 py-4 border-r border-border min-w-[200px]">
                               <p className="font-medium text-foreground">
                                 {student.firstName} {student.lastName}
                               </p>
-                              <p className="text-xs text-muted-foreground mt-0.5">{student.documentId}</p>
+                              <div className="mt-0.5 flex items-center justify-between gap-2">
+                                <p className="text-xs text-muted-foreground">{student.documentId}</p>
+                                <ReportCardDialog
+                                  studentId={student.id}
+                                  studentName={`${student.firstName} ${student.lastName}`}
+                                />
+                              </div>
                             </td>
                             {filteredHomeworkList.map((homework) => {
                               const key = cellKey(student.id, homework.id)
@@ -463,9 +473,9 @@ function CalificacionesProfesorPageContent() {
                               )
                             })}
                             <td className="px-4 py-2 text-center">
-                              {gradedCount > 0 ? (
-                                <Badge variant={gradedCount === homeworkList.length ? "default" : "outline"}>
-                                  {total.toFixed(1)}
+                              {finalGrade.percent !== null ? (
+                                <Badge variant={finalGrade.gradedCount === filteredHomeworkList.length ? "default" : "outline"}>
+                                  {finalGrade.percent.toFixed(1)}
                                 </Badge>
                               ) : (
                                 <span className="text-xs text-muted-foreground">—</span>
