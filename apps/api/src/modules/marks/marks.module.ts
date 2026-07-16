@@ -10,5 +10,9 @@ import { MarksService } from "./marks.service";
   imports: [AuditCoreModule, JwtModule.register({})],
   controllers: [MarksController],
   providers: [JwtAuthGuard, PermissionsGuard, MarksService],
+  // Exportado para que otros módulos (homework-submissions, quiz-attempts)
+  // puedan enrutar sus escrituras de Mark a través de upsertMark() en vez de
+  // escribir Prisma directo. Ver contrato en asignaciones-calificacion-en-linea.md §2.
+  exports: [MarksService],
 })
 export class MarksModule {}
