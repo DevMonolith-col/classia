@@ -6,7 +6,7 @@ import { useState, useEffect } from "react"
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Calendar,
   MessageSquare, BarChart3, Settings, LogOut, Menu, X,
-  Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone,
+  Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone, SlidersHorizontal,
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 
@@ -29,6 +29,7 @@ const navigation = [
   { name: "Asignaciones",  href: "/admin/asignaciones",  icon: FileText },
   { name: "Asistencia",    href: "/admin/asistencia",    icon: ClipboardCheck },
   { name: "Calificaciones", href: "/admin/calificaciones", icon: ClipboardList },
+  { name: "Config. Académica", href: "/admin/configuracion-academica", icon: SlidersHorizontal },
   { name: "Calendario",    href: "/admin/calendario",    icon: Calendar },
   { name: "Mensajes",      href: "/admin/mensajes",      icon: MessageSquare },
   { name: "Comunicados",   href: "/admin/comunicados",   icon: Megaphone },
