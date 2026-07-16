@@ -75,6 +75,7 @@ model Tenant {
   academicPeriods   AcademicPeriod[]
   gradingScales     GradingScale[]
   gradingCategories GradingCategory[]
+  reportCards       ReportCard[]
 
   @@map("tenants")
 }
@@ -168,6 +169,7 @@ model Subject {
   marks     Mark[]
   homework  Homework[]
   gradingCategories GradingCategory[]
+  reportCardLines   ReportCardLine[]
 
   @@map("subjects")
 }
@@ -195,6 +197,7 @@ model Student {
   marks               Mark[]
   homeworkSubmissions HomeworkSubmission[]
   quizAttempts        QuizAttempt[]
+  reportCards         ReportCard[]
 
   @@unique([tenantId, documentId])
   @@map("students")
@@ -339,8 +342,9 @@ model AcademicYear {
   isActive  Boolean            @default(false)
   createdAt DateTime           @default(now())
 
-  tenant  Tenant           @relation(fields: [tenantId], references: [id])
-  periods AcademicPeriod[]
+  tenant      Tenant           @relation(fields: [tenantId], references: [id])
+  periods     AcademicPeriod[]
+  reportCards ReportCard[]
 
   @@unique([tenantId, name])
   @@index([tenantId, isActive])
@@ -362,6 +366,7 @@ model AcademicPeriod {
   tenant       Tenant            @relation(fields: [tenantId], references: [id])
   academicYear AcademicYear      @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
   categories   GradingCategory[]
+  reportCards  ReportCard[]
 
   @@unique([academicYearId, sequence])
   @@index([tenantId])
@@ -421,6 +426,54 @@ model GradingCategory {
 
   @@index([tenantId, groupId, subjectId, periodId])
   @@map("grading_categories")
+}
+
+enum ReportCardStatus {
+  DRAFT
+  PUBLISHED
+  FINAL
+}
+
+// Boletín inmutable: un snapshot congelado de las definitivas de un estudiante en
+// un periodo (periodId) o en el año (periodId = null). Guarda el valor y la
+// etiqueta de escala vigentes al generarlo; recalcular notas históricas nunca lo
+// cambia. Esa es la garantía de inmutabilidad.
+model ReportCard {
+  id             String           @id @default(uuid())
+  tenantId       String
+  studentId      String
+  academicYearId String
+  periodId       String?
+  status         ReportCardStatus @default(PUBLISHED)
+  overallAverage Float
+  scaleName      String
+  generatedById  String
+  generatedAt    DateTime         @default(now())
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id])
+  student      Student          @relation(fields: [studentId], references: [id])
+  academicYear AcademicYear     @relation(fields: [academicYearId], references: [id])
+  period       AcademicPeriod?  @relation(fields: [periodId], references: [id])
+  lines        ReportCardLine[]
+
+  @@index([tenantId, studentId, academicYearId])
+  @@map("report_cards")
+}
+
+model ReportCardLine {
+  id           String  @id @default(uuid())
+  reportCardId String
+  subjectId    String
+  subjectName  String
+  final        Float
+  label        String
+  passing      Boolean
+
+  reportCard ReportCard @relation(fields: [reportCardId], references: [id], onDelete: Cascade)
+  subject    Subject    @relation(fields: [subjectId], references: [id])
+
+  @@index([reportCardId])
+  @@map("report_card_lines")
 }
 
 model Homework {
