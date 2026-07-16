@@ -71,6 +71,10 @@ model Tenant {
   subjects      Subject[]
   announcements Announcement[]
   events        Event[]
+  academicYears     AcademicYear[]
+  academicPeriods   AcademicPeriod[]
+  gradingScales     GradingScale[]
+  gradingCategories GradingCategory[]
 
   @@map("tenants")
 }
@@ -148,6 +152,7 @@ model Group {
   attendanceSessions AttendanceSession[]
   homework           Homework[]
   announcements      Announcement[]
+  gradingCategories  GradingCategory[]
 
   @@map("groups")
 }
@@ -162,6 +167,7 @@ model Subject {
   schedules Schedule[]
   marks     Mark[]
   homework  Homework[]
+  gradingCategories GradingCategory[]
 
   @@map("subjects")
 }
@@ -228,6 +234,7 @@ model Teacher {
   attendanceSessions AttendanceSession[]
   marks              Mark[]
   homework           Homework[]
+  gradingCategories  GradingCategory[]
 
   @@map("teachers")
 }
@@ -292,6 +299,7 @@ model Mark {
   subjectId   String
   teacherId   String
   homeworkId  String?
+  categoryId  String?
   title       String
   value       Float
   maxValue    Float    @default(100)
@@ -300,10 +308,11 @@ model Mark {
   date        DateTime @default(now())
   isPublished Boolean  @default(true)
 
-  student  Student   @relation(fields: [studentId], references: [id])
-  subject  Subject   @relation(fields: [subjectId], references: [id])
-  teacher  Teacher   @relation(fields: [teacherId], references: [id])
-  homework Homework? @relation(fields: [homeworkId], references: [id])
+  student  Student          @relation(fields: [studentId], references: [id])
+  subject  Subject          @relation(fields: [subjectId], references: [id])
+  teacher  Teacher          @relation(fields: [teacherId], references: [id])
+  homework Homework?        @relation(fields: [homeworkId], references: [id])
+  category GradingCategory? @relation(fields: [categoryId], references: [id])
 
   // Una sola nota por (estudiante, tarea). Postgres trata NULL como distinto,
   // así que las notas manuales sueltas (homeworkId = null) no se ven afectadas,
@@ -311,6 +320,107 @@ model Mark {
   @@unique([studentId, homeworkId])
   @@index([tenantId, period])
   @@map("marks")
+}
+
+// ─── Configuración académica (Notas y Reportes) ──────────────────────────────
+
+enum AcademicYearStatus {
+  OPEN
+  ARCHIVED
+}
+
+model AcademicYear {
+  id        String             @id @default(uuid())
+  tenantId  String
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  status    AcademicYearStatus @default(OPEN)
+  isActive  Boolean            @default(false)
+  createdAt DateTime           @default(now())
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id])
+  periods AcademicPeriod[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isActive])
+  @@map("academic_years")
+}
+
+model AcademicPeriod {
+  id             String    @id @default(uuid())
+  tenantId       String
+  academicYearId String
+  name           String
+  sequence       Int
+  weight         Float
+  startDate      DateTime?
+  endDate        DateTime?
+  lockedAt       DateTime?
+  createdAt      DateTime  @default(now())
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  academicYear AcademicYear      @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  categories   GradingCategory[]
+
+  @@unique([academicYearId, sequence])
+  @@index([tenantId])
+  @@map("academic_periods")
+}
+
+model GradingScale {
+  id           String   @id @default(uuid())
+  tenantId     String
+  name         String
+  minValue     Float
+  maxValue     Float
+  passingValue Float
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  tenant Tenant             @relation(fields: [tenantId], references: [id])
+  bands  GradingScaleBand[]
+
+  @@index([tenantId, isDefault])
+  @@map("grading_scales")
+}
+
+model GradingScaleBand {
+  id       String @id @default(uuid())
+  scaleId  String
+  label    String
+  minValue Float
+  maxValue Float
+  order    Int
+
+  scale GradingScale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+
+  @@index([scaleId])
+  @@map("grading_scale_bands")
+}
+
+// Definida por el profesor para su clase (grupo + materia + periodo). Agrupa
+// varias notas que se promedian; su weight es el % que aporta al periodo.
+model GradingCategory {
+  id        String   @id @default(uuid())
+  tenantId  String
+  groupId   String
+  subjectId String
+  teacherId String
+  periodId  String
+  name      String
+  weight    Float
+  createdAt DateTime @default(now())
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id])
+  group   Group          @relation(fields: [groupId], references: [id])
+  subject Subject        @relation(fields: [subjectId], references: [id])
+  teacher Teacher        @relation(fields: [teacherId], references: [id])
+  period  AcademicPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  marks   Mark[]
+
+  @@index([tenantId, groupId, subjectId, periodId])
+  @@map("grading_categories")
 }
 
 model Homework {
