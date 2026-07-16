@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import type { Mark } from "@/components/profesor/marks-types"
+import { computeWeightedFinal } from "@/lib/grading"
 
 interface Props {
   marks: Mark[]
@@ -29,20 +30,12 @@ export function StudentGradesTable({ marks, studentName = "Estudiante", studentD
     <div className="space-y-6">
       {Object.entries(bySubject).map(([subjectName, subjectMarks]) => {
         const sortedMarks = [...subjectMarks].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        
-        let total = 0
-        let totalWeight = 0
-        for (const m of sortedMarks) {
-          if (m.homework) {
-            total += (m.value / m.maxValue) * m.homework.weight
-            totalWeight += m.homework.weight
-          } else {
-            total += (m.value / m.maxValue) * 10
-            totalWeight += 10
-          }
-        }
-        
-        // Use subject name for title
+
+        // Fuente única compartida con la grilla del profesor (antes divergían).
+        const finalGrade = computeWeightedFinal(
+          sortedMarks.map((m) => ({ value: m.value, maxValue: m.maxValue, weight: m.homework?.weight ?? 0 })),
+        )
+        const totalWeight = sortedMarks.reduce((sum, m) => sum + (m.homework?.weight ?? 0), 0)
         const title = subjectName
         const assignmentsCount = sortedMarks.length
 
@@ -99,7 +92,7 @@ export function StudentGradesTable({ marks, studentName = "Estudiante", studentD
                       ))}
                       <td className="px-4 py-4 text-center border-l border-border bg-muted/10">
                         <span className="font-semibold text-foreground text-base">
-                          {total.toFixed(1)}
+                          {finalGrade.percent !== null ? finalGrade.percent.toFixed(1) : "—"}
                         </span>
                       </td>
                     </tr>
