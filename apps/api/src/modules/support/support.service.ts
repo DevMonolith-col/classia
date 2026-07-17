@@ -116,19 +116,23 @@ export class SupportService {
   }
 
   async getSupportAgents() {
-    return this.prisma.user.findMany({
+    // Role vive en TenantMembership, no en User (RBAC es por-tenant); un mismo
+    // usuario puede tener membership SUPER_ADMIN/SUPPORT_AGENT en más de un
+    // tenant, así que se deduplica por userId.
+    const memberships = await this.prisma.tenantMembership.findMany({
       where: {
         role: { in: ["SUPER_ADMIN", "SUPPORT_AGENT"] },
-        status: "ACTIVE"
+        status: "ACTIVE",
+        user: { status: "ACTIVE" },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        role: true
+        role: true,
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
       },
-      orderBy: { firstName: "asc" }
+      distinct: ["userId"],
+      orderBy: { user: { firstName: "asc" } },
     })
+
+    return memberships.map((m) => ({ ...m.user, role: m.role }))
   }
 }

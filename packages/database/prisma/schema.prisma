@@ -102,6 +102,7 @@ model User {
   announcementReads       AnnouncementRead[]
   notifications           Notification[]
   notificationPreferences NotificationPreference[]
+  assignedSupportTickets  SupportTicket[]           @relation("SupportTicketAssignee")
 
   @@map("users")
 }
@@ -831,8 +832,9 @@ model SupportTicket {
   updatedAt   DateTime       @updatedAt
 
   tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  assignee    User?          @relation("SupportTicketAssignee", fields: [assigneeId], references: [id])
   comments    TicketComment[]
-  
+
   @@index([tenantId, status])
   @@map("support_tickets")
 }
