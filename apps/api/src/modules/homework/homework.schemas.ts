@@ -3,6 +3,7 @@ import { z } from "zod";
 export const HOMEWORK_TYPES = ["TAREA", "EXAMEN", "QUIZ", "PROYECTO"] as const;
 
 export const listHomeworkQuerySchema = z.object({
+  academicYearId: z.string().min(1).optional(),
   tenantId: z.string().min(1).optional(),
   groupId: z.string().min(1).optional(),
   subjectId: z.string().min(1).optional(),

@@ -64,13 +64,13 @@ model Tenant {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  memberships   TenantMembership[]
-  sessions      AuthSession[]
-  students      Student[]
-  groups        Group[]
-  subjects      Subject[]
-  announcements Announcement[]
-  events        Event[]
+  memberships       TenantMembership[]
+  sessions          AuthSession[]
+  students          Student[]
+  groups            Group[]
+  subjects          Subject[]
+  announcements     Announcement[]
+  events            Event[]
   academicYears     AcademicYear[]
   academicPeriods   AcademicPeriod[]
   gradingScales     GradingScale[]
@@ -97,7 +97,7 @@ model User {
   student                 Student?
   conversationMemberships ConversationMember[]
   conversationMessages    ConversationMessage[]
-  announcementsAuthored   Announcement[]        @relation("AnnouncementAuthor")
+  announcementsAuthored   Announcement[]           @relation("AnnouncementAuthor")
   announcementReads       AnnouncementRead[]
   notifications           Notification[]
   notificationPreferences NotificationPreference[]
@@ -164,10 +164,10 @@ model Subject {
   name     String
   code     String?
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id])
-  schedules Schedule[]
-  marks     Mark[]
-  homework  Homework[]
+  tenant            Tenant            @relation(fields: [tenantId], references: [id])
+  schedules         Schedule[]
+  marks             Mark[]
+  homework          Homework[]
   gradingCategories GradingCategory[]
   reportCardLines   ReportCardLine[]
 
@@ -273,7 +273,7 @@ model AttendanceSession {
   isOpen     Boolean  @default(true)
   createdAt  DateTime @default(now())
 
-  schedule Schedule?         @relation(fields: [scheduleId], references: [id])
+  schedule Schedule?          @relation(fields: [scheduleId], references: [id])
   group    Group              @relation(fields: [groupId], references: [id])
   teacher  Teacher            @relation(fields: [teacherId], references: [id])
   records  AttendanceRecord[]
@@ -296,32 +296,35 @@ model AttendanceRecord {
 }
 
 model Mark {
-  id          String   @id @default(uuid())
-  tenantId    String
-  studentId   String
-  subjectId   String
-  teacherId   String
-  homeworkId  String?
-  categoryId  String?
-  title       String
-  value       Float
-  maxValue    Float    @default(100)
-  comment     String?
-  period      Int      @default(1)
-  date        DateTime @default(now())
-  isPublished Boolean  @default(true)
+  id             String   @id @default(uuid())
+  tenantId       String
+  studentId      String
+  subjectId      String
+  teacherId      String
+  homeworkId     String?
+  categoryId     String?
+  academicYearId String?
+  title          String
+  value          Float
+  maxValue       Float    @default(100)
+  comment        String?
+  period         Int      @default(1)
+  date           DateTime @default(now())
+  isPublished    Boolean  @default(true)
 
-  student  Student          @relation(fields: [studentId], references: [id])
-  subject  Subject          @relation(fields: [subjectId], references: [id])
-  teacher  Teacher          @relation(fields: [teacherId], references: [id])
-  homework Homework?        @relation(fields: [homeworkId], references: [id])
-  category GradingCategory? @relation(fields: [categoryId], references: [id])
+  student      Student          @relation(fields: [studentId], references: [id])
+  subject      Subject          @relation(fields: [subjectId], references: [id])
+  teacher      Teacher          @relation(fields: [teacherId], references: [id])
+  homework     Homework?        @relation(fields: [homeworkId], references: [id])
+  category     GradingCategory? @relation(fields: [categoryId], references: [id])
+  academicYear AcademicYear?    @relation(fields: [academicYearId], references: [id])
 
   // Una sola nota por (estudiante, tarea). Postgres trata NULL como distinto,
   // así que las notas manuales sueltas (homeworkId = null) no se ven afectadas,
   // pero la carrera de los tres writers sobre la misma tarea queda imposibilitada.
   @@unique([studentId, homeworkId])
   @@index([tenantId, period])
+  @@index([academicYearId])
   @@map("marks")
 }
 
@@ -345,6 +348,8 @@ model AcademicYear {
   tenant      Tenant           @relation(fields: [tenantId], references: [id])
   periods     AcademicPeriod[]
   reportCards ReportCard[]
+  marks       Mark[]
+  homework    Homework[]
 
   @@unique([tenantId, name])
   @@index([tenantId, isActive])
@@ -477,32 +482,36 @@ model ReportCardLine {
 }
 
 model Homework {
-  id             String   @id @default(uuid())
-  tenantId       String
-  teacherId      String
-  subjectId      String
-  groupId        String
-  title          String
-  description    String?
-  availableFrom  DateTime?
-  dueDate        DateTime
-  cutOffDate     DateTime?
-  weight         Float    @default(0)
-  type           String   @default("TAREA")
-  allowNavigation Boolean @default(true)
-  attachmentKey  String?
-  attachmentName String?
-  status         String   @default("ACTIVE")
-  createdAt      DateTime @default(now())
+  id              String    @id @default(uuid())
+  tenantId        String
+  teacherId       String
+  subjectId       String
+  groupId         String
+  academicYearId  String?
+  title           String
+  description     String?
+  availableFrom   DateTime?
+  dueDate         DateTime
+  cutOffDate      DateTime?
+  weight          Float     @default(0)
+  type            String    @default("TAREA")
+  allowNavigation Boolean   @default(true)
+  attachmentKey   String?
+  attachmentName  String?
+  status          String    @default("ACTIVE")
+  createdAt       DateTime  @default(now())
 
-  teacher     Teacher              @relation(fields: [teacherId], references: [id])
-  subject     Subject              @relation(fields: [subjectId], references: [id])
-  group       Group                @relation(fields: [groupId], references: [id])
-  submissions HomeworkSubmission[]
-  marks       Mark[]
-  questions   Question[]
-  attempts    QuizAttempt[]
+  teacher      Teacher              @relation(fields: [teacherId], references: [id])
+  subject      Subject              @relation(fields: [subjectId], references: [id])
+  group        Group                @relation(fields: [groupId], references: [id])
+  academicYear AcademicYear?        @relation(fields: [academicYearId], references: [id])
+  submissions  HomeworkSubmission[]
+  marks        Mark[]
+  questions    Question[]
+  attempts     QuizAttempt[]
 
+  @@index([tenantId, groupId, subjectId])
+  @@index([academicYearId])
   @@map("homework")
 }
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const listMarksQuerySchema = z.object({
+  academicYearId: z.string().min(1).optional(),
   tenantId: z.string().min(1).optional(),
   studentId: z.string().min(1).optional(),
   subjectId: z.string().min(1).optional(),

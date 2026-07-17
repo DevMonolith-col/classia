@@ -20,7 +20,16 @@ export class HomeworkService {
   ) {}
 
   async list(actor: RequestUser, query: ListHomeworkQuery) {
+    let targetYearId = query.academicYearId;
+    if (!targetYearId) {
+      const activeYear = await this.prisma.academicYear.findFirst({
+        where: { tenantId: this.resolveTenantScope(actor, query.tenantId) ?? actor.tenantId, isActive: true },
+      });
+      targetYearId = activeYear?.id;
+    }
+
     const commonFilter = {
+      ...(targetYearId ? { academicYearId: targetYearId } : {}),
       ...(query.groupId ? { groupId: query.groupId } : {}),
       ...(query.subjectId ? { subjectId: query.subjectId } : {}),
     };
@@ -94,12 +103,20 @@ export class HomeworkService {
     await this.assertGroupBelongsToTenant(input.groupId, tenantId);
     await this.assertSubjectBelongsToTenant(input.subjectId, tenantId);
 
+    const activeYear = await this.prisma.academicYear.findFirst({
+      where: { tenantId, isActive: true },
+    });
+    if (!activeYear) {
+      throw new ForbiddenException("No hay un año académico activo para este colegio.");
+    }
+
     const homework = await this.prisma.homework.create({
       data: {
         tenantId,
         groupId: input.groupId,
         subjectId: input.subjectId,
         teacherId,
+        academicYearId: activeYear.id,
         title: input.title,
         description: input.description,
         availableFrom: input.availableFrom,
