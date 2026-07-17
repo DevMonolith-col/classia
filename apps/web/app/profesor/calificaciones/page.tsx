@@ -25,6 +25,8 @@ import { DAY_LABELS, type Mark, type Student, type TeacherSchedule } from "@/com
 import { computeWeightedFinal } from "@/lib/grading"
 import { ReportCardDialog } from "@/components/shared/report-card-view"
 
+type AcademicYear = { id: string; name: string; isActive: boolean }
+
 function cellKey(studentId: string, homeworkId: string) {
   return `${studentId}:${homeworkId}`
 }
@@ -40,6 +42,8 @@ function CalificacionesProfesorPageContent() {
 
   const [selectedScheduleId, setSelectedScheduleId] = useState(scheduleIdParam ?? "")
   const [periodFilter, setPeriodFilter] = useState<string>("all")
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
+  const [selectedYearId, setSelectedYearId] = useState<string>("")
   const [homeworkList, setHomeworkList] = useState<Homework[]>([])
   const [roster, setRoster] = useState<Student[]>([])
   const [marksByCell, setMarksByCell] = useState<Record<string, Mark>>({})
@@ -66,10 +70,22 @@ function CalificacionesProfesorPageContent() {
       }
       setTeacherId(id)
 
-      const schedulesRes = await apiFetch(`/schedules?teacherId=${id}`, { silent: true })
+      const [schedulesRes, yearsRes] = await Promise.all([
+        apiFetch(`/schedules?teacherId=${id}`, { silent: true }),
+        apiFetch("/academic-years", { silent: true }),
+      ])
+      
       const schedulesData = schedulesRes.ok ? ((await schedulesRes.json()) as TeacherSchedule[]) : []
       setSchedules(schedulesData)
       if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
+
+      if (yearsRes.ok) {
+        const years = (await yearsRes.json()) as AcademicYear[]
+        setAcademicYears(years)
+        const activeYear = years.find((y) => y.isActive)
+        if (activeYear) setSelectedYearId(activeYear.id)
+        else if (years.length > 0) setSelectedYearId(years[0].id)
+      }
     } catch (err) {
       setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
     } finally {
@@ -83,14 +99,15 @@ function CalificacionesProfesorPageContent() {
 
   const selectedSchedule = schedules.find((s) => s.id === selectedScheduleId) ?? null
 
-  const loadGrid = useCallback(async (schedule: TeacherSchedule) => {
+  const loadGrid = useCallback(async (schedule: TeacherSchedule, yearId: string) => {
     setLoadingGrid(true)
     setGridError("")
     try {
+      const yearQuery = yearId ? `&academicYearId=${yearId}` : ""
       const [homeworkRes, rosterRes, marksRes] = await Promise.all([
-        apiFetch(`/homework?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}`, { silent: true }),
+        apiFetch(`/homework?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}${yearQuery}`, { silent: true }),
         apiFetch(`/students?groupId=${schedule.group.id}`, { silent: true }),
-        apiFetch(`/marks?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}`, { silent: true }),
+        apiFetch(`/marks?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}${yearQuery}`, { silent: true }),
       ])
 
       if (!rosterRes.ok) throw new Error("No se pudo cargar la lista de estudiantes.")
@@ -125,8 +142,10 @@ function CalificacionesProfesorPageContent() {
   }, [])
 
   useEffect(() => {
-    if (selectedSchedule) loadGrid(selectedSchedule)
-  }, [selectedSchedule, loadGrid])
+    if (selectedSchedule && selectedYearId) {
+      loadGrid(selectedSchedule, selectedYearId)
+    }
+  }, [selectedSchedule, selectedYearId, loadGrid])
 
   const filteredHomeworkList = useMemo(() => {
     if (periodFilter === "all") return homeworkList
@@ -274,8 +293,23 @@ function CalificacionesProfesorPageContent() {
       {!loadingSetup && schedules.length > 0 && (
         <>
           <Card className="mb-6">
-            <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
-              <div className="w-full space-y-2 sm:w-96">
+            <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end flex-wrap">
+              <div className="w-full space-y-2 sm:w-48">
+                <Label>Año Lectivo</Label>
+                <Select value={selectedYearId} onValueChange={setSelectedYearId} disabled={loadingSetup}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {academicYears.map((y) => (
+                      <SelectItem key={y.id} value={y.id}>
+                        {y.name} {y.isActive ? "(Activo)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full space-y-2 sm:w-64">
                 <Label>Clase</Label>
                 <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId} disabled={loadingSetup}>
                   <SelectTrigger>

@@ -85,12 +85,15 @@ export class MarksService {
    * llamante — por eso los otros módulos deben enrutar aquí.
    */
   async upsertMark(input: MarkWriteInput, actor: MarkWriteActor) {
+    const activeYear = await this.resolveActiveYear(input.tenantId);
+
     const data = {
       tenantId: input.tenantId,
       studentId: input.studentId,
       subjectId: input.subjectId,
       teacherId: input.teacherId,
       homeworkId: input.homeworkId ?? null,
+      academicYearId: activeYear.id,
       title: input.title,
       value: input.value,
       maxValue: input.maxValue,
@@ -113,6 +116,7 @@ export class MarksService {
           create: data,
           update: {
             teacherId: input.teacherId,
+            academicYearId: activeYear.id,
             title: input.title,
             value: input.value,
             maxValue: input.maxValue,
@@ -147,7 +151,16 @@ export class MarksService {
   }
 
   async list(actor: RequestUser, query: ListMarksQuery) {
+    let targetYearId = query.academicYearId;
+    if (!targetYearId) {
+      const activeYear = await this.prisma.academicYear.findFirst({
+        where: { tenantId: this.resolveTenantScope(actor, query.tenantId) ?? actor.tenantId, isActive: true },
+      });
+      targetYearId = activeYear?.id;
+    }
+
     const commonFilter = {
+      ...(targetYearId ? { academicYearId: targetYearId } : {}),
       ...(query.studentId ? { studentId: query.studentId } : {}),
       ...(query.subjectId ? { subjectId: query.subjectId } : {}),
       ...(query.homeworkId ? { homeworkId: query.homeworkId } : {}),
@@ -332,6 +345,8 @@ export class MarksService {
       throw new ForbiddenException("One or more students are outside of this group.");
     }
 
+    const activeYear = await this.resolveActiveYear(tenantId);
+
     const created = await this.prisma.$transaction(
       input.records.map((record) => {
         const data = {
@@ -339,6 +354,7 @@ export class MarksService {
           studentId: record.studentId,
           subjectId: input.subjectId,
           teacherId,
+          academicYearId: activeYear.id,
           homeworkId: input.homeworkId,
           title: input.title,
           value: record.value,
@@ -355,6 +371,7 @@ export class MarksService {
             create: data,
             update: {
               teacherId,
+              academicYearId: activeYear.id,
               title: input.title,
               value: record.value,
               maxValue: input.maxValue,
@@ -410,6 +427,19 @@ export class MarksService {
     }
 
     return inputTeacherId;
+  }
+
+  // Toda escritura de Mark queda anclada al año académico activo del tenant; sin
+  // año activo no se puede calificar (los históricos viven en años archivados).
+  private async resolveActiveYear(tenantId: string) {
+    const activeYear = await this.prisma.academicYear.findFirst({
+      where: { tenantId, isActive: true },
+      select: { id: true },
+    });
+    if (!activeYear) {
+      throw new ForbiddenException("No hay un año académico activo para este colegio.");
+    }
+    return activeYear;
   }
 
   private async resolveOwnTeacherId(actor: RequestUser) {
