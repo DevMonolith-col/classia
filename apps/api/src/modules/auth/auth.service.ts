@@ -226,24 +226,35 @@ export class AuthService {
       throw new UnauthorizedException("Target tenant not found.");
     }
 
-    const membership = await this.prisma.tenantMembership.upsert({
+    // Al impersonar nunca se otorga ni se conserva SUPER_ADMIN dentro del
+    // tenant: ese rol es exclusivo de quien lo tiene asignado deliberadamente.
+    // Si ya existe una membership real (con el rol que sea), se respeta tal
+    // cual y solo se reactiva si estaba suspendida; si no existe, se crea una
+    // temporal de soporte con TENANT_ADMIN para poder operar el tenant.
+    let membership = await this.prisma.tenantMembership.findUnique({
       where: {
         tenantId_userId: {
           tenantId: targetTenant.id,
           userId: currentUser.id,
         },
       },
-      update: {
-        role: "SUPER_ADMIN",
-        status: MembershipStatus.ACTIVE,
-      },
-      create: {
-        tenantId: targetTenant.id,
-        userId: currentUser.id,
-        role: "SUPER_ADMIN",
-        status: MembershipStatus.ACTIVE,
-      },
     });
+
+    if (!membership) {
+      membership = await this.prisma.tenantMembership.create({
+        data: {
+          tenantId: targetTenant.id,
+          userId: currentUser.id,
+          role: "TENANT_ADMIN",
+          status: MembershipStatus.ACTIVE,
+        },
+      });
+    } else if (membership.status !== MembershipStatus.ACTIVE) {
+      membership = await this.prisma.tenantMembership.update({
+        where: { id: membership.id },
+        data: { status: MembershipStatus.ACTIVE },
+      });
+    }
 
     const tokens = await this.createSession({
       sub: currentUser.id,
