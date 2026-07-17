@@ -77,6 +77,7 @@ export class ReportCardsService {
     subjectId: string,
     periodId: string,
     periodSequence: number,
+    academicYearId: string,
   ): Promise<number | null> {
     const categories = await this.prisma.gradingCategory.findMany({
       where: { groupId, subjectId, periodId },
@@ -99,9 +100,10 @@ export class ReportCardsService {
       return weightWithMarks > 0 ? weightedSum / weightWithMarks : null;
     }
 
-    // Sin categorías: promedio simple de las notas del periodo por secuencia.
+    // Sin categorías: promedio simple de las notas del periodo por secuencia,
+    // acotado al año académico — sin esto, "periodo 1" mezclaría todos los años.
     const marks = await this.prisma.mark.findMany({
-      where: { studentId, subjectId, period: periodSequence, isPublished: true },
+      where: { studentId, subjectId, period: periodSequence, academicYearId, isPublished: true },
       select: { value: true, maxValue: true },
     });
     return marks.length > 0 ? this.mean(marks.map((m) => m.value / m.maxValue)) : null;
@@ -126,7 +128,7 @@ export class ReportCardsService {
       const lines: SubjectLine[] = [];
       for (const s of subjects) {
         const fraction = student.groupId
-          ? await this.subjectPeriodFraction(studentId, student.groupId, s.id, period.id, period.sequence)
+          ? await this.subjectPeriodFraction(studentId, student.groupId, s.id, period.id, period.sequence, year.id)
           : null;
         lines.push(this.toLine(scale, s.id, s.name, fraction));
       }
@@ -140,7 +142,7 @@ export class ReportCardsService {
       let weighted = 0;
       for (const period of year.periods) {
         if (!student.groupId) continue;
-        const fraction = await this.subjectPeriodFraction(studentId, student.groupId, s.id, period.id, period.sequence);
+        const fraction = await this.subjectPeriodFraction(studentId, student.groupId, s.id, period.id, period.sequence, year.id);
         if (fraction === null) continue;
         const periodFinal = this.clamp(fraction * scale.maxValue, scale.minValue, scale.maxValue);
         weighted += periodFinal * period.weight;
