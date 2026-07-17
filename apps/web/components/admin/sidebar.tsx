@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Calendar,
   MessageSquare, BarChart3, Settings, LogOut, Menu, X,
   Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone, SlidersHorizontal, LifeBuoy, ChevronDown,
-  UserCog, Library, BookMarked, Mail, Briefcase
+  UserCog, School, BookMarked, Mail, Briefcase
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 
@@ -41,7 +41,7 @@ const navigation: NavItem[] = [
     name: "Académico",
     icon: BookOpen,
     children: [
-      { name: "Cursos", href: "/admin/cursos", icon: Library },
+      { name: "Cursos", href: "/admin/cursos", icon: School },
       { name: "Materias", href: "/admin/materias", icon: BookMarked },
       { name: "Horarios", href: "/admin/horarios", icon: CalendarClock },
       { name: "Asignaciones", href: "/admin/asignaciones", icon: FileText },
@@ -84,7 +84,7 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
     "Comunicación": false,
     "Administración": false,
   })
-  const [user, setUser] = useState<{ firstName: string; lastName: string; email: string; role: string } | null>(null)
+  const [user, setUser] = useState<{ firstName: string; lastName: string; email: string; role: string; tenantName?: string } | null>(null)
 
   useEffect(() => { setUser(getStoredUser()) }, [])
 
@@ -117,9 +117,9 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
         </button>
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <span className="text-sm font-bold text-primary-foreground">C</span>
+            <span className="text-sm font-bold text-primary-foreground">{user?.tenantName ? user.tenantName[0].toUpperCase() : "C"}</span>
           </div>
-          <span className="font-bold">Classia</span>
+          <span className="font-bold truncate max-w-[150px]">{user?.tenantName || "Classia"}</span>
         </div>
         <button className="relative rounded-md p-2 text-foreground">
           <Bell className="h-5 w-5" />
@@ -146,9 +146,9 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
           {!isCollapsed && (
             <div className="flex flex-1 items-center gap-2 overflow-hidden">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary">
-                <span className="text-sm font-bold text-sidebar-primary-foreground">C</span>
+                <span className="text-sm font-bold text-sidebar-primary-foreground">{user?.tenantName ? user.tenantName[0].toUpperCase() : "C"}</span>
               </div>
-              <span className="truncate font-bold text-sidebar-foreground">Classia</span>
+              <span className="truncate font-bold text-sidebar-foreground">{user?.tenantName || "Classia"}</span>
             </div>
           )}
           {/* Botón hamburguesa desktop */}
