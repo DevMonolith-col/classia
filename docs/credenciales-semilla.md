@@ -9,6 +9,12 @@ Se ha ejecutado exitosamente un script de semilla masiva (`seed-massive`) que ha
 Para **todos** los usuarios (Administradores, Profesores, Acudientes, Estudiantes), la contraseña es:
 > **`ClassiaTest2026!`**
 
+## 👑 Super Administrador (Global)
+Para acceder al panel global SaaS y probar las nuevas funcionalidades (Paginación y Filtros de Usuarios, Auditoría, etc.), utiliza esta cuenta que tiene acceso a **todas** las instituciones:
+
+- **Email:** `admin@classia.com.co`
+- **Contraseña:** `ClassiaDemo2026!`
+
 ---
 
 ## 🏫 Instituciones Generadas

@@ -18,3 +18,9 @@ export const refreshTokenSchema = z.object({
 });
 
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
+
+export const impersonateSchema = z.object({
+  tenantId: z.string().uuid(),
+});
+
+export type ImpersonateInput = z.infer<typeof impersonateSchema>;

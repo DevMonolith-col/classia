@@ -7,8 +7,10 @@ import { RequestUser } from "../../common/types/request-context";
 import {
   LoginInput,
   RefreshTokenInput,
+  ImpersonateInput,
   loginSchema,
   refreshTokenSchema,
+  impersonateSchema,
 } from "./auth.schemas";
 import { AuthService } from "./auth.service";
 
@@ -38,6 +40,16 @@ export class AuthController {
     @Req() request: Request,
   ) {
     return this.auth.logout(body, request);
+  }
+
+  @Post("impersonate")
+  @UseGuards(JwtAuthGuard)
+  impersonate(
+    @Body(new ZodValidationPipe(impersonateSchema)) body: ImpersonateInput,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+  ) {
+    return this.auth.impersonate(body, user, request);
   }
 
   @Get("me")

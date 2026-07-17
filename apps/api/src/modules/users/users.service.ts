@@ -10,6 +10,7 @@ import {
   CreateUserInput,
   UpdateMembershipInput,
   UpdateUserInput,
+  ListUsersInput,
 } from "./users.schemas";
 
 @Injectable()
@@ -67,24 +68,57 @@ export class UsersService {
     });
   }
 
-  listVisibleUsers(user: RequestUser, tenantId?: string) {
-    const targetTenantId = this.resolveTenantScope(user, tenantId);
+  async listVisibleUsers(user: RequestUser, input: ListUsersInput) {
+    const targetTenantId = this.resolveTenantScope(user, input.tenantId);
 
-    return this.prisma.user.findMany({
-      where: targetTenantId
+    const membershipCondition: Prisma.TenantMembershipWhereInput = {};
+    if (targetTenantId) membershipCondition.tenantId = targetTenantId;
+    if (input.role) membershipCondition.role = input.role;
+
+    const hasMembershipCondition = Object.keys(membershipCondition).length > 0;
+
+    const where: Prisma.UserWhereInput = {
+      ...(hasMembershipCondition
+        ? { memberships: { some: membershipCondition } }
+        : {}),
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.search
         ? {
-            memberships: {
-              some: {
-                tenantId: targetTenantId,
-              },
-            },
+            OR: [
+              { firstName: { contains: input.search, mode: "insensitive" } },
+              { lastName: { contains: input.search, mode: "insensitive" } },
+              { email: { contains: input.search, mode: "insensitive" } },
+            ],
           }
-        : undefined,
+        : {}),
+    };
+
+    const users = await this.prisma.user.findMany({
+      where,
       select: this.userSelect(),
       orderBy: {
         createdAt: "asc",
       },
+      take: input.limit + 1,
+      ...(input.cursor
+        ? {
+            cursor: { id: input.cursor },
+            skip: 1,
+          }
+        : {}),
     });
+
+    const hasNextPage = users.length > input.limit;
+    const items = hasNextPage ? users.slice(0, input.limit) : users;
+    const nextCursor = hasNextPage ? items.at(-1)?.id : undefined;
+
+    return {
+      items,
+      pageInfo: {
+        hasNextPage,
+        nextCursor,
+      },
+    };
   }
 
   async findVisibleUser(userId: string, user: RequestUser) {
@@ -301,7 +335,7 @@ export class UsersService {
 
   private resolveTenantScope(actor: RequestUser, tenantId?: string) {
     if (this.isGlobalAdmin(actor)) {
-      return tenantId;
+      return tenantId ?? actor.tenantId;
     }
 
     if (tenantId && tenantId !== actor.tenantId) {
