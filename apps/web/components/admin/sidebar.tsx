@@ -6,7 +6,7 @@ import { useState, useEffect } from "react"
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Calendar,
   MessageSquare, BarChart3, Settings, LogOut, Menu, X,
-  Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone, SlidersHorizontal, LifeBuoy
+  Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone, SlidersHorizontal, LifeBuoy, ChevronDown
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 
@@ -19,25 +19,56 @@ const ROLE_LABELS: Record<string, string> = {
   SECRETARY: "Secretaria",
 }
 
-const navigation = [
-  { name: "Dashboard",     href: "/admin",               icon: LayoutDashboard },
-  { name: "Estudiantes",   href: "/admin/estudiantes",   icon: GraduationCap },
-  { name: "Profesores",    href: "/admin/profesores",    icon: Users },
-  { name: "Cursos",        href: "/admin/cursos",        icon: BookOpen },
-  { name: "Materias",      href: "/admin/materias",      icon: BookOpen },
-  { name: "Horarios",      href: "/admin/horarios",      icon: CalendarClock },
-  { name: "Asignaciones",  href: "/admin/asignaciones",  icon: FileText },
-  { name: "Asistencia",    href: "/admin/asistencia",    icon: ClipboardCheck },
-  { name: "Calificaciones", href: "/admin/calificaciones", icon: ClipboardList },
-  { name: "Config. Académica", href: "/admin/configuracion-academica", icon: SlidersHorizontal },
-  { name: "Calendario",    href: "/admin/calendario",    icon: Calendar },
-  { name: "Mensajes",      href: "/admin/mensajes",      icon: MessageSquare },
-  { name: "Comunicados",   href: "/admin/comunicados",   icon: Megaphone },
-  { name: "Notificaciones", href: "/admin/notificaciones", icon: Bell },
-  { name: "Reportes",      href: "/admin/reportes",      icon: BarChart3 },
-  { name: "Soporte",       href: "/admin/soporte",       icon: LifeBuoy },
-  { name: "Plugins",       href: "/admin/plugins",       icon: Puzzle },
-  { name: "Configuración", href: "/admin/configuracion", icon: Settings },
+type NavItem = {
+  name: string;
+  href?: string;
+  icon: any;
+  children?: { name: string; href: string }[];
+}
+
+const navigation: NavItem[] = [
+  { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
+  {
+    name: "Comunidad",
+    icon: Users,
+    children: [
+      { name: "Estudiantes", href: "/admin/estudiantes" },
+      { name: "Profesores", href: "/admin/profesores" },
+    ]
+  },
+  {
+    name: "Académico",
+    icon: BookOpen,
+    children: [
+      { name: "Cursos", href: "/admin/cursos" },
+      { name: "Materias", href: "/admin/materias" },
+      { name: "Horarios", href: "/admin/horarios" },
+      { name: "Asignaciones", href: "/admin/asignaciones" },
+      { name: "Asistencia", href: "/admin/asistencia" },
+      { name: "Calificaciones", href: "/admin/calificaciones" },
+      { name: "Config. Académica", href: "/admin/configuracion-academica" },
+    ]
+  },
+  {
+    name: "Comunicación",
+    icon: MessageSquare,
+    children: [
+      { name: "Mensajes", href: "/admin/mensajes" },
+      { name: "Comunicados", href: "/admin/comunicados" },
+      { name: "Notificaciones", href: "/admin/notificaciones" },
+      { name: "Calendario", href: "/admin/calendario" },
+    ]
+  },
+  {
+    name: "Administración",
+    icon: Settings,
+    children: [
+      { name: "Reportes", href: "/admin/reportes" },
+      { name: "Soporte", href: "/admin/soporte" },
+      { name: "Plugins", href: "/admin/plugins" },
+      { name: "Configuración", href: "/admin/configuracion" },
+    ]
+  }
 ]
 
 interface Props { isCollapsed: boolean; onToggle: () => void }
@@ -46,9 +77,29 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
   const pathname  = usePathname()
   const router    = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    "Académico": true,
+    "Comunidad": false,
+    "Comunicación": false,
+    "Administración": false,
+  })
   const [user, setUser] = useState<{ firstName: string; lastName: string; email: string; role: string } | null>(null)
 
   useEffect(() => { setUser(getStoredUser()) }, [])
+
+  // Auto-expand category if active pathname is inside it
+  useEffect(() => {
+    navigation.forEach(item => {
+      if (item.children && item.children.some(child => pathname === child.href || pathname.startsWith(`${child.href}/`))) {
+        setExpanded(prev => ({ ...prev, [item.name]: true }))
+      }
+    })
+  }, [pathname])
+
+  const toggleCategory = (name: string) => {
+    if (isCollapsed) onToggle() // Expand sidebar if collapsed
+    else setExpanded(prev => ({ ...prev, [name]: !prev[name] }))
+  }
 
   const initials     = user?.firstName ? `${user.firstName[0]}${user.lastName?.[0] ?? ""}`.toUpperCase() : "AD"
   const displayName  = user?.firstName ? `${user.firstName} ${user.lastName}` : (user?.email ?? "Administrador")
@@ -116,13 +167,65 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
         </div>
 
         {/* Navegación */}
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
           {navigation.map((item) => {
-            const active = pathname === item.href
+            if (item.children) {
+              const isExpanded = expanded[item.name]
+              const hasActiveChild = item.children.some(child => pathname === child.href || pathname.startsWith(`${child.href}/`))
+              
+              return (
+                <div key={item.name} className="space-y-0.5">
+                  <button
+                    onClick={() => toggleCategory(item.name)}
+                    title={isCollapsed ? item.name : undefined}
+                    className={[
+                      "flex w-full items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
+                      isCollapsed ? "justify-center px-2" : "gap-3 px-3",
+                      hasActiveChild && !isExpanded
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    ].join(" ")}
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" />
+                    {!isCollapsed && (
+                      <>
+                        <span className="truncate flex-1 text-left">{item.name}</span>
+                        <ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                      </>
+                    )}
+                  </button>
+                  
+                  {!isCollapsed && isExpanded && (
+                    <div className="mt-1 space-y-0.5 pl-9 pr-1">
+                      {item.children.map(child => {
+                        const childActive = pathname === child.href || pathname.startsWith(`${child.href}/`)
+                        return (
+                          <Link
+                            key={child.name}
+                            href={child.href}
+                            onClick={() => setMobileOpen(false)}
+                            className={[
+                              "block truncate rounded-md px-3 py-2 text-xs font-medium transition-colors",
+                              childActive
+                                ? "bg-primary/10 text-primary font-semibold"
+                                : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                            ].join(" ")}
+                          >
+                            {child.name}
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            }
+
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
             return (
               <Link
                 key={item.name}
-                href={item.href}
+                href={item.href!}
                 onClick={() => setMobileOpen(false)}
                 title={isCollapsed ? item.name : undefined}
                 className={[
