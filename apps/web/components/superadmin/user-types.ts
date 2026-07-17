@@ -62,3 +62,11 @@ export type User = {
   updatedAt?: string
   memberships: Membership[]
 }
+
+export type UsersResponse = {
+  items: User[]
+  pageInfo: {
+    hasNextPage: boolean
+    nextCursor?: string
+  }
+}
