@@ -117,34 +117,36 @@ export default function AdminAsistenciaPage() {
         </div>
       )}
 
-      <Card className="mb-6">
-        <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
-          <div className="w-full space-y-2 sm:w-72">
-            <Label>Profesor</Label>
-            <TeacherCombobox teachers={teachers} value={selectedTeacherId} onChange={setSelectedTeacherId} allowAll />
-          </div>
-          <div className="w-full space-y-2 sm:w-48">
-            <Label>Estado</Label>
-            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                <SelectItem value="open">Abiertas</SelectItem>
-                <SelectItem value="closed">Cerradas</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
       <Card>
-        <CardHeader className="border-b border-border">
-          <CardTitle>Sesiones de asistencia</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {loading ? "Cargando..." : `${filteredSessions.length} sesión${filteredSessions.length === 1 ? "" : "es"}`}
-          </p>
+        <CardHeader className="gap-4 border-b border-border py-4">
+          <div className="flex flex-col gap-4">
+            <div>
+              <CardTitle>Sesiones de asistencia</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {loading ? "Cargando..." : `${filteredSessions.length} sesión${filteredSessions.length === 1 ? "" : "es"}`}
+              </p>
+            </div>
+            
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="w-full space-y-2 sm:w-72">
+                <Label>Profesor</Label>
+                <TeacherCombobox teachers={teachers} value={selectedTeacherId} onChange={setSelectedTeacherId} allowAll />
+              </div>
+              <div className="w-full space-y-2 sm:w-48">
+                <Label>Estado</Label>
+                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="open">Abiertas</SelectItem>
+                    <SelectItem value="closed">Cerradas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
