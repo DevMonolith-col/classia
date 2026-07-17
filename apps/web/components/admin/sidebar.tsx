@@ -49,8 +49,8 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
 
   useEffect(() => { setUser(getStoredUser()) }, [])
 
-  const initials     = user ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase() : "AD"
-  const displayName  = user ? `${user.firstName} ${user.lastName}` : "Administrador"
+  const initials     = user?.firstName ? `${user.firstName[0]}${user.lastName?.[0] ?? ""}`.toUpperCase() : "AD"
+  const displayName  = user?.firstName ? `${user.firstName} ${user.lastName}` : (user?.email ?? "Administrador")
   const roleLabel    = user ? (ROLE_LABELS[user.role] ?? user.role) : ""
 
   const handleLogout = async () => { await logout(); router.push("/login") }

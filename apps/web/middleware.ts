@@ -67,6 +67,10 @@ export function middleware(request: NextRequest) {
       const currentSection = PROTECTED_SECTIONS.find((s) => pathname.startsWith(s))
 
       if (correctSection && currentSection && currentSection !== correctSection) {
+        // Permitir que SUPER_ADMIN acceda a /admin (modo impersonación)
+        if (payload.role === "SUPER_ADMIN" && currentSection === "/admin") {
+          return NextResponse.next()
+        }
         return NextResponse.redirect(new URL(correctSection, request.url))
       }
     }

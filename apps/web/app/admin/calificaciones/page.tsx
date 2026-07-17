@@ -297,109 +297,117 @@ export default function AdminCalificacionesPage() {
         </div>
       )}
 
-      <Card className="mb-6">
-        <CardContent className="flex flex-col gap-4 p-4">
-          {/* El boletín es del estudiante: su búsqueda es el control principal. */}
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-            <div className="w-full space-y-2 sm:max-w-md sm:flex-1">
-              <Label>Estudiante</Label>
-              <StudentCombobox
-                students={studentsForCombobox}
-                value={selectedStudentId}
-                onChange={setSelectedStudentId}
-                allowAll
-              />
-            </div>
-            <div className="w-full space-y-2 sm:w-56">
-              <Label>Grado / Curso</Label>
-              <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">Todos los cursos</SelectItem>
-                  {groups.map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="w-full sm:ml-auto sm:w-auto">
-              <Button onClick={generateBulkReportCards} disabled={generatingBulk || !selectedYearId} className="w-full gap-2">
-                {generatingBulk ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                Generar boletines
-              </Button>
-            </div>
-          </div>
-          {/* Contexto académico: qué año y qué corte estás mirando. */}
-          <div className="flex flex-col gap-4 border-t border-border pt-4 sm:flex-row sm:items-end">
-            <div className="w-full space-y-2 sm:w-48">
-              <Label>Año Lectivo</Label>
-              <Select value={selectedYearId} onValueChange={setSelectedYearId}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {academicYears.map((y) => (
-                    <SelectItem key={y.id} value={y.id}>
-                      {y.name} {y.isActive ? "(Activo)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="w-full space-y-2 sm:w-48">
-              <Label>Periodo / Nota Final</Label>
-              <Select value={periodFilter} onValueChange={setPeriodFilter}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Nota Final (Todos)</SelectItem>
-                  {PERIOD_OPTIONS.map((p) => (
-                    <SelectItem key={p} value={String(p)}>
-                      Periodo {p}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {selectedStudent ? (
-        <Card>
-          <CardHeader className="flex flex-col gap-3 border-b border-border sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle>
-                {selectedStudent.firstName} {selectedStudent.lastName}
-              </CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {selectedStudent.documentId ?? "Sin documento"}
-                {summary && ` · ${summary.scaleName}`}
-                {periodFilter !== "all" ? ` · Periodo ${periodFilter}` : " · Definitiva del año"}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {summary?.overallAverage != null && (
-                <div className="text-right">
-                  <p className="text-2xl font-bold text-foreground">{summary.overallAverage.toFixed(1)}</p>
-                  <p className="text-xs text-muted-foreground">Promedio general</p>
+      <Card>
+        <CardHeader className="gap-4 border-b border-border py-4">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle>
+                  {selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : (isConsolidadoView ? "Consolidado General del Grado" : "Estudiantes con calificaciones")}
+                </CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {selectedStudent ? (
+                    <>
+                      {selectedStudent.documentId ?? "Sin documento"}
+                      {summary && ` · ${summary.scaleName}`}
+                      {periodFilter !== "all" ? ` · Periodo ${periodFilter}` : " · Definitiva del año"}
+                    </>
+                  ) : (
+                    <>
+                      {loading ? "Cargando..." : `${uniqueStudents.length} estudiante${uniqueStudents.length === 1 ? "" : "s"}`}
+                      {isConsolidadoView && !loading && ` · ${subjectsToDisplay.length} materias registradas`}
+                    </>
+                  )}
+                </p>
+              </div>
+              {selectedStudent && (
+                <div className="flex items-center gap-3">
+                  {summary?.overallAverage != null && (
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-foreground">{summary.overallAverage.toFixed(1)}</p>
+                      <p className="text-xs text-muted-foreground">Promedio general</p>
+                    </div>
+                  )}
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/admin/calificaciones/${selectedStudent.id}`}>
+                      <FileText className="mr-2 h-4 w-4" />
+                      Boletín
+                    </Link>
+                  </Button>
                 </div>
               )}
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/admin/calificaciones/${selectedStudent.id}`}>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Boletín
-                </Link>
-              </Button>
             </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {summaryLoading ? (
+
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end border-t border-border pt-4">
+              <div className="w-full space-y-2 sm:max-w-md sm:flex-1">
+                <Label>Estudiante</Label>
+                <StudentCombobox
+                  students={studentsForCombobox}
+                  value={selectedStudentId}
+                  onChange={setSelectedStudentId}
+                  allowAll
+                />
+              </div>
+              <div className="w-full space-y-2 sm:w-56">
+                <Label>Grado / Curso</Label>
+                <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Todos los cursos</SelectItem>
+                    {groups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {g.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full space-y-2 sm:w-48">
+                <Label>Año Lectivo</Label>
+                <Select value={selectedYearId} onValueChange={setSelectedYearId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {academicYears.map((y) => (
+                      <SelectItem key={y.id} value={y.id}>
+                        {y.name} {y.isActive ? "(Activo)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full space-y-2 sm:w-48">
+                <Label>Periodo / Nota Final</Label>
+                <Select value={periodFilter} onValueChange={setPeriodFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Nota Final (Todos)</SelectItem>
+                    {PERIOD_OPTIONS.map((p) => (
+                      <SelectItem key={p} value={String(p)}>
+                        Periodo {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full sm:w-auto">
+                <Button onClick={generateBulkReportCards} disabled={generatingBulk || !selectedYearId} className="w-full gap-2">
+                  {generatingBulk ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                  Generar boletines
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+            {selectedStudent ? (
+              <>
+                {summaryLoading ? (
               <div className="space-y-3 p-6">
                 {Array.from({ length: 4 }).map((_, index) => (
                   <div key={index} className="h-12 animate-pulse rounded-lg bg-secondary" />
@@ -501,21 +509,10 @@ export default function AdminCalificacionesPage() {
                 </TableBody>
               </Table>
             )}
-          </CardContent>
-        </Card>
-      ) : (
-      <Card>
-        <CardHeader className="border-b border-border">
-          <CardTitle>
-            {isConsolidadoView ? "Consolidado General del Grado" : "Estudiantes con calificaciones"}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {loading ? "Cargando..." : `${uniqueStudents.length} estudiante${uniqueStudents.length === 1 ? "" : "s"}`}
-            {isConsolidadoView && !loading && ` · ${subjectsToDisplay.length} materias registradas`}
-          </p>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
+              </>
+            ) : (
+              <>
+                {loading ? (
             <div className="space-y-3 p-6">
               {Array.from({ length: 5 }).map((_, index) => (
                 <div key={index} className="h-12 animate-pulse rounded-lg bg-secondary" />
@@ -595,9 +592,10 @@ export default function AdminCalificacionesPage() {
               </Table>
             </div>
           )}
+            </>
+          )}
         </CardContent>
       </Card>
-      )}
     </div>
   )
 }

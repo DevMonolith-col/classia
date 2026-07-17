@@ -189,81 +189,81 @@ export default function SuperAdminUsersPage() {
           </div>
         )}
 
-        <Card className="mb-6">
-          <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-end">
-            <div className="w-full space-y-2 lg:w-56">
-              <Label>Colegio</Label>
-              <Select value={tenantFilter} onValueChange={setTenantFilter}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los colegios</SelectItem>
-                  {tenants.map((tenant) => (
-                    <SelectItem key={tenant.id} value={tenant.id}>
-                      {tenant.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="w-full space-y-2 lg:w-48">
-              <Label>Rol en plataforma</Label>
-              <Select value={roleFilter} onValueChange={setRoleFilter}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los roles</SelectItem>
-                  {Object.entries(ROLE_LABELS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="w-full space-y-2 lg:w-40">
-              <Label>Estado de cuenta</Label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Cualquier estado</SelectItem>
-                  {Object.entries(USER_STATUS_LABELS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="w-full space-y-2 lg:ml-auto lg:w-80">
-              <Label>Búsqueda</Label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Buscar por nombre o correo"
-                  className="pl-9"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         <Card>
           <CardHeader className="gap-4 border-b border-border py-4">
-            <div>
-              <CardTitle>Resultados</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {loading ? "Cargando..." : `Página ${pageIndex + 1} - ${users.length} usuario${users.length === 1 ? "" : "s"} visibles`}
-              </p>
+            <div className="flex flex-col gap-4">
+              <div>
+                <CardTitle>Usuarios Registrados</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {loading ? "Cargando..." : `Página ${pageIndex + 1} - ${users.length} usuario${users.length === 1 ? "" : "s"} visibles`}
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 lg:items-end">
+                <div className="space-y-2">
+                  <Label>Colegio</Label>
+                  <Select value={tenantFilter} onValueChange={setTenantFilter}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los colegios</SelectItem>
+                      {tenants.map((tenant) => (
+                        <SelectItem key={tenant.id} value={tenant.id}>
+                          {tenant.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Rol en plataforma</Label>
+                  <Select value={roleFilter} onValueChange={setRoleFilter}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los roles</SelectItem>
+                      {Object.entries(ROLE_LABELS).map(([key, label]) => (
+                        <SelectItem key={key} value={key}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Estado de cuenta</Label>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Cualquier estado</SelectItem>
+                      {Object.entries(USER_STATUS_LABELS).map(([key, label]) => (
+                        <SelectItem key={key} value={key}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Búsqueda</Label>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Buscar por nombre o correo"
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -312,15 +312,33 @@ export default function SuperAdminUsersPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {user.memberships.length === 0 ? (
+                          {user.memberships.some((m) => m.role === "SUPER_ADMIN") ? (
+                            <Badge 
+                              variant="secondary" 
+                              className="font-normal bg-indigo-100 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/40 dark:text-indigo-300 border-transparent"
+                            >
+                              <span className="font-medium mr-1">Acceso global</span>
+                              <span className="opacity-70">· Todos los colegios</span>
+                            </Badge>
+                          ) : user.memberships.length === 0 ? (
                             <span className="text-xs text-muted-foreground">Sin colegio</span>
                           ) : (
-                            <div className="flex flex-wrap gap-1.5">
-                              {user.memberships.map((membership) => (
-                                <Badge key={membership.id} variant="outline" className="gap-1 font-normal">
-                                  {membership.tenant.name} · {ROLE_LABELS[membership.role]}
+                            <div className="flex flex-wrap gap-1.5 items-center">
+                              {user.memberships.slice(0, 2).map((membership) => (
+                                <Badge 
+                                  key={membership.id} 
+                                  variant="outline" 
+                                  className="font-normal text-foreground/80"
+                                >
+                                  <span className="font-medium mr-1">{membership.tenant.name}</span>
+                                  <span className="opacity-70">· {ROLE_LABELS[membership.role] ?? membership.role}</span>
                                 </Badge>
                               ))}
+                              {user.memberships.length > 2 && (
+                                <Badge variant="secondary" className="font-normal text-xs text-muted-foreground">
+                                  +{user.memberships.length - 2} más
+                                </Badge>
+                              )}
                             </div>
                           )}
                         </TableCell>

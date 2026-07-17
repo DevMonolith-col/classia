@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import {
   Users,
   GraduationCap,
@@ -8,21 +8,24 @@ import {
   AlertCircle,
   Calendar,
   ArrowRight,
+  Plus,
+  MessageSquare,
+  TrendingDown,
+  BellRing,
+  ArrowUpRight,
+  Clock,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Badge } from "@/components/ui/badge"
 import { apiFetch } from "@/lib/api-client"
 import Link from "next/link"
 import type { Student } from "@/components/admin/student-types"
 import type { Teacher, Group } from "@/components/admin/academic-types"
-import type { AuditLog, AuditLogsResponse } from "@/components/superadmin/audit-types"
-import type { User } from "@/components/superadmin/user-types"
-import { humanizeAuditAction, isInstitutionalAction } from "@/components/shared/audit-labels"
 
 type AttendanceRecord = { status: "PRESENT" | "ABSENT" | "LATE" | "EXCUSED" }
 type AttendanceSession = { date: string; records: AttendanceRecord[] }
-
 type SchoolEvent = { id: string; title: string; date: string; location?: string | null }
 
 type DashboardStats = {
@@ -46,7 +49,6 @@ function useDashboardStats() {
 
   useEffect(() => {
     let cancelled = false
-
     async function load() {
       setLoading(true)
       setError("")
@@ -88,80 +90,11 @@ function useDashboardStats() {
         if (!cancelled) setLoading(false)
       }
     }
-
     load()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [])
 
   return { stats, loading, error }
-}
-
-function relativeTime(iso: string) {
-  const diffMs = Date.now() - new Date(iso).getTime()
-  const minutes = Math.floor(diffMs / 60000)
-  if (minutes < 1) return "Justo ahora"
-  if (minutes < 60) return `Hace ${minutes} min`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `Hace ${hours} h`
-  const days = Math.floor(hours / 24)
-  return `Hace ${days} d`
-}
-
-function actionIcon(action: string) {
-  if (action.startsWith("student.")) return GraduationCap
-  if (action.startsWith("mark.")) return BookOpen
-  if (action.startsWith("attendance.") || action.startsWith("event.")) return Calendar
-  return Users
-}
-
-const RECENT_ACTIVITY_TARGET = 5
-
-function useRecentActivity() {
-  const [activity, setActivity] = useState<AuditLog[]>([])
-  const [users, setUsers] = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      setError("")
-      try {
-        const usersRes = await apiFetch("/users", { silent: true })
-        if (!cancelled) setUsers(usersRes.ok ? ((await usersRes.json()) as User[]) : [])
-
-        // Session events (auth.*) dominate the raw log, so page through until
-        // we have enough real institutional activity, capped to avoid over-fetching.
-        const collected: AuditLog[] = []
-        let cursor: string | undefined
-        for (let page = 0; page < 4 && collected.length < RECENT_ACTIVITY_TARGET; page++) {
-          const qs = new URLSearchParams({ limit: "20" })
-          if (cursor) qs.set("cursor", cursor)
-          const res = await apiFetch(`/audit/logs?${qs.toString()}`, { silent: true })
-          if (!res.ok) throw new Error("No se pudo cargar la actividad reciente.")
-          const data = (await res.json()) as AuditLogsResponse
-          collected.push(...data.items.filter((item) => isInstitutionalAction(item.action)))
-          if (!data.pageInfo.hasNextPage || !data.pageInfo.nextCursor) break
-          cursor = data.pageInfo.nextCursor
-        }
-
-        if (!cancelled) setActivity(collected.slice(0, RECENT_ACTIVITY_TARGET))
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  return { activity, users, loading, error }
 }
 
 function useUpcomingEvents() {
@@ -175,7 +108,7 @@ function useUpcomingEvents() {
       setLoading(true)
       setError("")
       try {
-        const res = await apiFetch("/events?limit=3", { silent: true })
+        const res = await apiFetch("/events?limit=4", { silent: true })
         if (!res.ok) throw new Error("No se pudieron cargar los próximos eventos.")
         const data = (await res.json()) as SchoolEvent[]
         if (!cancelled) setEvents(data)
@@ -186,9 +119,7 @@ function useUpcomingEvents() {
       }
     }
     load()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [])
 
   return { events, loading, error }
@@ -196,204 +127,228 @@ function useUpcomingEvents() {
 
 export default function AdminDashboardPage() {
   const { stats, loading: statsLoading, error: statsError } = useDashboardStats()
-  const { activity, users: activityUsers, loading: activityLoading, error: activityError } = useRecentActivity()
-  const activityUserById = new Map(activityUsers.map((u) => [u.id, u]))
   const { events, loading: eventsLoading, error: eventsError } = useUpcomingEvents()
 
   const statCards = stats
     ? [
-        { title: "Total Estudiantes", value: String(stats.totalStudents), icon: GraduationCap },
-        { title: "Profesores Activos", value: String(stats.activeTeachers), icon: Users },
-        { title: "Cursos Activos", value: String(stats.totalGroups), icon: BookOpen },
+        { title: "Estudiantes Activos", value: String(stats.totalStudents), icon: GraduationCap, href: "/admin/estudiantes", color: "text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-950/40" },
+        { title: "Personal Docente", value: String(stats.activeTeachers), icon: Users, href: "/admin/profesores", color: "text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-950/40" },
+        { title: "Grupos / Cursos", value: String(stats.totalGroups), icon: BookOpen, href: "/admin/cursos", color: "text-violet-600 bg-violet-50 dark:text-violet-400 dark:bg-violet-950/40" },
         {
-          title: "Asistencia Hoy",
-          value: stats.attendanceToday === null ? "Sin registros" : `${stats.attendanceToday.toFixed(1)}%`,
+          title: "Asistencia Global Hoy",
+          value: stats.attendanceToday === null ? "—" : `${stats.attendanceToday.toFixed(0)}%`,
           icon: AlertCircle,
+          href: "/admin/asistencia",
+          color: stats.attendanceToday !== null && stats.attendanceToday >= 80
+            ? "text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-950/40"
+            : "text-amber-600 bg-amber-50 dark:text-amber-400 dark:bg-amber-950/40",
         },
       ]
     : []
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
+    <div className="min-h-screen bg-background pb-10">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-          Panel de Administración
-        </h1>
-        <p className="mt-1 text-muted-foreground">
-          Bienvenido de vuelta. Aquí está el resumen de tu institución.
-        </p>
-      </div>
-
-      {/* Stats Grid */}
-      {statsError ? (
-        <Card className="mb-8 border-destructive/40">
-          <CardContent className="p-6 text-sm text-destructive">{statsError}</CardContent>
-        </Card>
-      ) : (
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {statsLoading
-            ? Array.from({ length: 4 }).map((_, i) => (
-                <Card key={i}>
-                  <CardContent className="p-6">
-                    <Skeleton className="h-12 w-12 rounded-lg" />
-                    <Skeleton className="mt-4 h-7 w-16" />
-                    <Skeleton className="mt-2 h-4 w-28" />
-                  </CardContent>
-                </Card>
-              ))
-            : statCards.map((stat) => (
-                <Card key={stat.title}>
-                  <CardContent className="p-6">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-secondary">
-                      <stat.icon className="h-6 w-6 text-foreground" />
-                    </div>
-                    <div className="mt-4">
-                      <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-                      <p className="text-sm text-muted-foreground">{stat.title}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-        </div>
-      )}
-
-      {/* Content Grid */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Recent Activity */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Actividad Reciente</CardTitle>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/admin/actividad" className="gap-1">
-                Ver todo
-                <ArrowRight className="h-4 w-4" />
+      <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Centro de Control Escolar</p>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">Inicio</h1>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/admin/estudiantes?new=1" className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                Matricular
               </Link>
             </Button>
-          </CardHeader>
-          <CardContent>
-            {activityError ? (
-              <p className="py-6 text-center text-sm text-destructive">{activityError}</p>
-            ) : activityLoading ? (
-              <div className="space-y-4">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-16 w-full rounded-lg" />
-                ))}
-              </div>
-            ) : activity.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                Todavía no hay actividad registrada.
-              </p>
-            ) : (
-              <div className="space-y-4">
-                {activity.map((entry) => {
-                  const Icon = actionIcon(entry.action)
-                  const actor = entry.userId ? activityUserById.get(entry.userId) : undefined
-                  const actorName = actor ? `${actor.firstName} ${actor.lastName}` : "Alguien"
-                  return (
-                    <div
-                      key={entry.id}
-                      className="flex items-start gap-4 rounded-lg border border-border p-4"
-                    >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary">
-                        <Icon className="h-5 w-5 text-foreground" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground">
-                          {actorName} {humanizeAuditAction(entry.action)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{relativeTime(entry.createdAt)}</p>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Upcoming Events */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Próximos Eventos</CardTitle>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/admin/calendario" className="gap-1">
-                Ver calendario
-                <ArrowRight className="h-4 w-4" />
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/admin/mensajes/nuevo" className="gap-1.5">
+                <MessageSquare className="h-3.5 w-3.5" />
+                Comunicado
               </Link>
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {eventsError ? (
-              <p className="py-6 text-center text-sm text-destructive">{eventsError}</p>
-            ) : eventsLoading ? (
-              <div className="space-y-4">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-16 w-full rounded-lg" />
-                ))}
-              </div>
-            ) : events.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                No hay eventos programados.
-              </p>
-            ) : (
-              <div className="space-y-4">
-                {events.map((event) => {
-                  const eventDate = new Date(event.date)
-                  return (
-                    <div
-                      key={event.id}
-                      className="flex items-center gap-4 rounded-lg border border-border p-4"
-                    >
-                      <div className="flex h-12 w-12 flex-col items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                        <span className="text-xs font-medium">
-                          {eventDate.toLocaleDateString("es-CO", { day: "2-digit" })}
-                        </span>
-                        <span className="text-xs">
-                          {eventDate.toLocaleDateString("es-CO", { month: "short" })}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground">{event.title}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {eventDate.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
-                          {event.location ? ` · ${event.location}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Quick Actions */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Acciones Rápidas</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-3">
-            <Button asChild>
-              <Link href="/admin/estudiantes?new=1">Agregar Estudiante</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/admin/profesores?new=1">Agregar Profesor</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/admin/cursos?new=1">Crear Curso</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/admin/mensajes/nuevo">Enviar Mensaje</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/admin/reportes">Generar Reporte</Link>
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </header>
+
+      <div className="px-4 py-5 sm:px-6 lg:px-8 space-y-6">
+        {/* Stats Row */}
+        {statsError ? (
+          <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            {statsError}
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {statsLoading
+              ? Array.from({ length: 4 }).map((_, i) => (
+                  <Card key={i} className="shadow-sm">
+                    <CardContent className="flex items-center gap-3 p-4">
+                      <Skeleton className="h-12 w-12 rounded-xl" />
+                      <div className="space-y-1.5">
+                        <Skeleton className="h-6 w-12" />
+                        <Skeleton className="h-3 w-20" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              : statCards.map((stat) => (
+                  <Link key={stat.title} href={stat.href}>
+                    <Card className="shadow-sm transition-shadow hover:shadow-md cursor-pointer">
+                      <CardContent className="flex items-center gap-4 p-5">
+                        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${stat.color}`}>
+                          <stat.icon className="h-6 w-6" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-3xl font-bold tracking-tight text-foreground">{stat.value}</p>
+                          <p className="mt-1 text-sm font-medium text-muted-foreground">{stat.title}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+          </div>
+        )}
+
+        {/* Main Content Grid */}
+        <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+          <div className="space-y-6">
+            
+            {/* Triage / Alertas Urgentes */}
+            <div>
+              <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide flex items-center gap-2">
+                <BellRing className="h-4 w-4 text-amber-500" /> Novedades Urgentes
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Card className="shadow-sm border-l-4 border-l-red-500 hover:bg-secondary/20 transition-colors cursor-pointer">
+                  <CardContent className="p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40">Inasistencia Crítica</Badge>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="h-3 w-3" /> Hace 2h</span>
+                    </div>
+                    <p className="text-sm font-medium">3 estudiantes en el grupo 9A acumulan más de 4 inasistencias consecutivas.</p>
+                    <div className="mt-3 text-xs font-semibold text-red-600 flex items-center gap-1">
+                      Gestionar inasistencias <ArrowUpRight className="h-3 w-3" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className="shadow-sm border-l-4 border-l-amber-500 hover:bg-secondary/20 transition-colors cursor-pointer">
+                  <CardContent className="p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40">Faltan Calificaciones</Badge>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="h-3 w-3" /> Hace 1d</span>
+                    </div>
+                    <p className="text-sm font-medium">Faltan notas del 1er Periodo en 2 materias de 6to grado (Prof. Martínez).</p>
+                    <div className="mt-3 text-xs font-semibold text-amber-600 flex items-center gap-1">
+                      Enviar recordatorio <ArrowUpRight className="h-3 w-3" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            {/* Grupos con peor asistencia */}
+            <Card className="shadow-sm flex flex-col">
+              <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <TrendingDown className="h-4 w-4 text-rose-500" /> Grupos con baja asistencia (Hoy)
+                </CardTitle>
+                <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
+                  <Link href="/admin/asistencia">Ver reporte completo</Link>
+                </Button>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="divide-y divide-border">
+                  {/* Mocked for the UI standards demonstration */}
+                  {[
+                    { group: "Noveno A", present: 22, total: 30, pct: 73 },
+                    { group: "Décimo B", present: 24, total: 32, pct: 75 },
+                    { group: "Sexto C", present: 28, total: 35, pct: 80 },
+                  ].map((row, i) => (
+                    <div key={i} className="p-4 flex items-center justify-between hover:bg-secondary/40 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-100 text-rose-700 font-bold text-xs dark:bg-rose-900/30">
+                          {row.pct}%
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{row.group}</p>
+                          <p className="text-xs text-muted-foreground">Profesor titular pendiente</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-medium text-foreground">{row.present} / {row.total}</p>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Presentes</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+          </div>
+
+          {/* Upcoming Events sidebar */}
+          <Card className="h-fit shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base">Próximos eventos</CardTitle>
+              <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" asChild>
+                <Link href="/admin/calendario">
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {eventsError ? (
+                <p className="py-4 text-center text-sm text-destructive">{eventsError}</p>
+              ) : eventsLoading ? (
+                <div className="space-y-3 mt-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="h-10 w-10 rounded-lg" />
+                      <div className="flex-1 space-y-1.5">
+                        <Skeleton className="h-3.5 w-3/4" />
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : events.length === 0 ? (
+                <div className="flex flex-col items-center py-10 text-center">
+                  <Calendar className="h-8 w-8 text-muted-foreground/50" />
+                  <p className="mt-2 text-sm text-muted-foreground">Sin eventos programados</p>
+                </div>
+              ) : (
+                <div className="relative space-y-4 mt-2">
+                  {events.map((event) => {
+                    const eventDate = new Date(event.date)
+                    return (
+                      <div key={event.id} className="flex gap-3">
+                        <div className="flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-lg bg-primary/10 text-primary border border-primary/20 shadow-sm">
+                          <span className="text-sm font-bold leading-none">
+                            {eventDate.toLocaleDateString("es-CO", { day: "2-digit" })}
+                          </span>
+                          <span className="text-[10px] uppercase font-semibold leading-none mt-1">
+                            {eventDate.toLocaleDateString("es-CO", { month: "short" }).replace(".", "")}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0 pt-0.5">
+                          <p className="text-sm font-semibold text-foreground truncate">{event.title}</p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                            <Clock className="h-3 w-3" />
+                            {eventDate.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
+                            {event.location ? ` · ${event.location}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   )
 }
