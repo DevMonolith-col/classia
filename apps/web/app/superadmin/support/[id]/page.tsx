@@ -98,7 +98,7 @@ export default function SuperAdminTicketDetail() {
         method: "PATCH",
         body: JSON.stringify({ status: newStatus })
       })
-      if (res.ok) fetchTicket()
+      if (res.ok) fetchTicketAndAgents()
     } catch (e) {
       alert("Error al cambiar estado")
     }
