@@ -6,7 +6,8 @@ import { useState, useEffect } from "react"
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Calendar,
   MessageSquare, BarChart3, Settings, LogOut, Menu, X,
-  Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone, SlidersHorizontal, LifeBuoy, ChevronDown
+  Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone, SlidersHorizontal, LifeBuoy, ChevronDown,
+  UserCog, Library, BookMarked, Mail, Briefcase
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 
@@ -23,7 +24,7 @@ type NavItem = {
   name: string;
   href?: string;
   icon: any;
-  children?: { name: string; href: string }[];
+  children?: { name: string; href: string; icon: any }[];
 }
 
 const navigation: NavItem[] = [
@@ -32,41 +33,41 @@ const navigation: NavItem[] = [
     name: "Comunidad",
     icon: Users,
     children: [
-      { name: "Estudiantes", href: "/admin/estudiantes" },
-      { name: "Profesores", href: "/admin/profesores" },
+      { name: "Estudiantes", href: "/admin/estudiantes", icon: GraduationCap },
+      { name: "Profesores", href: "/admin/profesores", icon: UserCog },
     ]
   },
   {
     name: "Académico",
     icon: BookOpen,
     children: [
-      { name: "Cursos", href: "/admin/cursos" },
-      { name: "Materias", href: "/admin/materias" },
-      { name: "Horarios", href: "/admin/horarios" },
-      { name: "Asignaciones", href: "/admin/asignaciones" },
-      { name: "Asistencia", href: "/admin/asistencia" },
-      { name: "Calificaciones", href: "/admin/calificaciones" },
-      { name: "Config. Académica", href: "/admin/configuracion-academica" },
+      { name: "Cursos", href: "/admin/cursos", icon: Library },
+      { name: "Materias", href: "/admin/materias", icon: BookMarked },
+      { name: "Horarios", href: "/admin/horarios", icon: CalendarClock },
+      { name: "Asignaciones", href: "/admin/asignaciones", icon: FileText },
+      { name: "Asistencia", href: "/admin/asistencia", icon: ClipboardCheck },
+      { name: "Calificaciones", href: "/admin/calificaciones", icon: ClipboardList },
+      { name: "Config. Académica", href: "/admin/configuracion-academica", icon: SlidersHorizontal },
     ]
   },
   {
     name: "Comunicación",
     icon: MessageSquare,
     children: [
-      { name: "Mensajes", href: "/admin/mensajes" },
-      { name: "Comunicados", href: "/admin/comunicados" },
-      { name: "Notificaciones", href: "/admin/notificaciones" },
-      { name: "Calendario", href: "/admin/calendario" },
+      { name: "Mensajes", href: "/admin/mensajes", icon: Mail },
+      { name: "Comunicados", href: "/admin/comunicados", icon: Megaphone },
+      { name: "Notificaciones", href: "/admin/notificaciones", icon: Bell },
+      { name: "Calendario", href: "/admin/calendario", icon: Calendar },
     ]
   },
   {
     name: "Administración",
-    icon: Settings,
+    icon: Briefcase,
     children: [
-      { name: "Reportes", href: "/admin/reportes" },
-      { name: "Soporte", href: "/admin/soporte" },
-      { name: "Plugins", href: "/admin/plugins" },
-      { name: "Configuración", href: "/admin/configuracion" },
+      { name: "Reportes", href: "/admin/reportes", icon: BarChart3 },
+      { name: "Soporte", href: "/admin/soporte", icon: LifeBuoy },
+      { name: "Plugins", href: "/admin/plugins", icon: Puzzle },
+      { name: "Configuración", href: "/admin/configuracion", icon: Settings },
     ]
   }
 ]
@@ -205,12 +206,13 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
                             href={child.href}
                             onClick={() => setMobileOpen(false)}
                             className={[
-                              "block truncate rounded-md px-3 py-2 text-xs font-medium transition-colors",
+                              "flex items-center gap-2 truncate rounded-md px-3 py-2 text-xs font-medium transition-colors",
                               childActive
                                 ? "bg-primary/10 text-primary font-semibold"
                                 : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                             ].join(" ")}
                           >
+                            <child.icon className="h-4 w-4 shrink-0" />
                             {child.name}
                           </Link>
                         )
