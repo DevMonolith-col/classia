@@ -237,6 +237,59 @@ export class ReportCardsService {
     return card;
   }
 
+  /**
+   * Genera boletines para todos los estudiantes activos de un grupo (o del colegio
+   * entero si no se pasa groupId). Reutiliza generate() por estudiante para heredar
+   * scoping, snapshot y auditoría; los que fallan (p. ej. boletín ya FINAL) se
+   * reportan como omitidos en vez de abortar el lote completo.
+   */
+  async generateBulk(
+    input: { groupId?: string; academicYearId?: string; periodId?: string; status?: "DRAFT" | "PUBLISHED" | "FINAL" },
+    actor: RequestUser,
+    request: Request,
+  ) {
+    if (!actor.tenantId && !this.isGlobalAdmin(actor)) {
+      throw new ForbiddenException("Tenant is required.");
+    }
+
+    const students = await this.prisma.student.findMany({
+      where: {
+        isActive: true,
+        ...(actor.tenantId ? { tenantId: actor.tenantId } : {}),
+        ...(input.groupId ? { groupId: input.groupId } : { groupId: { not: null } }),
+      },
+      select: { id: true, firstName: true, lastName: true },
+      orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+    });
+
+    const generated: string[] = [];
+    const skipped: { studentId: string; studentName: string; reason: string }[] = [];
+
+    for (const student of students) {
+      try {
+        const card = await this.generate(
+          {
+            studentId: student.id,
+            academicYearId: input.academicYearId,
+            periodId: input.periodId,
+            status: input.status,
+          },
+          actor,
+          request,
+        );
+        generated.push(card.id);
+      } catch (err) {
+        skipped.push({
+          studentId: student.id,
+          studentName: `${student.firstName} ${student.lastName}`,
+          reason: err instanceof Error ? err.message : "Error desconocido",
+        });
+      }
+    }
+
+    return { total: students.length, generated: generated.length, skipped };
+  }
+
   async findCard(cardId: string, actor: RequestUser) {
     const card = await this.prisma.reportCard.findUniqueOrThrow({
       where: { id: cardId },
