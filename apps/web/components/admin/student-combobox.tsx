@@ -32,7 +32,13 @@ interface Props {
 
 // Búsqueda por nombre o documento — el boletín es del estudiante, así que esta
 // es la puerta de entrada principal de la vista de calificaciones del admin.
-export function StudentCombobox({ students, value, onChange, allowAll = false, placeholder = "Buscar estudiante..." }: Props) {
+export function StudentCombobox({
+  students,
+  value,
+  onChange,
+  allowAll = false,
+  placeholder = "Buscar por nombre, documento o código...",
+}: Props) {
   const [open, setOpen] = useState(false)
   const selected = students.find((student) => student.id === value)
 
@@ -47,12 +53,8 @@ export function StudentCombobox({ students, value, onChange, allowAll = false, p
         >
           <span className="flex min-w-0 items-center gap-2">
             <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="truncate">
-              {selected
-                ? `${selected.firstName} ${selected.lastName}`
-                : allowAll
-                  ? "Todos los estudiantes"
-                  : placeholder}
+            <span className={cn("truncate", !selected && "text-muted-foreground")}>
+              {selected ? `${selected.firstName} ${selected.lastName}` : placeholder}
             </span>
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -60,7 +62,7 @@ export function StudentCombobox({ students, value, onChange, allowAll = false, p
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
         <Command>
-          <CommandInput placeholder="Escribe un nombre o documento..." />
+          <CommandInput placeholder="Nombre, documento o código..." />
           <CommandList>
             <CommandEmpty>No se encontraron estudiantes.</CommandEmpty>
             <CommandGroup>

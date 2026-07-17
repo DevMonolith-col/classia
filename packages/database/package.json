@@ -14,7 +14,8 @@
     "db:migrate": "dotenv -e ../../.env -e ../../.env.example -- prisma migrate dev",
     "db:migrate:init": "dotenv -e ../../.env -e ../../.env.example -- prisma migrate dev --name init_backend_v1",
     "db:studio": "dotenv -e ../../.env -e ../../.env.example -- prisma studio",
-    "seed:demo": "dotenv -e ../../.env -e ../../.env.example -- tsx prisma/seed.ts"
+    "seed:demo": "dotenv -e ../../.env -e ../../.env.example -- tsx prisma/seed.ts",
+    "seed:massive": "dotenv -e ../../.env -e ../../.env.example -- tsx prisma/seed-massive.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0"
