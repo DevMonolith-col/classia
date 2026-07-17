@@ -165,10 +165,13 @@ export async function impersonateTenant(tenantId: string): Promise<LoginResult> 
     throw new Error("No se pudo iniciar la impersonación")
   }
 
-  // Guardar tokens originales antes de sobreescribir
+  // Guardar tokens y usuario originales antes de sobreescribir, para poder
+  // restaurar la identidad real del super admin al salir de la impersonación.
   if (typeof localStorage !== "undefined") {
     localStorage.setItem("classia_original_at", currentAt)
     localStorage.setItem("classia_original_rt", currentRt)
+    const currentUser = localStorage.getItem("classia_user")
+    if (currentUser) localStorage.setItem("classia_original_user", currentUser)
   }
 
   const data = (await res.json()) as LoginResult
@@ -194,9 +197,14 @@ export function exitImpersonation(): boolean {
   setTokens(originalAt, originalRt)
   localStorage.removeItem("classia_original_at")
   localStorage.removeItem("classia_original_rt")
-  
-  // Limpiamos la info del usuario almacenado para que se re-obtenga del token o /me si fuese necesario
-  localStorage.removeItem("classia_user")
+
+  const originalUser = localStorage.getItem("classia_original_user")
+  if (originalUser) {
+    localStorage.setItem("classia_user", originalUser)
+    localStorage.removeItem("classia_original_user")
+  } else {
+    localStorage.removeItem("classia_user")
+  }
   return true
 }
 
