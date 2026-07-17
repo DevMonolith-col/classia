@@ -97,8 +97,8 @@ export class GradingService {
       const ownTeacherId = await this.resolveOwnTeacherId(actor);
       if (!ownTeacherId) return [];
       where.teacherId = ownTeacherId;
-    } else if (!this.isGlobalAdmin(actor)) {
-      where.tenantId = actor.tenantId;
+    } else {
+      where.tenantId = this.resolveTenantScope(actor, query.tenantId);
     }
 
     return this.prisma.gradingCategory.findMany({

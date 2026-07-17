@@ -53,6 +53,7 @@ export const setCategoriesSchema = z.object({
 export type SetCategoriesInput = z.infer<typeof setCategoriesSchema>;
 
 export const listCategoriesQuerySchema = z.object({
+  tenantId: z.string().min(1).optional(),
   groupId: z.string().min(1).optional(),
   subjectId: z.string().min(1).optional(),
   periodId: z.string().min(1).optional(),
