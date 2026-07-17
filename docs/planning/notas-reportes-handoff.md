@@ -26,32 +26,30 @@
 - `MarksService` = writer único + constraint, confirmado.
 - Commits: Conventional Commits, atómicos, **sin auto-atribución** (sin "by Claude").
 
-## 2. EN PROGRESO — diff sin commitear en el working tree (sesión intermedia)
+## 2. HECHO — soporte multi-año (commit `febc270`)
 
-Hay trabajo a medias **sin commitear** que apunta al soporte multi-año:
-
-- `packages/database/prisma/schema.prisma`: reformateo + (revisar diff completo) enlaces de `Mark`/`Homework` a `academicYearId`.
-- `marks.service.ts` / `marks.schemas.ts`: al crear una nota se resuelve el **año activo** y se guarda `academicYearId`; `list` filtra por año (query `academicYearId`, default el activo).
-- `homework.service.ts` / `homework.schemas.ts`: mismo patrón de filtrado por año.
-- `apps/web/app/admin/calificaciones/page.tsx` (+217 líneas) y `profesor/calificaciones/page.tsx`: selector de año/periodo en las vistas.
-- `apps/web/app/globals.css`: estilos menores.
-- `scripts/migrate-academic-years.ts` (sin trackear): backfill de datos existentes al año activo.
-
-**Qué falta para cerrarlo**: generar la migración Prisma (`pnpm run db:migrate` en
-`packages/database`), correr el script de backfill, typecheck api+web, verificar en
-navegador, y commitear (sugerido: `feat(academic): scope marks and homework to academic years`).
+Cerrado el 2026-07-16: `Mark` y `Homework` llevan `academicYearId` (toda escritura
+resuelve el año activo; sin año activo se rechaza con `ForbiddenException`); las
+listas filtran por año activo por defecto y aceptan `academicYearId` explícito para
+históricos; `bulkCreate` también ancla al año (gap corregido); migración idempotente
+(la BD dev venía de `db push`) + índices; backfill ejecutado (7 homework, 5 marks →
+año 2026); selector de año en la grilla del profesor y vista de auditoría del admin
+(`/admin/calificaciones`: filtros año/curso/profesor/materia/periodo + boletín por
+estudiante). Verificado en navegador con ambos roles.
 
 ## 3. PENDIENTE — mejoras solicitadas (nivel competitivo, ref. Zeti)
 
 Objetivo del usuario: reportes de clase mundial. Prioridades expresadas:
 
-1. **Histórico para el rector**: vista por año académico → estudiante → materia con
-   las definitivas de todos los periodos; comparación entre años. El backend ya lo
-   soporta a medias (`/report-cards/transcript` + `ReportCard` persistidos); falta la
-   **UI de admin** (ej. `/admin/reportes` o `/admin/historico`) con filtros año/grupo/estudiante.
-2. **Generación masiva de boletines**: hoy `generate` es por estudiante; falta
-   `POST /report-cards/generate-bulk` (grupo o colegio completo, por periodo) +
-   pantalla de admin para emitirlos y marcarlos `FINAL` al cerrar periodo.
+1. **Histórico para el rector** — PARCIAL: `/admin/calificaciones` ya filtra por
+   año/curso/profesor/materia/periodo con boletín por estudiante (commit `febc270`),
+   y existe `/admin/calificaciones/[studentId]` como detalle. Falta: **comparación
+   entre años** y una vista consolidada de históricos (ej. `/admin/historico`).
+2. **Generación masiva de boletines** — HECHO (commit `03ee42a`):
+   `POST /report-cards/generate-bulk` (grupo o colegio, periodo o año; omitidos
+   reportados sin abortar el lote) + botón "Generar boletines" en
+   `/admin/calificaciones` que respeta los filtros. Falta solo: opción de emitir
+   como `FINAL` desde la UI (el backend ya acepta `status`).
 3. **Boletín PDF descargable/imprimible** (para padres): plantilla con logo del
    colegio, escala, bandas, observaciones por materia y firma.
 4. **UI del profesor para configurar sus categorías** por clase (backend listo:
