@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { AlertTriangle, Mail, Pencil, Plus, Power, RefreshCw, Search, Users } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, Mail, Pencil, Plus, Power, RefreshCw, Search, Users } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/table"
 import { TeacherFormDialog } from "@/components/admin/teacher-form-dialog"
 import type { Teacher } from "@/components/admin/academic-types"
+
+const PAGE_SIZE = 10
 
 const STATUS_LABELS: Record<string, string> = {
   ACTIVE: "Activo",
@@ -38,6 +40,7 @@ function AdminProfesoresPageContent() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
 
   const loadTeachers = useCallback(async () => {
     setLoading(true)
@@ -70,6 +73,14 @@ function AdminProfesoresPageContent() {
         .some((value) => String(value).toLowerCase().includes(normalized)),
     )
   }, [query, teachers])
+
+  const pageCount = Math.max(1, Math.ceil(filteredTeachers.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedTeachers = filteredTeachers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [query])
 
   const stats = useMemo(
     () => ({
@@ -237,6 +248,7 @@ function AdminProfesoresPageContent() {
               )}
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -248,7 +260,7 @@ function AdminProfesoresPageContent() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTeachers.map((teacher) => (
+                {paginatedTeachers.map((teacher) => (
                   <TableRow key={teacher.id}>
                     <TableCell className="pl-6">
                       <div className="flex items-center gap-3">
@@ -301,6 +313,38 @@ function AdminProfesoresPageContent() {
                 ))}
               </TableBody>
             </Table>
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between border-t border-border p-4">
+                <p className="text-sm text-muted-foreground">
+                  Página {currentPage} de {pageCount}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    disabled={currentPage >= pageCount}
+                  >
+                    Siguiente
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>

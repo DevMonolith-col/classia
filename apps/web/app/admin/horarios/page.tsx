@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, CalendarClock, Pencil, Plus, RefreshCw, User } from "lucide-react"
+import { AlertTriangle, CalendarClock, ChevronLeft, ChevronRight, Pencil, Plus, RefreshCw, User } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -31,6 +31,8 @@ import {
   type Teacher,
 } from "@/components/admin/academic-types"
 
+const PAGE_SIZE = 10
+
 export default function AdminHorariosPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [groups, setGroups] = useState<Group[]>([])
@@ -43,6 +45,7 @@ export default function AdminHorariosPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogTeacher, setDialogTeacher] = useState<Teacher | null>(null)
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null)
+  const [page, setPage] = useState(1)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -85,6 +88,14 @@ export default function AdminHorariosPage() {
     if (dayFilter !== "all") list = list.filter((s) => String(s.dayOfWeek) === dayFilter)
     return [...list].sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime))
   }, [schedules, selectedTeacherId, dayFilter])
+
+  const pageCount = Math.max(1, Math.ceil(filteredSchedules.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedSchedules = filteredSchedules.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [selectedTeacherId, dayFilter])
 
   function openCreateDialog() {
     if (!selectedTeacher) return
@@ -212,6 +223,7 @@ export default function AdminHorariosPage() {
               </p>
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -224,7 +236,7 @@ export default function AdminHorariosPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSchedules.map((schedule) => (
+                {paginatedSchedules.map((schedule) => (
                   <TableRow key={schedule.id}>
                     <TableCell className="pl-6">
                       <div className="flex items-center gap-2">
@@ -255,6 +267,38 @@ export default function AdminHorariosPage() {
                 ))}
               </TableBody>
             </Table>
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between border-t border-border p-4">
+                <p className="text-sm text-muted-foreground">
+                  Página {currentPage} de {pageCount}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    disabled={currentPage >= pageCount}
+                  >
+                    Siguiente
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>

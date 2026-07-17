@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, CalendarClock, Eye, Lock, LockOpen, RefreshCw } from "lucide-react"
+import { AlertTriangle, CalendarClock, ChevronLeft, ChevronRight, Eye, Lock, LockOpen, RefreshCw } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,8 @@ import { TeacherCombobox } from "@/components/admin/teacher-combobox"
 import { ATTENDANCE_STATUS_LABELS, type AttendanceSession, type AttendanceStatus } from "@/components/admin/attendance-types"
 import type { Teacher } from "@/components/admin/academic-types"
 
+const PAGE_SIZE = 10
+
 type StatusFilter = "all" | "open" | "closed"
 
 function countByStatus(session: AttendanceSession) {
@@ -51,6 +53,7 @@ export default function AdminAsistenciaPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [activeSession, setActiveSession] = useState<AttendanceSession | null>(null)
+  const [page, setPage] = useState(1)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -86,6 +89,14 @@ export default function AdminAsistenciaPage() {
     if (statusFilter === "closed") list = list.filter((s) => !s.isOpen)
     return [...list].sort((a, b) => (a.date < b.date ? 1 : -1))
   }, [sessions, selectedTeacherId, statusFilter])
+
+  const pageCount = Math.max(1, Math.ceil(filteredSessions.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedSessions = filteredSessions.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [selectedTeacherId, statusFilter])
 
   function openSessionDialog(session: AttendanceSession) {
     setActiveSession(session)
@@ -166,6 +177,7 @@ export default function AdminAsistenciaPage() {
               </p>
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -179,7 +191,7 @@ export default function AdminAsistenciaPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSessions.map((session) => {
+                {paginatedSessions.map((session) => {
                   const counts = countByStatus(session)
                   return (
                     <TableRow key={session.id}>
@@ -222,6 +234,38 @@ export default function AdminAsistenciaPage() {
                 })}
               </TableBody>
             </Table>
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between border-t border-border p-4">
+                <p className="text-sm text-muted-foreground">
+                  Página {currentPage} de {pageCount}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    disabled={currentPage >= pageCount}
+                  >
+                    Siguiente
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>
