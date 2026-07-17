@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, Eye, RefreshCw, Search } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, Eye, RefreshCw, Search, X } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -157,6 +157,15 @@ export default function SuperAdminAuditPage() {
     setDialogOpen(true)
   }
 
+  const hasActiveFilters = tenantFilter !== "all" || fromDate !== "" || toDate !== "" || query !== ""
+
+  function clearFilters() {
+    setTenantFilter("all")
+    setFromDate("")
+    setToDate("")
+    setQuery("")
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
@@ -238,6 +247,15 @@ export default function SuperAdminAuditPage() {
                   </div>
                 </div>
               </div>
+
+              {hasActiveFilters && (
+                <div>
+                  <Button variant="ghost" size="sm" className="gap-1.5" onClick={clearFilters}>
+                    <X className="h-3.5 w-3.5" />
+                    Eliminar filtros
+                  </Button>
+                </div>
+              )}
             </div>
           </CardHeader>
           <CardContent className="p-0">

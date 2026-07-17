@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, ChevronLeft, ChevronRight, FileText } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, FileText, X } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -114,6 +114,13 @@ export default function AdminAsignacionesPage() {
     setPreview({ key, name: name ?? "Archivo" })
   }
 
+  const hasActiveFilters = selectedTeacherId !== null || selectedScheduleId !== "ALL" || filter !== "ALL"
+
+  function clearFilters() {
+    setSelectedTeacherId(null)
+    setFilter("ALL")
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="mb-6">
@@ -172,6 +179,12 @@ export default function AdminAsignacionesPage() {
                 ))}
               </TabsList>
             </Tabs>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" className="gap-1.5" onClick={clearFilters}>
+                <X className="h-3.5 w-3.5" />
+                Eliminar filtros
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="pt-4">

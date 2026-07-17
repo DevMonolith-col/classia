@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { AlertTriangle, ChevronLeft, ChevronRight, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, Pencil, Plus, RefreshCw, Search, Users, X } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -151,6 +151,15 @@ export default function SuperAdminUsersPage() {
     setDialogOpen(true)
   }
 
+  const hasActiveFilters = tenantFilter !== "all" || roleFilter !== "all" || statusFilter !== "all" || query !== ""
+
+  function clearFilters() {
+    setTenantFilter("all")
+    setRoleFilter("all")
+    setStatusFilter("all")
+    setQuery("")
+  }
+
   function handleSaved(saved: User) {
     setUsers((current) => {
       const exists = current.some((u) => u.id === saved.id)
@@ -264,6 +273,15 @@ export default function SuperAdminUsersPage() {
                   </div>
                 </div>
               </div>
+
+              {hasActiveFilters && (
+                <div>
+                  <Button variant="ghost" size="sm" className="gap-1.5" onClick={clearFilters}>
+                    <X className="h-3.5 w-3.5" />
+                    Eliminar filtros
+                  </Button>
+                </div>
+              )}
             </div>
           </CardHeader>
           <CardContent className="p-0">
