@@ -303,7 +303,7 @@ export class HomeworkService {
 
   private resolveTenantScope(actor: RequestUser, tenantId?: string) {
     if (this.isGlobalAdmin(actor)) {
-      return tenantId;
+      return tenantId ?? actor.tenantId;
     }
 
     if (tenantId && tenantId !== actor.tenantId) {

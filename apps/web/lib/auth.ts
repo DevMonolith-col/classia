@@ -15,7 +15,7 @@ export type LoginResult = {
   accessToken: string
   refreshToken: string
   user: { id: string; email: string; firstName: string; lastName: string }
-  tenant: { id: string; slug: string }
+  tenant: { id: string; slug: string; name: string }
   membership: { id: string; role: string }
 }
 
@@ -98,7 +98,7 @@ export function getCurrentUser(): JwtPayload | null {
 
 // ─── User info cache ─────────────────────────────────────────────────────────
 
-type StoredUser = { firstName: string; lastName: string; email: string; role: string }
+type StoredUser = { firstName: string; lastName: string; email: string; role: string; tenantName?: string }
 
 export function setStoredUser(user: StoredUser) {
   if (typeof localStorage === "undefined") return
@@ -137,6 +137,7 @@ export async function login(email: string, password: string): Promise<LoginResul
     lastName: data.user.lastName,
     email: data.user.email,
     role: data.membership.role,
+    tenantName: data.tenant.name,
   })
   return data
 }
@@ -177,6 +178,7 @@ export async function impersonateTenant(tenantId: string): Promise<LoginResult> 
     lastName: data.user.lastName,
     email: data.user.email,
     role: data.membership.role,
+    tenantName: data.tenant.name,
   })
   return data
 }
