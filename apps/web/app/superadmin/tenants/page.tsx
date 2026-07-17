@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
   Building2,
+  ChevronLeft,
+  ChevronRight,
   Globe2,
   Pencil,
   Plus,
@@ -28,6 +30,8 @@ import {
 } from "@/components/ui/table"
 import { TenantFormDialog } from "@/components/superadmin/tenant-form-dialog"
 import type { Tenant, TenantStatus } from "@/components/superadmin/tenant-types"
+
+const PAGE_SIZE = 10
 
 const statusLabels: Record<TenantStatus, string> = {
   DEMO: "Demo",
@@ -99,6 +103,7 @@ export default function SuperAdminTenantsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTenant, setEditingTenant] = useState<Tenant | undefined>()
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
   const router = useRouter()
 
   const loadTenants = useCallback(async () => {
@@ -132,6 +137,14 @@ export default function SuperAdminTenantsPage() {
         .some((value) => String(value).toLowerCase().includes(normalized)),
     )
   }, [query, tenants])
+
+  const pageCount = Math.max(1, Math.ceil(filteredTenants.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedTenants = filteredTenants.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [query])
 
   const openCreateDialog = () => {
     setEditingTenant(undefined)
@@ -253,7 +266,7 @@ export default function SuperAdminTenantsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredTenants.map((tenant) => {
+                      {paginatedTenants.map((tenant) => {
                         const usage = tenantUsage(tenant)
                         return (
                         <TableRow key={tenant.id}>
@@ -304,7 +317,7 @@ export default function SuperAdminTenantsPage() {
                 </div>
 
                 <div className="space-y-3 p-4 md:hidden">
-                  {filteredTenants.map((tenant) => (
+                  {paginatedTenants.map((tenant) => (
                     <div key={tenant.id} className="rounded-lg border border-border p-3">
                       <div className="flex items-start justify-between gap-3">
                         <TenantIdentity tenant={tenant} />
@@ -336,6 +349,38 @@ export default function SuperAdminTenantsPage() {
                     </div>
                   ))}
                 </div>
+
+                {pageCount > 1 && (
+                  <div className="flex items-center justify-between border-t border-border p-4">
+                    <p className="text-sm text-muted-foreground">
+                      Página {currentPage} de {pageCount}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage <= 1}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Anterior
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                        disabled={currentPage >= pageCount}
+                      >
+                        Siguiente
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </CardContent>
