@@ -229,17 +229,17 @@ export default function SuperAdminSettingsPage() {
                 <div className="grid sm:grid-cols-2 gap-6 pt-2">
                   <div className="grid gap-2">
                     <Label htmlFor="backup-freq">Frecuencia de Backup Automático</Label>
-                    <select id="backup-freq" className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                    <select id="backup-freq" defaultValue="Diario (12:00 AM)" className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
                       <option>Cada 6 Horas</option>
-                      <option selected>Diario (12:00 AM)</option>
+                      <option>Diario (12:00 AM)</option>
                       <option>Semanal (Domingos)</option>
                     </select>
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="backup-retention">Retención en Storage (S3)</Label>
-                    <select id="backup-retention" className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                    <select id="backup-retention" defaultValue="30 días" className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
                       <option>7 días</option>
-                      <option selected>30 días</option>
+                      <option>30 días</option>
                       <option>90 días</option>
                     </select>
                   </div>
