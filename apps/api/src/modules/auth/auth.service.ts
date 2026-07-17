@@ -8,8 +8,9 @@ import { Request } from "express";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
 import { TenantContextService } from "../../core/tenant-context/tenant-context.service";
-import { LoginInput, RefreshTokenInput } from "./auth.schemas";
+import { LoginInput, RefreshTokenInput, ImpersonateInput } from "./auth.schemas";
 import { AuthTokenPayload } from "./auth.types";
+import { RequestUser } from "../../common/types/request-context";
 
 type CreateSessionInput = AuthTokenPayload & {
   request: Request;
@@ -196,6 +197,86 @@ export class AuthService {
 
     return {
       status: "ok",
+    };
+  }
+
+  async impersonate(input: ImpersonateInput, currentUser: RequestUser, request: Request) {
+    if (currentUser.role !== "SUPER_ADMIN" && currentUser.role !== "SUPPORT_AGENT") {
+      throw new UnauthorizedException("Insufficient privileges to impersonate.");
+    }
+
+    if (currentUser.role === "SUPPORT_AGENT") {
+      const activeTickets = await this.prisma.supportTicket.count({
+        where: {
+          tenantId: input.tenantId,
+          assigneeId: currentUser.id,
+          status: { notIn: ["RESOLVED", "CLOSED"] }
+        }
+      });
+      if (activeTickets === 0) {
+        throw new UnauthorizedException("You do not have an active ticket assignment for this tenant.");
+      }
+    }
+
+    const targetTenant = await this.prisma.tenant.findUnique({
+      where: { id: input.tenantId },
+    });
+
+    if (!targetTenant) {
+      throw new UnauthorizedException("Target tenant not found.");
+    }
+
+    const membership = await this.prisma.tenantMembership.upsert({
+      where: {
+        tenantId_userId: {
+          tenantId: targetTenant.id,
+          userId: currentUser.id,
+        },
+      },
+      update: {
+        role: "SUPER_ADMIN",
+        status: MembershipStatus.ACTIVE,
+      },
+      create: {
+        tenantId: targetTenant.id,
+        userId: currentUser.id,
+        role: "SUPER_ADMIN",
+        status: MembershipStatus.ACTIVE,
+      },
+    });
+
+    const tokens = await this.createSession({
+      sub: currentUser.id,
+      email: currentUser.email,
+      tenantId: targetTenant.id,
+      tenantSlug: targetTenant.slug,
+      membershipId: membership.id,
+      role: membership.role,
+      request,
+    });
+
+    await this.audit.record({
+      tenantId: targetTenant.id,
+      userId: currentUser.id,
+      actorRole: membership.role,
+      action: "auth.impersonate",
+      entityType: "Tenant",
+      entityId: targetTenant.id,
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    });
+
+    return {
+      ...tokens,
+      user: {
+        id: currentUser.id,
+        email: currentUser.email,
+      },
+      tenant: targetTenant,
+      membership: {
+        id: membership.id,
+        role: membership.role,
+      },
     };
   }
 

@@ -46,3 +46,14 @@ export const updateMembershipSchema = z
   });
 
 export type UpdateMembershipInput = z.infer<typeof updateMembershipSchema>;
+
+export const listUsersSchema = z.object({
+  tenantId: z.string().optional(),
+  role: z.nativeEnum(UserRole).optional(),
+  status: z.nativeEnum(UserStatus).optional(),
+  search: z.string().optional(),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+export type ListUsersInput = z.infer<typeof listUsersSchema>;

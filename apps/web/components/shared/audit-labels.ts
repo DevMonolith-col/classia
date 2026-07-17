@@ -31,8 +31,16 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "subject.updated": "actualizó una materia",
   "teacher.created": "registró un profesor",
   "teacher.updated": "actualizó un profesor",
+  "tenant.created": "creó un colegio",
+  "tenant.updated": "actualizó un colegio",
   "user.created": "creó un usuario",
   "user.updated": "actualizó un usuario",
+  "auth.login": "inició sesión",
+  "auth.logout": "cerró sesión",
+  "auth.refresh": "renovó sesión",
+  "auth.impersonate": "accedió como colegio",
+  "auth.register": "se registró",
+  "support.access.requested": "solicitó acceso de soporte",
 }
 
 /** Session/auth events are noise for an activity feed — they don't represent institutional work. */

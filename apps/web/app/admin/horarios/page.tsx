@@ -138,59 +138,61 @@ export default function AdminHorariosPage() {
         </div>
       )}
 
-      <Card className="mb-6">
-        <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
-          <div className="w-full space-y-2 sm:w-72">
-            <label className="text-sm font-medium text-foreground">Profesor</label>
-            <TeacherCombobox
-              teachers={teachers}
-              value={selectedTeacherId}
-              onChange={setSelectedTeacherId}
-              allowAll
-            />
-          </div>
-          <div className="w-full space-y-2 sm:w-48">
-            <label className="text-sm font-medium text-foreground">Día</label>
-            <Select value={dayFilter} onValueChange={setDayFilter}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Todos los días" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los días</SelectItem>
-                {Object.entries(DAY_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            className="gap-2"
-            onClick={openCreateDialog}
-            disabled={!selectedTeacher || !hasCatalog}
-            title={!selectedTeacher ? "Selecciona un profesor para crear un horario" : undefined}
-          >
-            <Plus className="h-4 w-4" />
-            Nuevo horario
-          </Button>
-        </CardContent>
-      </Card>
-
       <Card>
-        <CardHeader className="gap-1 border-b border-border">
-          <CardTitle>
-            {selectedTeacher
-              ? `Horario de ${selectedTeacher.user.firstName} ${selectedTeacher.user.lastName}`
-              : "Todos los horarios"}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {loading
-              ? "Cargando..."
-              : selectedTeacher
-                ? `${filteredSchedules.length} bloque${filteredSchedules.length === 1 ? "" : "s"} asignado${filteredSchedules.length === 1 ? "" : "s"}`
-                : `${filteredSchedules.length} bloque${filteredSchedules.length === 1 ? "" : "s"} en total · busca un profesor arriba para crear o editar`}
-          </p>
+        <CardHeader className="gap-4 border-b border-border py-4">
+          <div className="flex flex-col gap-4">
+            <div>
+              <CardTitle>
+                {selectedTeacher
+                  ? `Horario de ${selectedTeacher.user.firstName} ${selectedTeacher.user.lastName}`
+                  : "Todos los horarios"}
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {loading
+                  ? "Cargando..."
+                  : selectedTeacher
+                    ? `${filteredSchedules.length} bloque${filteredSchedules.length === 1 ? "" : "s"} asignado${filteredSchedules.length === 1 ? "" : "s"}`
+                    : `${filteredSchedules.length} bloque${filteredSchedules.length === 1 ? "" : "s"} en total · busca un profesor arriba para crear o editar`}
+              </p>
+            </div>
+            
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="w-full space-y-2 sm:w-72">
+                <label className="text-sm font-medium text-foreground">Profesor</label>
+                <TeacherCombobox
+                  teachers={teachers}
+                  value={selectedTeacherId}
+                  onChange={setSelectedTeacherId}
+                  allowAll
+                />
+              </div>
+              <div className="w-full space-y-2 sm:w-48">
+                <label className="text-sm font-medium text-foreground">Día</label>
+                <Select value={dayFilter} onValueChange={setDayFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Todos los días" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los días</SelectItem>
+                    {Object.entries(DAY_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                className="gap-2 sm:ml-auto"
+                onClick={openCreateDialog}
+                disabled={!selectedTeacher || !hasCatalog}
+                title={!selectedTeacher ? "Selecciona un profesor para crear un horario" : undefined}
+              >
+                <Plus className="h-4 w-4" />
+                Nuevo horario
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (

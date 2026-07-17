@@ -15,7 +15,7 @@ export type LoginResult = {
   accessToken: string
   refreshToken: string
   user: { id: string; email: string; firstName: string; lastName: string }
-  tenant: { id: string; slug: string }
+  tenant: { id: string; slug: string; name: string }
   membership: { id: string; role: string }
 }
 
@@ -98,7 +98,7 @@ export function getCurrentUser(): JwtPayload | null {
 
 // ─── User info cache ─────────────────────────────────────────────────────────
 
-type StoredUser = { firstName: string; lastName: string; email: string; role: string }
+type StoredUser = { firstName: string; lastName: string; email: string; role: string; tenantName?: string }
 
 export function setStoredUser(user: StoredUser) {
   if (typeof localStorage === "undefined") return
@@ -137,8 +137,72 @@ export async function login(email: string, password: string): Promise<LoginResul
     lastName: data.user.lastName,
     email: data.user.email,
     role: data.membership.role,
+    tenantName: data.tenant.name,
   })
   return data
+}
+
+export async function impersonateTenant(tenantId: string): Promise<LoginResult> {
+  const currentAt = getAccessToken()
+  const currentRt = getRefreshToken()
+  
+  if (!currentAt || !currentRt) {
+    throw new Error("No hay sesión activa para impersonar")
+  }
+
+  const res = await fetch(`${API_URL}/auth/impersonate`, {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${currentAt}`,
+      "X-Tenant-Slug": TENANT_SLUG
+    },
+    body: JSON.stringify({ tenantId }),
+    credentials: "include",
+  })
+
+  if (!res.ok) {
+    throw new Error("No se pudo iniciar la impersonación")
+  }
+
+  // Guardar tokens originales antes de sobreescribir
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("classia_original_at", currentAt)
+    localStorage.setItem("classia_original_rt", currentRt)
+  }
+
+  const data = (await res.json()) as LoginResult
+  setTokens(data.accessToken, data.refreshToken)
+  setStoredUser({
+    firstName: data.user.firstName,
+    lastName: data.user.lastName,
+    email: data.user.email,
+    role: data.membership.role,
+    tenantName: data.tenant.name,
+  })
+  return data
+}
+
+export function exitImpersonation(): boolean {
+  if (typeof localStorage === "undefined") return false
+  
+  const originalAt = localStorage.getItem("classia_original_at")
+  const originalRt = localStorage.getItem("classia_original_rt")
+  
+  if (!originalAt || !originalRt) return false
+  
+  setTokens(originalAt, originalRt)
+  localStorage.removeItem("classia_original_at")
+  localStorage.removeItem("classia_original_rt")
+  
+  // Limpiamos la info del usuario almacenado para que se re-obtenga del token o /me si fuese necesario
+  localStorage.removeItem("classia_user")
+  return true
+}
+
+export function isImpersonating(): boolean {
+  if (typeof localStorage === "undefined") return false
+  return !!localStorage.getItem("classia_original_at")
 }
 
 export async function logout(): Promise<void> {
