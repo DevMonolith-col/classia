@@ -41,10 +41,13 @@ estudiante). Verificado en navegador con ambos roles.
 
 Objetivo del usuario: reportes de clase mundial. Prioridades expresadas:
 
-1. **Histórico para el rector** — PARCIAL: `/admin/calificaciones` ya filtra por
-   año/curso/profesor/materia/periodo con boletín por estudiante (commit `febc270`),
-   y existe `/admin/calificaciones/[studentId]` como detalle. Falta: **comparación
-   entre años** y una vista consolidada de históricos (ej. `/admin/historico`).
+1. **Histórico para el rector** — AVANZADO: `/admin/calificaciones` es
+   estudiante-céntrica (combobox de estudiante con búsqueda por nombre/documento;
+   al elegirlo: resumen por materias con la definitiva oficial del motor + banda,
+   y cada materia se expande al desarrollo de notas individuales). Filtros
+   año/curso/estudiante/profesor/materia/periodo. Seed con año 2025 archivado
+   completo (notas 4 periodos + boletines FINAL) para demo del histórico. Falta:
+   **comparación entre años** lado a lado.
 2. **Generación masiva de boletines** — HECHO (commit `03ee42a`):
    `POST /report-cards/generate-bulk` (grupo o colegio, periodo o año; omitidos
    reportados sin abortar el lote) + botón "Generar boletines" en
