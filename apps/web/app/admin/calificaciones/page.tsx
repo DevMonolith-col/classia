@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FileText, Loader2, Users } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FileText, Loader2, Users, X } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { computeWeightedFinal } from "@/lib/grading"
@@ -288,6 +288,14 @@ export default function AdminCalificacionesPage() {
     }
   }
 
+  const hasActiveFilters = selectedStudentId !== null || selectedGroupId !== "ALL" || periodFilter !== "all"
+
+  function clearFilters() {
+    setSelectedStudentId(null)
+    setSelectedGroupId("ALL")
+    setPeriodFilter("all")
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="mb-6">
@@ -371,6 +379,14 @@ export default function AdminCalificacionesPage() {
                 </SelectContent>
               </Select>
             </div>
+            {hasActiveFilters && (
+              <div className="sm:ml-auto">
+                <Button variant="ghost" size="sm" className="gap-1.5" onClick={clearFilters}>
+                  <X className="h-3.5 w-3.5" />
+                  Eliminar filtros
+                </Button>
+              </div>
+            )}
           </div>
         </CardHeader>
 
