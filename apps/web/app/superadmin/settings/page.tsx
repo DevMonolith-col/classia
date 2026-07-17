@@ -42,7 +42,7 @@ export default function SuperAdminSettingsPage() {
         </div>
       </header>
 
-      <div className="px-4 py-6 sm:px-6 lg:px-8 max-w-5xl">
+      <div className="px-4 py-6 sm:px-6 lg:px-8 max-w-5xl mx-auto">
         <Tabs defaultValue="general" className="space-y-6">
           <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 h-auto p-1 bg-secondary/50">
             <TabsTrigger value="general" className="py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm">

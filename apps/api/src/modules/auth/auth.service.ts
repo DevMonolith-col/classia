@@ -201,8 +201,21 @@ export class AuthService {
   }
 
   async impersonate(input: ImpersonateInput, currentUser: RequestUser, request: Request) {
-    if (currentUser.role !== "SUPER_ADMIN") {
-      throw new UnauthorizedException("Only super admins can impersonate.");
+    if (currentUser.role !== "SUPER_ADMIN" && currentUser.role !== "SUPPORT_AGENT") {
+      throw new UnauthorizedException("Insufficient privileges to impersonate.");
+    }
+
+    if (currentUser.role === "SUPPORT_AGENT") {
+      const activeTickets = await this.prisma.supportTicket.count({
+        where: {
+          tenantId: input.tenantId,
+          assigneeId: currentUser.id,
+          status: { notIn: ["RESOLVED", "CLOSED"] }
+        }
+      });
+      if (activeTickets === 0) {
+        throw new UnauthorizedException("You do not have an active ticket assignment for this tenant.");
+      }
     }
 
     const targetTenant = await this.prisma.tenant.findUnique({

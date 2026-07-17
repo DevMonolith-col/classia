@@ -76,6 +76,7 @@ model Tenant {
   gradingScales     GradingScale[]
   gradingCategories GradingCategory[]
   reportCards       ReportCard[]
+  supportTickets    SupportTicket[]
 
   @@map("tenants")
 }
@@ -795,4 +796,58 @@ model AuditLog {
   createdAt  DateTime @default(now())
 
   @@map("audit_logs")
+}
+
+// ─── Soporte (Tickets) ───────────────────────────────────────────────────────
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model SupportTicket {
+  id          String         @id @default(uuid())
+  tenantId    String
+  authorId    String         // Usuario del colegio que lo reporta
+  assigneeId  String?        // SuperAdmin encargado de resolverlo
+  
+  title       String
+  description String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+  category    String         
+  
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  comments    TicketComment[]
+  
+  @@index([tenantId, status])
+  @@map("support_tickets")
+}
+
+model TicketComment {
+  id          String        @id @default(uuid())
+  ticketId    String
+  authorId    String        // Puede ser SuperAdmin o el cliente
+  content     String
+  isInternal  Boolean       @default(false)
+  
+  createdAt   DateTime      @default(now())
+
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  
+  @@index([ticketId])
+  @@map("ticket_comments")
 }

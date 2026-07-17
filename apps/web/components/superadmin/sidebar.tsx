@@ -26,9 +26,9 @@ const navigation = [
   { name: "Colegios", href: "/superadmin/tenants", icon: Building2, available: true },
   { name: "Usuarios globales", href: "/superadmin/users", icon: Users, available: true },
   { name: "Auditoria", href: "/superadmin/audit", icon: ClipboardList, available: true },
-  { name: "Soporte", href: "/superadmin/support", icon: LifeBuoy, available: false },
+  { name: "Soporte", href: "/superadmin/support", icon: LifeBuoy, available: true },
   { name: "Seguridad", href: "/superadmin/security", icon: ShieldCheck, available: false },
-  { name: "Configuracion", href: "/superadmin/settings", icon: Settings, available: false },
+  { name: "Configuracion", href: "/superadmin/settings", icon: Settings, available: true },
 ]
 
 interface Props {
