@@ -1,13 +1,15 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { 
-  LifeBuoy, 
-  Search, 
-  Clock, 
-  CheckCircle2, 
-  XCircle, 
+import {
+  LifeBuoy,
+  Search,
+  Clock,
+  CheckCircle2,
+  XCircle,
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
   User,
   Building2,
   AlertTriangle,
@@ -58,12 +60,15 @@ const priorityConfig: Record<TicketPriority, { label: string, color: string }> =
   CRITICAL: { label: "Crítica", color: "text-red-500 font-bold" },
 }
 
+const PAGE_SIZE = 10
+
 export default function SuperAdminSupportPage() {
   const [tickets, setTickets] = useState<SupportTicket[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "ALL">("ALL")
+  const [page, setPage] = useState(1)
 
   useEffect(() => {
     let cancelled = false
@@ -90,6 +95,14 @@ export default function SuperAdminSupportPage() {
     return true
   })
 
+  const pageCount = Math.max(1, Math.ceil(filteredTickets.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedTickets = filteredTickets.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [statusFilter, search])
+
   // Calculate metrics
   const openCount = tickets.filter(t => t.status === "OPEN").length
   const criticalCount = tickets.filter(t => t.priority === "CRITICAL" && t.status !== "RESOLVED" && t.status !== "CLOSED").length
@@ -97,32 +110,17 @@ export default function SuperAdminSupportPage() {
   return (
     <div className="min-h-screen bg-background pb-10">
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Centro de Control Escolar</p>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-              <LifeBuoy className="h-6 w-6 text-primary" />
-              Soporte B2B
-            </h1>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => setStatusFilter("ALL")} className={statusFilter === "ALL" ? "bg-secondary" : ""}>
-              Todos
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setStatusFilter("OPEN")} className={statusFilter === "OPEN" ? "bg-blue-100 text-blue-800" : ""}>
-              Abiertos ({openCount})
-            </Button>
-            {criticalCount > 0 && (
-              <Button variant="destructive" size="sm">
-                Críticos ({criticalCount})
-              </Button>
-            )}
-          </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Centro de Control Escolar</p>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+            <LifeBuoy className="h-6 w-6 text-primary" />
+            Soporte B2B
+          </h1>
         </div>
       </header>
 
       <div className="px-4 py-6 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-6">
-        
+
         <Card className="shadow-sm">
           <CardHeader className="pb-3 border-b border-border">
             <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
@@ -139,6 +137,19 @@ export default function SuperAdminSupportPage() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setStatusFilter("ALL")} className={statusFilter === "ALL" ? "bg-secondary" : ""}>
+                Todos
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setStatusFilter("OPEN")} className={statusFilter === "OPEN" ? "bg-blue-100 text-blue-800" : ""}>
+                Abiertos ({openCount})
+              </Button>
+              {criticalCount > 0 && (
+                <Button variant="destructive" size="sm">
+                  Críticos ({criticalCount})
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -158,8 +169,9 @@ export default function SuperAdminSupportPage() {
                 <p className="text-muted-foreground mt-1">No hay tickets que coincidan con la búsqueda actual.</p>
               </div>
             ) : (
+              <>
               <div className="divide-y divide-border">
-                {filteredTickets.map(ticket => {
+                {paginatedTickets.map(ticket => {
                   const status = statusConfig[ticket.status]
                   const priority = priorityConfig[ticket.priority]
                   const StatusIcon = status.icon
@@ -214,6 +226,38 @@ export default function SuperAdminSupportPage() {
                   )
                 })}
               </div>
+              {pageCount > 1 && (
+                <div className="flex items-center justify-between border-t border-border p-4">
+                  <p className="text-sm text-muted-foreground">
+                    Página {currentPage} de {pageCount}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage <= 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Anterior
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                      disabled={currentPage >= pageCount}
+                    >
+                      Siguiente
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+              </>
             )}
           </CardContent>
         </Card>
