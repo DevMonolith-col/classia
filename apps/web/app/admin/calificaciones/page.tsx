@@ -1,8 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, FileText, Loader2, Users } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronRight, FileText, Loader2, Users } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { computeWeightedFinal } from "@/lib/grading"
@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { TeacherCombobox } from "@/components/admin/teacher-combobox"
+import { StudentCombobox, type StudentOption } from "@/components/admin/student-combobox"
 import type { Mark } from "@/components/admin/marks-types"
 import type { Teacher } from "@/components/admin/academic-types"
 
@@ -37,6 +38,21 @@ type AcademicYear = {
   name: string
   isActive: boolean
   periods?: { id: string; sequence: number; name: string }[]
+}
+
+// Respuesta de /report-cards/preview: la definitiva oficial del motor del backend.
+type SummaryLine = {
+  subjectId: string
+  subjectName: string
+  final: number | null
+  label: string | null
+  passing: boolean | null
+}
+type StudentSummary = {
+  scaleName: string
+  passingValue: number
+  overallAverage: number | null
+  lines: SummaryLine[]
 }
 
 export default function AdminCalificacionesPage() {
@@ -53,16 +69,30 @@ export default function AdminCalificacionesPage() {
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>("ALL")
   const [periodFilter, setPeriodFilter] = useState<string>("all")
 
+  // Vista estudiante-céntrica: el boletín es DEL estudiante. Con estudiante
+  // seleccionado se muestra su resumen por materias (definitiva oficial del
+  // motor) y cada materia se expande para ver el desarrollo (notas sueltas).
+  const [students, setStudents] = useState<StudentOption[]>([])
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
+  const [summary, setSummary] = useState<StudentSummary | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null)
+
   const loadBaseData = useCallback(async () => {
     try {
-      const [teachersRes, groupsRes, yearsRes] = await Promise.all([
+      const [teachersRes, groupsRes, yearsRes, studentsRes] = await Promise.all([
         apiFetch("/teachers", { silent: true }),
         apiFetch("/groups", { silent: true }),
         apiFetch("/academic-years", { silent: true }),
+        apiFetch("/students", { silent: true }),
       ])
 
       setTeachers(teachersRes.ok ? (((await teachersRes.json()) as Teacher[]) ?? []) : [])
       setGroups(groupsRes.ok ? (((await groupsRes.json()) as Group[]) ?? []) : [])
+      if (studentsRes.ok) {
+        const data = (await studentsRes.json()) as { id: string; firstName: string; lastName: string; documentId?: string | null; group?: { id: string } | null }[]
+        setStudents(data.map((s) => ({ id: s.id, firstName: s.firstName, lastName: s.lastName, documentId: s.documentId, groupId: s.group?.id ?? null })))
+      }
       
       if (yearsRes.ok) {
         const years = (await yearsRes.json()) as AcademicYear[]
@@ -107,6 +137,71 @@ export default function AdminCalificacionesPage() {
       loadMarks(selectedYearId)
     }
   }, [selectedYearId, loadMarks])
+
+  // Estudiantes disponibles en el combobox, acotados al curso elegido.
+  const studentsForCombobox = useMemo(() => {
+    const list = selectedGroupId !== "ALL" ? students.filter((s) => s.groupId === selectedGroupId) : students
+    return [...list].sort((a, b) => a.firstName.localeCompare(b.firstName) || a.lastName.localeCompare(b.lastName))
+  }, [students, selectedGroupId])
+
+  // Si cambia el curso y el estudiante elegido no pertenece, se deselecciona.
+  useEffect(() => {
+    if (selectedStudentId && selectedGroupId !== "ALL") {
+      const stillVisible = students.some((s) => s.id === selectedStudentId && s.groupId === selectedGroupId)
+      if (!stillVisible) setSelectedStudentId(null)
+    }
+  }, [selectedGroupId, selectedStudentId, students])
+
+  const selectedStudent = students.find((s) => s.id === selectedStudentId) ?? null
+
+  // Resumen oficial (motor del backend): definitiva + banda por materia, del
+  // periodo elegido o del año completo si el filtro está en "Nota Final".
+  useEffect(() => {
+    if (!selectedStudentId || !selectedYearId) {
+      setSummary(null)
+      return
+    }
+    let cancelled = false
+    async function load() {
+      setSummaryLoading(true)
+      try {
+        const year = academicYears.find((y) => y.id === selectedYearId)
+        const periodId =
+          periodFilter !== "all" ? year?.periods?.find((p) => p.sequence === Number(periodFilter))?.id : undefined
+        const qs = new URLSearchParams({ studentId: selectedStudentId as string, academicYearId: selectedYearId })
+        if (periodId) qs.set("periodId", periodId)
+        const res = await apiFetch(`/report-cards/preview?${qs.toString()}`, { silent: true })
+        if (!res.ok) throw new Error()
+        const data = (await res.json()) as StudentSummary
+        if (!cancelled) setSummary(data)
+      } catch {
+        if (!cancelled) setSummary(null)
+      } finally {
+        if (!cancelled) setSummaryLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedStudentId, selectedYearId, periodFilter, academicYears])
+
+  // Desarrollo de una materia: las notas individuales del estudiante en el año
+  // (y periodo, si hay filtro), agrupadas desde las marks ya cargadas.
+  const marksForSubject = useCallback(
+    (subjectId: string) => {
+      if (!selectedStudentId) return []
+      return marks
+        .filter(
+          (m) =>
+            m.student.id === selectedStudentId &&
+            m.subject.id === subjectId &&
+            (periodFilter === "all" || String(m.period) === periodFilter),
+        )
+        .sort((a, b) => a.period - b.period || (a.date < b.date ? -1 : 1))
+    },
+    [marks, selectedStudentId, periodFilter],
+  )
 
 
 
@@ -256,6 +351,15 @@ export default function AdminCalificacionesPage() {
               </SelectContent>
             </Select>
           </div>
+          <div className="w-full space-y-2 sm:w-64">
+            <Label>Estudiante</Label>
+            <StudentCombobox
+              students={studentsForCombobox}
+              value={selectedStudentId}
+              onChange={setSelectedStudentId}
+              allowAll
+            />
+          </div>
           <div className="w-full space-y-2 sm:w-56">
             <Label>Profesor</Label>
             <TeacherCombobox teachers={teachers} value={selectedTeacherId} onChange={setSelectedTeacherId} allowAll />
@@ -301,6 +405,140 @@ export default function AdminCalificacionesPage() {
         </CardContent>
       </Card>
 
+      {selectedStudent ? (
+        <Card>
+          <CardHeader className="flex flex-col gap-3 border-b border-border sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>
+                {selectedStudent.firstName} {selectedStudent.lastName}
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {selectedStudent.documentId ?? "Sin documento"}
+                {summary && ` · ${summary.scaleName}`}
+                {periodFilter !== "all" ? ` · Periodo ${periodFilter}` : " · Definitiva del año"}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {summary?.overallAverage != null && (
+                <div className="text-right">
+                  <p className="text-2xl font-bold text-foreground">{summary.overallAverage.toFixed(1)}</p>
+                  <p className="text-xs text-muted-foreground">Promedio general</p>
+                </div>
+              )}
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/admin/calificaciones/${selectedStudent.id}`}>
+                  <FileText className="mr-2 h-4 w-4" />
+                  Boletín
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {summaryLoading ? (
+              <div className="space-y-3 p-6">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="h-12 animate-pulse rounded-lg bg-secondary" />
+                ))}
+              </div>
+            ) : !summary || summary.lines.length === 0 ? (
+              <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                <FileText className="h-10 w-10 text-muted-foreground" />
+                <h2 className="mt-3 text-base font-semibold text-foreground">Sin materias para este filtro</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Este estudiante no tiene materias con calificaciones en el año/periodo elegido.</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-6">Materia</TableHead>
+                    <TableHead className="text-center">Definitiva</TableHead>
+                    <TableHead>Desempeño</TableHead>
+                    <TableHead className="pr-6 text-right">Desarrollo</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {summary.lines.map((line) => {
+                    const expanded = expandedSubjectId === line.subjectId
+                    const subjectMarks = expanded ? marksForSubject(line.subjectId) : []
+                    return (
+                      <Fragment key={line.subjectId}>
+                        <TableRow
+                          className="cursor-pointer"
+                          onClick={() => setExpandedSubjectId(expanded ? null : line.subjectId)}
+                        >
+                          <TableCell className="pl-6 font-medium text-foreground">{line.subjectName}</TableCell>
+                          <TableCell className="text-center">
+                            {line.final !== null ? (
+                              <span className={`font-semibold ${line.passing ? "text-foreground" : "text-destructive"}`}>
+                                {line.final.toFixed(1)}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Sin notas</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {line.label ? (
+                              <Badge variant={line.passing ? "outline" : "destructive"}>{line.label}</Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="pr-6 text-right">
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              {expanded ? "Ocultar" : "Ver notas"}
+                              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                        {expanded && (
+                          <TableRow className="hover:bg-transparent">
+                            <TableCell colSpan={4} className="bg-muted/20 p-0">
+                              {subjectMarks.length === 0 ? (
+                                <p className="px-6 py-4 text-sm text-muted-foreground">
+                                  No hay notas individuales registradas para este filtro.
+                                </p>
+                              ) : (
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow className="hover:bg-transparent">
+                                      <TableHead className="pl-10 text-xs">Evaluación</TableHead>
+                                      <TableHead className="text-center text-xs">Periodo</TableHead>
+                                      <TableHead className="text-center text-xs">Nota</TableHead>
+                                      <TableHead className="text-xs">Profesor</TableHead>
+                                      <TableHead className="pr-6 text-right text-xs">Fecha</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {subjectMarks.map((mark) => (
+                                      <TableRow key={mark.id} className="hover:bg-transparent">
+                                        <TableCell className="pl-10 text-sm">{mark.title}</TableCell>
+                                        <TableCell className="text-center text-sm text-muted-foreground">P{mark.period}</TableCell>
+                                        <TableCell className="text-center text-sm font-medium">
+                                          {mark.value} / {mark.maxValue}
+                                        </TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">
+                                          {mark.teacher.user.firstName} {mark.teacher.user.lastName}
+                                        </TableCell>
+                                        <TableCell className="pr-6 text-right text-sm text-muted-foreground">
+                                          {new Date(mark.date).toLocaleDateString("es-CO")}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
       <Card>
         <CardHeader className="border-b border-border">
           <CardTitle>
@@ -343,7 +581,11 @@ export default function AdminCalificacionesPage() {
                 </TableHeader>
                 <TableBody>
                   {uniqueStudents.map((student) => (
-                    <TableRow key={student.id}>
+                    <TableRow
+                      key={student.id}
+                      className="cursor-pointer"
+                      onClick={() => setSelectedStudentId(student.id)}
+                    >
                       <TableCell className="sticky left-0 bg-background pl-6 border-r border-border">
                         <div className="font-medium text-foreground">
                           {student.firstName} {student.lastName}
@@ -374,7 +616,7 @@ export default function AdminCalificacionesPage() {
                         </TableCell>
                       )}
 
-                      <TableCell className="pr-6 text-right">
+                      <TableCell className="pr-6 text-right" onClick={(e) => e.stopPropagation()}>
                         <Button variant="outline" size="sm" asChild>
                            <Link href={`/admin/calificaciones/${student.id}`}>
                              <FileText className="mr-2 h-4 w-4" />
@@ -390,6 +632,7 @@ export default function AdminCalificacionesPage() {
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }
