@@ -65,8 +65,6 @@ export default function AdminCalificacionesPage() {
 
   const [selectedYearId, setSelectedYearId] = useState<string>("")
   const [selectedGroupId, setSelectedGroupId] = useState<string>("ALL")
-  const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null)
-  const [selectedSubjectId, setSelectedSubjectId] = useState<string>("ALL")
   const [periodFilter, setPeriodFilter] = useState<string>("all")
 
   // Vista estudiante-céntrica: el boletín es DEL estudiante. Con estudiante
@@ -208,28 +206,18 @@ export default function AdminCalificacionesPage() {
   const filteredMarks = useMemo(() => {
     let list = marks
     if (selectedGroupId !== "ALL") list = list.filter((m) => m.student.groupId === selectedGroupId)
-    if (selectedTeacherId) list = list.filter((m) => m.teacher.id === selectedTeacherId)
-    if (selectedSubjectId !== "ALL") list = list.filter((m) => m.subject.id === selectedSubjectId)
     if (periodFilter !== "all") list = list.filter((m) => String(m.period) === periodFilter)
     return [...list].sort((a, b) => (a.date < b.date ? 1 : -1))
-  }, [marks, selectedGroupId, selectedTeacherId, selectedSubjectId, periodFilter])
+  }, [marks, selectedGroupId, periodFilter])
 
-  const availableSubjects = useMemo(() => {
+  // Materias del consolidado: columnas derivadas de las notas del curso elegido.
+  const subjectsToDisplay = useMemo(() => {
     let list = marks
     if (selectedGroupId !== "ALL") list = list.filter((m) => m.student.groupId === selectedGroupId)
-    if (selectedTeacherId) list = list.filter((m) => m.teacher.id === selectedTeacherId)
-    
     const map = new Map<string, { id: string; name: string }>()
-    list.forEach(m => map.set(m.subject.id, { id: m.subject.id, name: m.subject.name }))
+    list.forEach((m) => map.set(m.subject.id, { id: m.subject.id, name: m.subject.name }))
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
-  }, [marks, selectedGroupId, selectedTeacherId])
-
-  // Reset subject filter if teacher or group changes and selected subject is no longer available
-  useEffect(() => {
-    if (selectedSubjectId !== "ALL" && !availableSubjects.find(s => s.id === selectedSubjectId)) {
-      setSelectedSubjectId("ALL")
-    }
-  }, [availableSubjects, selectedSubjectId])
+  }, [marks, selectedGroupId])
 
   const uniqueStudents = useMemo(() => {
     const map = new Map<string, typeof marks[0]['student']>()
@@ -240,15 +228,6 @@ export default function AdminCalificacionesPage() {
     }
     return Array.from(map.values()).sort((a, b) => a.firstName.localeCompare(b.firstName))
   }, [filteredMarks])
-
-  // subjectsToDisplay logic for Consolidado
-  const subjectsToDisplay = useMemo(() => {
-    if (selectedSubjectId !== "ALL") {
-      const s = availableSubjects.find(sub => sub.id === selectedSubjectId)
-      return s ? [s] : []
-    }
-    return availableSubjects
-  }, [availableSubjects, selectedSubjectId])
 
   const getStudentGradeForSubject = useCallback((studentId: string, subjectId: string) => {
     const studentMarks = filteredMarks.filter(m => m.student.id === studentId && m.subject.id === subjectId)
@@ -319,88 +298,74 @@ export default function AdminCalificacionesPage() {
       )}
 
       <Card className="mb-6">
-        <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end flex-wrap">
-          <div className="w-full space-y-2 sm:w-48">
-            <Label>Año Lectivo</Label>
-            <Select value={selectedYearId} onValueChange={setSelectedYearId}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {academicYears.map((y) => (
-                  <SelectItem key={y.id} value={y.id}>
-                    {y.name} {y.isActive ? "(Activo)" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <CardContent className="flex flex-col gap-4 p-4">
+          {/* El boletín es del estudiante: su búsqueda es el control principal. */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div className="w-full space-y-2 sm:max-w-md sm:flex-1">
+              <Label>Estudiante</Label>
+              <StudentCombobox
+                students={studentsForCombobox}
+                value={selectedStudentId}
+                onChange={setSelectedStudentId}
+                allowAll
+              />
+            </div>
+            <div className="w-full space-y-2 sm:w-56">
+              <Label>Grado / Curso</Label>
+              <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Todos los cursos</SelectItem>
+                  {groups.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-full sm:ml-auto sm:w-auto">
+              <Button onClick={generateBulkReportCards} disabled={generatingBulk || !selectedYearId} className="w-full gap-2">
+                {generatingBulk ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                Generar boletines
+              </Button>
+            </div>
           </div>
-          <div className="w-full space-y-2 sm:w-56">
-            <Label>Grado / Curso</Label>
-            <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Todos los cursos</SelectItem>
-                {groups.map((g) => (
-                  <SelectItem key={g.id} value={g.id}>
-                    {g.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="w-full space-y-2 sm:w-64">
-            <Label>Estudiante</Label>
-            <StudentCombobox
-              students={studentsForCombobox}
-              value={selectedStudentId}
-              onChange={setSelectedStudentId}
-              allowAll
-            />
-          </div>
-          <div className="w-full space-y-2 sm:w-56">
-            <Label>Profesor</Label>
-            <TeacherCombobox teachers={teachers} value={selectedTeacherId} onChange={setSelectedTeacherId} allowAll />
-          </div>
-          <div className="w-full space-y-2 sm:w-56">
-            <Label>Materia</Label>
-            <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Todas las materias</SelectItem>
-                {availableSubjects.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="w-full space-y-2 sm:w-48">
-            <Label>Periodo / Nota Final</Label>
-            <Select value={periodFilter} onValueChange={setPeriodFilter}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Nota Final (Todos)</SelectItem>
-                {PERIOD_OPTIONS.map((p) => (
-                  <SelectItem key={p} value={String(p)}>
-                    Periodo {p}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="w-full sm:ml-auto sm:w-auto">
-            <Button onClick={generateBulkReportCards} disabled={generatingBulk || !selectedYearId} className="w-full gap-2">
-              {generatingBulk ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-              Generar boletines
-            </Button>
+          {/* Contexto académico: qué año y qué corte estás mirando. */}
+          <div className="flex flex-col gap-4 border-t border-border pt-4 sm:flex-row sm:items-end">
+            <div className="w-full space-y-2 sm:w-48">
+              <Label>Año Lectivo</Label>
+              <Select value={selectedYearId} onValueChange={setSelectedYearId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {academicYears.map((y) => (
+                    <SelectItem key={y.id} value={y.id}>
+                      {y.name} {y.isActive ? "(Activo)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-full space-y-2 sm:w-48">
+              <Label>Periodo / Nota Final</Label>
+              <Select value={periodFilter} onValueChange={setPeriodFilter}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Nota Final (Todos)</SelectItem>
+                  {PERIOD_OPTIONS.map((p) => (
+                    <SelectItem key={p} value={String(p)}>
+                      Periodo {p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
