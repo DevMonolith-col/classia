@@ -221,28 +221,11 @@ export default function AdminDashboardPage() {
                 <BellRing className="h-4 w-4 text-amber-500" /> Novedades Urgentes
               </h2>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Card className="shadow-sm border-l-4 border-l-red-500 hover:bg-secondary/20 transition-colors cursor-pointer">
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40">Inasistencia Crítica</Badge>
-                      <span className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="h-3 w-3" /> Hace 2h</span>
-                    </div>
-                    <p className="text-sm font-medium">3 estudiantes en el grupo 9A acumulan más de 4 inasistencias consecutivas.</p>
-                    <div className="mt-3 text-xs font-semibold text-red-600 flex items-center gap-1">
-                      Gestionar inasistencias <ArrowUpRight className="h-3 w-3" />
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="shadow-sm border-l-4 border-l-amber-500 hover:bg-secondary/20 transition-colors cursor-pointer">
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40">Faltan Calificaciones</Badge>
-                      <span className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="h-3 w-3" /> Hace 1d</span>
-                    </div>
-                    <p className="text-sm font-medium">Faltan notas del 1er Periodo en 2 materias de 6to grado (Prof. Martínez).</p>
-                    <div className="mt-3 text-xs font-semibold text-amber-600 flex items-center gap-1">
-                      Enviar recordatorio <ArrowUpRight className="h-3 w-3" />
-                    </div>
+                <Card className="shadow-sm border-l-4 border-l-muted hover:bg-secondary/10 transition-colors">
+                  <CardContent className="p-4 flex flex-col items-center justify-center text-center py-8 text-muted-foreground">
+                    <BellRing className="h-6 w-6 mb-2 text-muted-foreground/50" />
+                    <p className="text-sm font-medium">No hay novedades urgentes</p>
+                    <p className="text-xs mt-1">Todo está en orden en este momento.</p>
                   </CardContent>
                 </Card>
               </div>
@@ -260,28 +243,11 @@ export default function AdminDashboardPage() {
               </CardHeader>
               <CardContent className="p-0">
                 <div className="divide-y divide-border">
-                  {/* Mocked for the UI standards demonstration */}
-                  {[
-                    { group: "Noveno A", present: 22, total: 30, pct: 73 },
-                    { group: "Décimo B", present: 24, total: 32, pct: 75 },
-                    { group: "Sexto C", present: 28, total: 35, pct: 80 },
-                  ].map((row, i) => (
-                    <div key={i} className="p-4 flex items-center justify-between hover:bg-secondary/40 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-100 text-rose-700 font-bold text-xs dark:bg-rose-900/30">
-                          {row.pct}%
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">{row.group}</p>
-                          <p className="text-xs text-muted-foreground">Profesor titular pendiente</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-foreground">{row.present} / {row.total}</p>
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Presentes</p>
-                      </div>
-                    </div>
-                  ))}
+                  <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
+                    <TrendingDown className="h-6 w-6 mb-2 text-muted-foreground/50" />
+                    <p className="text-sm font-medium">Asistencia normal</p>
+                    <p className="text-xs mt-1">Ningún grupo presenta inasistencias por debajo del umbral de alerta hoy.</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
