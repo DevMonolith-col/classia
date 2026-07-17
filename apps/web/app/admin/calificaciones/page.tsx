@@ -2,13 +2,13 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, ChevronDown, ChevronRight, FileText, Loader2, Users } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FileText, Loader2, Users } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { computeWeightedFinal } from "@/lib/grading"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -25,12 +25,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { TeacherCombobox } from "@/components/admin/teacher-combobox"
 import { StudentCombobox, type StudentOption } from "@/components/admin/student-combobox"
 import type { Mark } from "@/components/admin/marks-types"
-import type { Teacher } from "@/components/admin/academic-types"
 
 const PERIOD_OPTIONS = [1, 2, 3, 4]
+const PAGE_SIZE = 10
 
 type Group = { id: string; name: string; grade: string; section: string }
 type AcademicYear = {
@@ -57,7 +56,6 @@ type StudentSummary = {
 
 export default function AdminCalificacionesPage() {
   const [marks, setMarks] = useState<Mark[]>([])
-  const [teachers, setTeachers] = useState<Teacher[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
   const [loading, setLoading] = useState(true)
@@ -66,6 +64,7 @@ export default function AdminCalificacionesPage() {
   const [selectedYearId, setSelectedYearId] = useState<string>("")
   const [selectedGroupId, setSelectedGroupId] = useState<string>("ALL")
   const [periodFilter, setPeriodFilter] = useState<string>("all")
+  const [page, setPage] = useState(1)
 
   // Vista estudiante-céntrica: el boletín es DEL estudiante. Con estudiante
   // seleccionado se muestra su resumen por materias (definitiva oficial del
@@ -78,14 +77,12 @@ export default function AdminCalificacionesPage() {
 
   const loadBaseData = useCallback(async () => {
     try {
-      const [teachersRes, groupsRes, yearsRes, studentsRes] = await Promise.all([
-        apiFetch("/teachers", { silent: true }),
+      const [groupsRes, yearsRes, studentsRes] = await Promise.all([
         apiFetch("/groups", { silent: true }),
         apiFetch("/academic-years", { silent: true }),
         apiFetch("/students", { silent: true }),
       ])
 
-      setTeachers(teachersRes.ok ? (((await teachersRes.json()) as Teacher[]) ?? []) : [])
       setGroups(groupsRes.ok ? (((await groupsRes.json()) as Group[]) ?? []) : [])
       if (studentsRes.ok) {
         const data = (await studentsRes.json()) as { id: string; firstName: string; lastName: string; documentId?: string | null; group?: { id: string } | null }[]
@@ -229,6 +226,14 @@ export default function AdminCalificacionesPage() {
     return Array.from(map.values()).sort((a, b) => a.firstName.localeCompare(b.firstName))
   }, [filteredMarks])
 
+  const pageCount = Math.max(1, Math.ceil(uniqueStudents.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedStudents = uniqueStudents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [selectedGroupId, periodFilter, selectedYearId])
+
   const getStudentGradeForSubject = useCallback((studentId: string, subjectId: string) => {
     const studentMarks = filteredMarks.filter(m => m.student.id === studentId && m.subject.id === subjectId)
     const entries = studentMarks.map(m => ({
@@ -297,8 +302,8 @@ export default function AdminCalificacionesPage() {
         </div>
       )}
 
-      <Card className="mb-6">
-        <CardContent className="flex flex-col gap-4 p-4">
+      <Card>
+        <CardHeader className="flex flex-col gap-4 border-b border-border">
           {/* El boletín es del estudiante: su búsqueda es el control principal. */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div className="w-full space-y-2 sm:max-w-md sm:flex-1">
@@ -367,237 +372,271 @@ export default function AdminCalificacionesPage() {
               </Select>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </CardHeader>
 
-      {selectedStudent ? (
-        <Card>
-          <CardHeader className="flex flex-col gap-3 border-b border-border sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle>
-                {selectedStudent.firstName} {selectedStudent.lastName}
-              </CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {selectedStudent.documentId ?? "Sin documento"}
-                {summary && ` · ${summary.scaleName}`}
-                {periodFilter !== "all" ? ` · Periodo ${periodFilter}` : " · Definitiva del año"}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {summary?.overallAverage != null && (
-                <div className="text-right">
-                  <p className="text-2xl font-bold text-foreground">{summary.overallAverage.toFixed(1)}</p>
-                  <p className="text-xs text-muted-foreground">Promedio general</p>
+        <CardContent className="p-0">
+          {selectedStudent ? (
+            <>
+              <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                <div>
+                  <p className="text-base font-semibold text-foreground">
+                    {selectedStudent.firstName} {selectedStudent.lastName}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {selectedStudent.documentId ?? "Sin documento"}
+                    {summary && ` · ${summary.scaleName}`}
+                    {periodFilter !== "all" ? ` · Periodo ${periodFilter}` : " · Definitiva del año"}
+                  </p>
                 </div>
-              )}
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/admin/calificaciones/${selectedStudent.id}`}>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Boletín
-                </Link>
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {summaryLoading ? (
-              <div className="space-y-3 p-6">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <div key={index} className="h-12 animate-pulse rounded-lg bg-secondary" />
-                ))}
+                <div className="flex items-center gap-3">
+                  {summary?.overallAverage != null && (
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-foreground">{summary.overallAverage.toFixed(1)}</p>
+                      <p className="text-xs text-muted-foreground">Promedio general</p>
+                    </div>
+                  )}
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/admin/calificaciones/${selectedStudent.id}`}>
+                      <FileText className="mr-2 h-4 w-4" />
+                      Boletín
+                    </Link>
+                  </Button>
+                </div>
               </div>
-            ) : !summary || summary.lines.length === 0 ? (
-              <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-                <FileText className="h-10 w-10 text-muted-foreground" />
-                <h2 className="mt-3 text-base font-semibold text-foreground">Sin materias para este filtro</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Este estudiante no tiene materias con calificaciones en el año/periodo elegido.</p>
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-6">Materia</TableHead>
-                    <TableHead className="text-center">Definitiva</TableHead>
-                    <TableHead>Desempeño</TableHead>
-                    <TableHead className="pr-6 text-right">Desarrollo</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {summary.lines.map((line) => {
-                    const expanded = expandedSubjectId === line.subjectId
-                    const subjectMarks = expanded ? marksForSubject(line.subjectId) : []
-                    return (
-                      <Fragment key={line.subjectId}>
-                        <TableRow
-                          className="cursor-pointer"
-                          onClick={() => setExpandedSubjectId(expanded ? null : line.subjectId)}
-                        >
-                          <TableCell className="pl-6 font-medium text-foreground">{line.subjectName}</TableCell>
-                          <TableCell className="text-center">
-                            {line.final !== null ? (
-                              <span className={`font-semibold ${line.passing ? "text-foreground" : "text-destructive"}`}>
-                                {line.final.toFixed(1)}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">Sin notas</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {line.label ? (
-                              <Badge variant={line.passing ? "outline" : "destructive"}>{line.label}</Badge>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="pr-6 text-right">
-                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                              {expanded ? "Ocultar" : "Ver notas"}
-                              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                        {expanded && (
-                          <TableRow className="hover:bg-transparent">
-                            <TableCell colSpan={4} className="bg-muted/20 p-0">
-                              {subjectMarks.length === 0 ? (
-                                <p className="px-6 py-4 text-sm text-muted-foreground">
-                                  No hay notas individuales registradas para este filtro.
-                                </p>
+
+              {summaryLoading ? (
+                <div className="space-y-3 p-6">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} className="h-12 animate-pulse rounded-lg bg-secondary" />
+                  ))}
+                </div>
+              ) : !summary || summary.lines.length === 0 ? (
+                <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                  <FileText className="h-10 w-10 text-muted-foreground" />
+                  <h2 className="mt-3 text-base font-semibold text-foreground">Sin materias para este filtro</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">Este estudiante no tiene materias con calificaciones en el año/periodo elegido.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="pl-6">Materia</TableHead>
+                      <TableHead className="text-center">Definitiva</TableHead>
+                      <TableHead>Desempeño</TableHead>
+                      <TableHead className="pr-6 text-right">Desarrollo</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {summary.lines.map((line) => {
+                      const expanded = expandedSubjectId === line.subjectId
+                      const subjectMarks = expanded ? marksForSubject(line.subjectId) : []
+                      return (
+                        <Fragment key={line.subjectId}>
+                          <TableRow
+                            className="cursor-pointer"
+                            onClick={() => setExpandedSubjectId(expanded ? null : line.subjectId)}
+                          >
+                            <TableCell className="pl-6 font-medium text-foreground">{line.subjectName}</TableCell>
+                            <TableCell className="text-center">
+                              {line.final !== null ? (
+                                <span className={`font-semibold ${line.passing ? "text-foreground" : "text-destructive"}`}>
+                                  {line.final.toFixed(1)}
+                                </span>
                               ) : (
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow className="hover:bg-transparent">
-                                      <TableHead className="pl-10 text-xs">Evaluación</TableHead>
-                                      <TableHead className="text-center text-xs">Periodo</TableHead>
-                                      <TableHead className="text-center text-xs">Nota</TableHead>
-                                      <TableHead className="text-xs">Profesor</TableHead>
-                                      <TableHead className="pr-6 text-right text-xs">Fecha</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {subjectMarks.map((mark) => (
-                                      <TableRow key={mark.id} className="hover:bg-transparent">
-                                        <TableCell className="pl-10 text-sm">{mark.title}</TableCell>
-                                        <TableCell className="text-center text-sm text-muted-foreground">P{mark.period}</TableCell>
-                                        <TableCell className="text-center text-sm font-medium">
-                                          {mark.value} / {mark.maxValue}
-                                        </TableCell>
-                                        <TableCell className="text-sm text-muted-foreground">
-                                          {mark.teacher.user.firstName} {mark.teacher.user.lastName}
-                                        </TableCell>
-                                        <TableCell className="pr-6 text-right text-sm text-muted-foreground">
-                                          {new Date(mark.date).toLocaleDateString("es-CO")}
-                                        </TableCell>
-                                      </TableRow>
-                                    ))}
-                                  </TableBody>
-                                </Table>
+                                <span className="text-xs text-muted-foreground">Sin notas</span>
                               )}
                             </TableCell>
+                            <TableCell>
+                              {line.label ? (
+                                <Badge variant={line.passing ? "outline" : "destructive"}>{line.label}</Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="pr-6 text-right">
+                              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                {expanded ? "Ocultar" : "Ver notas"}
+                                {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              </span>
+                            </TableCell>
                           </TableRow>
-                        )}
-                      </Fragment>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-      <Card>
-        <CardHeader className="border-b border-border">
-          <CardTitle>
-            {isConsolidadoView ? "Consolidado General del Grado" : "Estudiantes con calificaciones"}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {loading ? "Cargando..." : `${uniqueStudents.length} estudiante${uniqueStudents.length === 1 ? "" : "s"}`}
-            {isConsolidadoView && !loading && ` · ${subjectsToDisplay.length} materias registradas`}
-          </p>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="space-y-3 p-6">
-              {Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="h-12 animate-pulse rounded-lg bg-secondary" />
-              ))}
-            </div>
-          ) : uniqueStudents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-              <Users className="h-10 w-10 text-muted-foreground" />
-              <h2 className="mt-3 text-base font-semibold text-foreground">No hay estudiantes para estos filtros</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {marks.length === 0 ? "Los profesores aún no han registrado calificaciones." : "Ajusta los filtros para ver otros resultados."}
-              </p>
-            </div>
+                          {expanded && (
+                            <TableRow className="hover:bg-transparent">
+                              <TableCell colSpan={4} className="bg-muted/20 p-0">
+                                {subjectMarks.length === 0 ? (
+                                  <p className="px-6 py-4 text-sm text-muted-foreground">
+                                    No hay notas individuales registradas para este filtro.
+                                  </p>
+                                ) : (
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow className="hover:bg-transparent">
+                                        <TableHead className="pl-10 text-xs">Evaluación</TableHead>
+                                        <TableHead className="text-center text-xs">Periodo</TableHead>
+                                        <TableHead className="text-center text-xs">Nota</TableHead>
+                                        <TableHead className="text-xs">Profesor</TableHead>
+                                        <TableHead className="pr-6 text-right text-xs">Fecha</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {subjectMarks.map((mark) => (
+                                        <TableRow key={mark.id} className="hover:bg-transparent">
+                                          <TableCell className="pl-10 text-sm">{mark.title}</TableCell>
+                                          <TableCell className="text-center text-sm text-muted-foreground">P{mark.period}</TableCell>
+                                          <TableCell className="text-center text-sm font-medium">
+                                            {mark.value} / {mark.maxValue}
+                                          </TableCell>
+                                          <TableCell className="text-sm text-muted-foreground">
+                                            {mark.teacher.user.firstName} {mark.teacher.user.lastName}
+                                          </TableCell>
+                                          <TableCell className="pr-6 text-right text-sm text-muted-foreground">
+                                            {new Date(mark.date).toLocaleDateString("es-CO")}
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="sticky left-0 bg-background pl-6 z-10 border-r min-w-[200px] border-b border-border">Estudiante</TableHead>
-                    {isConsolidadoView && subjectsToDisplay.map((subject) => (
-                      <TableHead key={subject.id} className="min-w-[120px] text-center border-b border-border">
-                        <span className="truncate" title={subject.name}>{subject.name}</span>
-                      </TableHead>
-                    ))}
-                    {!isConsolidadoView && <TableHead className="border-b border-border">Documento</TableHead>}
-                    <TableHead className="pr-6 text-right min-w-[140px] border-b border-border">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {uniqueStudents.map((student) => (
-                    <TableRow
-                      key={student.id}
-                      className="cursor-pointer"
-                      onClick={() => setSelectedStudentId(student.id)}
-                    >
-                      <TableCell className="sticky left-0 bg-background pl-6 border-r border-border">
-                        <div className="font-medium text-foreground">
-                          {student.firstName} {student.lastName}
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {student.documentId ?? "-"}
-                        </div>
-                      </TableCell>
+            <>
+              <div className="flex flex-col gap-1 border-b border-border p-4 sm:p-6">
+                <p className="text-base font-semibold text-foreground">
+                  {isConsolidadoView ? "Consolidado General del Grado" : "Estudiantes con calificaciones"}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {loading ? "Cargando..." : `${uniqueStudents.length} estudiante${uniqueStudents.length === 1 ? "" : "s"}`}
+                  {isConsolidadoView && !loading && ` · ${subjectsToDisplay.length} materias registradas`}
+                </p>
+              </div>
 
-                      {isConsolidadoView && subjectsToDisplay.map((subject) => {
-                        const finalGrade = getStudentGradeForSubject(student.id, subject.id)
-                        return (
-                          <TableCell key={subject.id} className="text-center">
-                            {finalGrade.percent !== null ? (
-                              <Badge variant="secondary" className="font-medium bg-secondary text-secondary-foreground">
-                                {finalGrade.percent}
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
-                          </TableCell>
-                        )
-                      })}
-
-                      {!isConsolidadoView && (
-                        <TableCell className="text-sm text-muted-foreground">
-                          {student.documentId ?? "-"}
-                        </TableCell>
-                      )}
-
-                      <TableCell className="pr-6 text-right" onClick={(e) => e.stopPropagation()}>
-                        <Button variant="outline" size="sm" asChild>
-                           <Link href={`/admin/calificaciones/${student.id}`}>
-                             <FileText className="mr-2 h-4 w-4" />
-                             Boletín
-                           </Link>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+              {loading ? (
+                <div className="space-y-3 p-6">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <div key={index} className="h-12 animate-pulse rounded-lg bg-secondary" />
                   ))}
-                </TableBody>
-              </Table>
-            </div>
+                </div>
+              ) : uniqueStudents.length === 0 ? (
+                <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                  <Users className="h-10 w-10 text-muted-foreground" />
+                  <h2 className="mt-3 text-base font-semibold text-foreground">No hay estudiantes para estos filtros</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {marks.length === 0 ? "Los profesores aún no han registrado calificaciones." : "Ajusta los filtros para ver otros resultados."}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="sticky left-0 bg-background pl-6 z-10 border-r min-w-[200px] border-b border-border">Estudiante</TableHead>
+                          {isConsolidadoView && subjectsToDisplay.map((subject) => (
+                            <TableHead key={subject.id} className="min-w-[120px] text-center border-b border-border">
+                              <span className="truncate" title={subject.name}>{subject.name}</span>
+                            </TableHead>
+                          ))}
+                          {!isConsolidadoView && <TableHead className="border-b border-border">Documento</TableHead>}
+                          <TableHead className="pr-6 text-right min-w-[140px] border-b border-border">Acciones</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paginatedStudents.map((student) => (
+                          <TableRow
+                            key={student.id}
+                            className="cursor-pointer"
+                            onClick={() => setSelectedStudentId(student.id)}
+                          >
+                            <TableCell className="sticky left-0 bg-background pl-6 border-r border-border">
+                              <div className="font-medium text-foreground">
+                                {student.firstName} {student.lastName}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                {student.documentId ?? "-"}
+                              </div>
+                            </TableCell>
+
+                            {isConsolidadoView && subjectsToDisplay.map((subject) => {
+                              const finalGrade = getStudentGradeForSubject(student.id, subject.id)
+                              return (
+                                <TableCell key={subject.id} className="text-center">
+                                  {finalGrade.percent !== null ? (
+                                    <Badge variant="secondary" className="font-medium bg-secondary text-secondary-foreground">
+                                      {finalGrade.percent}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground text-xs">—</span>
+                                  )}
+                                </TableCell>
+                              )
+                            })}
+
+                            {!isConsolidadoView && (
+                              <TableCell className="text-sm text-muted-foreground">
+                                {student.documentId ?? "-"}
+                              </TableCell>
+                            )}
+
+                            <TableCell className="pr-6 text-right" onClick={(e) => e.stopPropagation()}>
+                              <Button variant="outline" size="sm" asChild>
+                                 <Link href={`/admin/calificaciones/${student.id}`}>
+                                   <FileText className="mr-2 h-4 w-4" />
+                                   Boletín
+                                 </Link>
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {pageCount > 1 && (
+                    <div className="flex items-center justify-between border-t border-border p-4">
+                      <p className="text-sm text-muted-foreground">
+                        Página {currentPage} de {pageCount}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={currentPage <= 1}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                          Anterior
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                          disabled={currentPage >= pageCount}
+                        >
+                          Siguiente
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
-      )}
     </div>
   )
 }
