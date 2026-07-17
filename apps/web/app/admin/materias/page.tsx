@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, BookOpen, Pencil, Plus, RefreshCw, Search } from "lucide-react"
+import { AlertTriangle, BookOpen, ChevronLeft, ChevronRight, Pencil, Plus, RefreshCw, Search } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,6 +17,8 @@ import {
 import { SubjectFormDialog } from "@/components/admin/subject-form-dialog"
 import type { Subject } from "@/components/admin/academic-types"
 
+const PAGE_SIZE = 10
+
 export default function AdminMateriasPage() {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [loading, setLoading] = useState(true)
@@ -24,6 +26,7 @@ export default function AdminMateriasPage() {
   const [query, setQuery] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingSubject, setEditingSubject] = useState<Subject | null>(null)
+  const [page, setPage] = useState(1)
 
   const loadSubjects = useCallback(async () => {
     setLoading(true)
@@ -54,6 +57,14 @@ export default function AdminMateriasPage() {
       [subject.name, subject.code].filter(Boolean).some((value) => String(value).toLowerCase().includes(normalized)),
     )
   }, [query, subjects])
+
+  const pageCount = Math.max(1, Math.ceil(filteredSubjects.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedSubjects = filteredSubjects.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [query])
 
   function openCreateDialog() {
     setEditingSubject(null)
@@ -143,6 +154,7 @@ export default function AdminMateriasPage() {
               )}
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -153,7 +165,7 @@ export default function AdminMateriasPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSubjects.map((subject) => (
+                {paginatedSubjects.map((subject) => (
                   <TableRow key={subject.id}>
                     <TableCell className="pl-6">
                       <div className="flex items-center gap-3">
@@ -175,6 +187,38 @@ export default function AdminMateriasPage() {
                 ))}
               </TableBody>
             </Table>
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between border-t border-border p-4">
+                <p className="text-sm text-muted-foreground">
+                  Página {currentPage} de {pageCount}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    disabled={currentPage >= pageCount}
+                  >
+                    Siguiente
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>
