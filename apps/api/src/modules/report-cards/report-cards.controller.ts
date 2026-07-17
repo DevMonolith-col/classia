@@ -9,10 +9,12 @@ import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
 import { ReportCardsService } from "./report-cards.service";
 import {
+  GenerateBulkInput,
   GenerateReportCardInput,
   ListReportCardsQuery,
   PreviewQuery,
   TranscriptQuery,
+  generateBulkSchema,
   generateReportCardSchema,
   listReportCardsQuerySchema,
   previewQuerySchema,
@@ -60,6 +62,16 @@ export class ReportCardsController {
   @Permissions(PERMISSIONS.MARKS_LIST)
   findOne(@Param("id") id: string, @CurrentUser() user: RequestUser) {
     return this.reportCards.findCard(id, user);
+  }
+
+  @Post("generate-bulk")
+  @Permissions(PERMISSIONS.MARKS_CREATE)
+  generateBulk(
+    @Body(new ZodValidationPipe(generateBulkSchema)) body: GenerateBulkInput,
+    @CurrentUser() user: RequestUser,
+    @Req() req: Request,
+  ) {
+    return this.reportCards.generateBulk(body, user, req);
   }
 
   @Post("generate")

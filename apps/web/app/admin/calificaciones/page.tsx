@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, FileText, Users } from "lucide-react"
+import { AlertTriangle, FileText, Loader2, Users } from "lucide-react"
+import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { computeWeightedFinal } from "@/lib/grading"
 import { Badge } from "@/components/ui/badge"
@@ -31,7 +32,12 @@ import type { Teacher } from "@/components/admin/academic-types"
 const PERIOD_OPTIONS = [1, 2, 3, 4]
 
 type Group = { id: string; name: string; grade: string; section: string }
-type AcademicYear = { id: string; name: string; isActive: boolean }
+type AcademicYear = {
+  id: string
+  name: string
+  isActive: boolean
+  periods?: { id: string; sequence: number; name: string }[]
+}
 
 export default function AdminCalificacionesPage() {
   const [marks, setMarks] = useState<Mark[]>([])
@@ -161,6 +167,48 @@ export default function AdminCalificacionesPage() {
 
   const isConsolidadoView = selectedGroupId !== "ALL"
 
+  const [generatingBulk, setGeneratingBulk] = useState(false)
+
+  // Emite (congela) los boletines del filtro actual: curso o colegio completo,
+  // del periodo seleccionado o del año si el filtro está en "Nota Final".
+  async function generateBulkReportCards() {
+    setGeneratingBulk(true)
+    try {
+      const selectedYear = academicYears.find((y) => y.id === selectedYearId)
+      const periodId =
+        periodFilter !== "all"
+          ? selectedYear?.periods?.find((p) => p.sequence === Number(periodFilter))?.id
+          : undefined
+
+      const res = await apiFetch("/report-cards/generate-bulk", {
+        method: "POST",
+        body: JSON.stringify({
+          ...(selectedGroupId !== "ALL" ? { groupId: selectedGroupId } : {}),
+          ...(selectedYearId ? { academicYearId: selectedYearId } : {}),
+          ...(periodId ? { periodId } : {}),
+        }),
+        silent: true,
+      })
+      if (!res.ok) throw new Error("No se pudieron generar los boletines.")
+      const summary = (await res.json()) as {
+        total: number
+        generated: number
+        skipped: { studentName: string; reason: string }[]
+      }
+      if (summary.skipped.length > 0) {
+        toast.warning(`${summary.generated} de ${summary.total} boletines generados`, {
+          description: `Omitidos: ${summary.skipped.map((s) => s.studentName).join(", ")}`,
+        })
+      } else {
+        toast.success(`${summary.generated} boletines generados`)
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudieron generar los boletines.")
+    } finally {
+      setGeneratingBulk(false)
+    }
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="mb-6">
@@ -243,6 +291,12 @@ export default function AdminCalificacionesPage() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="w-full sm:ml-auto sm:w-auto">
+            <Button onClick={generateBulkReportCards} disabled={generatingBulk || !selectedYearId} className="w-full gap-2">
+              {generatingBulk ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              Generar boletines
+            </Button>
           </div>
         </CardContent>
       </Card>
