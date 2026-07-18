@@ -40,6 +40,13 @@ export class ElectionsController {
     return this.elections.listElections(user)
   }
 
+  // Antes de ":id": si no, Nest interpreta "active" como un :id.
+  @Get("active")
+  @Permissions(PERMISSIONS.ELECTIONS_VOTE)
+  listVotable(@CurrentUser() user: RequestUser) {
+    return this.elections.listVotableElections(user)
+  }
+
   @Get(":id")
   @Permissions(PERMISSIONS.ELECTIONS_MONITOR)
   getOne(@Param("id") id: string, @CurrentUser() user: RequestUser) {
