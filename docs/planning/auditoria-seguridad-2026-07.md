@@ -72,7 +72,16 @@ Extra hecho: stub de puppeteer en Jest (`apps/api/test/mocks/puppeteer.stub.ts` 
 
 ---
 
-## FASE 2 — Integridad de datos (backend)
+## FASE 2 — Integridad de datos (backend) ✅ HECHO (2026-07-18)
+
+Estado: implementada y verificada. Typecheck limpio (api + web); e2e 11/12 (mismo fallo
+preexistente del worker EMAIL, sin regresiones). Verificado en vivo contra la API:
+sobrepago rechazado (400) y transiciones PARTIAL→PAID correctas; resumen financiero por
+agregación en BD (invoiced/collected/pending exactos, rate 100%, sin pending negativo);
+`generate-bulk` como admin global sin `tenantId` → 403. Migración
+`20260720140000_report_card_uniqueness` (unique de periodo + índice parcial para el anual).
+
+
 
 - **Pagos** — `recordPayment` en `$transaction` + rechazar `amount > saldo`
   (`payments.service.ts:128`); `getFinancialSummary` con `groupBy`/`aggregate` en BD en vez
