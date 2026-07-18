@@ -1,10 +1,14 @@
 import { z } from "zod"
 
+export const TICKET_CATEGORIES = ["BUG", "BILLING", "FEATURE", "HELP"] as const
+
 export const createTicketSchema = z.object({
   title: z.string().min(3).max(100),
   description: z.string().min(10),
-  category: z.string(),
+  category: z.enum(TICKET_CATEGORIES),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).default("MEDIUM"),
+  attachmentKey: z.string().optional(),
+  attachmentName: z.string().optional(),
 })
 
 export type CreateTicketDto = z.infer<typeof createTicketSchema>

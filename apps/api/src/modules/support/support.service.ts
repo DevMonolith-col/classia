@@ -1,5 +1,8 @@
 import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common"
 import { EventEmitter2 } from "@nestjs/event-emitter"
+import { Request } from "express"
+import { RequestUser } from "../../common/types/request-context"
+import { AuditService } from "../../core/audit/audit.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
 import { CreateTicketDto, UpdateTicketStatusDto, CreateCommentDto } from "./support.schemas"
 
@@ -7,11 +10,12 @@ import { CreateTicketDto, UpdateTicketStatusDto, CreateCommentDto } from "./supp
 export class SupportService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly eventEmitter: EventEmitter2
+    private readonly eventEmitter: EventEmitter2,
+    private readonly audit: AuditService,
   ) {}
 
-  async createTicket(tenantId: string, userId: string, data: CreateTicketDto) {
-    return this.prisma.supportTicket.create({
+  async createTicket(tenantId: string, userId: string, data: CreateTicketDto, actor: RequestUser, request: Request) {
+    const ticket = await this.prisma.supportTicket.create({
       data: {
         tenantId,
         authorId: userId,
@@ -19,8 +23,25 @@ export class SupportService {
         description: data.description,
         category: data.category,
         priority: data.priority as any,
+        attachmentKey: data.attachmentKey,
+        attachmentName: data.attachmentName,
       },
     })
+
+    await this.audit.record({
+      tenantId,
+      userId: actor.id,
+      actorRole: actor.role,
+      action: "support_ticket.created",
+      entityType: "SupportTicket",
+      entityId: ticket.id,
+      newValues: { title: ticket.title, category: ticket.category, priority: ticket.priority },
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    })
+
+    this.eventEmitter.emit("support.ticket.created", ticket)
+    return ticket
   }
 
   async getTicketsForTenant(tenantId: string) {
@@ -59,10 +80,21 @@ export class SupportService {
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
       include: {
+        author: { select: { id: true, firstName: true, lastName: true } },
         tenant: { select: { name: true, slug: true } },
         assignee: { select: { id: true, firstName: true, lastName: true } },
         comments: {
-          orderBy: { createdAt: "asc" }
+          orderBy: { createdAt: "asc" },
+          include: {
+            author: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                memberships: { select: { role: true } }
+              }
+            }
+          }
         }
       }
     })
@@ -81,18 +113,40 @@ export class SupportService {
     return ticket
   }
 
-  async updateTicketStatus(ticketId: string, data: UpdateTicketStatusDto) {
-    return this.prisma.supportTicket.update({
+  async updateTicketStatus(ticketId: string, data: UpdateTicketStatusDto, actor: RequestUser, request: Request) {
+    const previous = await this.prisma.supportTicket.findUniqueOrThrow({
+      where: { id: ticketId },
+      select: { status: true, tenantId: true },
+    })
+
+    const ticket = await this.prisma.supportTicket.update({
       where: { id: ticketId },
       data: { status: data.status as any },
+      include: { tenant: true }
     })
+
+    await this.audit.record({
+      tenantId: ticket.tenantId,
+      userId: actor.id,
+      actorRole: actor.role,
+      action: "support_ticket.status_changed",
+      entityType: "SupportTicket",
+      entityId: ticket.id,
+      oldValues: { status: previous.status },
+      newValues: { status: ticket.status },
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    })
+
+    this.eventEmitter.emit("support.ticket.updated", ticket)
+    return ticket
   }
 
   async addComment(ticketId: string, userId: string, data: CreateCommentDto, isSuperAdmin: boolean) {
     // If not superadmin, force isInternal to false
     const isInternal = isSuperAdmin ? data.isInternal : false
 
-    const result = await this.prisma.$transaction(async (tx: any) => {
+    const newComment = await this.prisma.$transaction(async (tx: any) => {
       const comment = await tx.ticketComment.create({
         data: {
           ticketId,
@@ -101,6 +155,16 @@ export class SupportService {
           isInternal,
           attachmentKey: data.attachmentKey,
           attachmentName: data.attachmentName,
+        },
+        include: {
+          author: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              memberships: { select: { role: true } }
+            }
+          }
         }
       })
       
@@ -113,19 +177,48 @@ export class SupportService {
       return comment
     })
     
+    // Attach the ticket info for the gateway to know the tenantId
+    const ticket = await this.prisma.supportTicket.findUnique({
+      where: { id: ticketId },
+      select: { tenantId: true }
+    })
+    
     this.eventEmitter.emit("support.comment.added", {
       ticketId,
-      comment: result,
+      tenantId: ticket?.tenantId,
+      comment: newComment,
     })
 
-    return result
+    return newComment
   }
 
-  async assignTicket(ticketId: string, assigneeId: string | null) {
-    return this.prisma.supportTicket.update({
+  async assignTicket(ticketId: string, assigneeId: string | null, actor: RequestUser, request: Request) {
+    const previous = await this.prisma.supportTicket.findUniqueOrThrow({
       where: { id: ticketId },
-      data: { assigneeId }
+      select: { assigneeId: true, tenantId: true },
     })
+
+    const ticket = await this.prisma.supportTicket.update({
+      where: { id: ticketId },
+      data: { assigneeId },
+      include: { tenant: true }
+    })
+
+    await this.audit.record({
+      tenantId: ticket.tenantId,
+      userId: actor.id,
+      actorRole: actor.role,
+      action: "support_ticket.assigned",
+      entityType: "SupportTicket",
+      entityId: ticket.id,
+      oldValues: { assigneeId: previous.assigneeId },
+      newValues: { assigneeId: ticket.assigneeId },
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    })
+
+    this.eventEmitter.emit("support.ticket.updated", ticket)
+    return ticket
   }
 
   async getSupportAgents() {

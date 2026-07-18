@@ -27,7 +27,7 @@ export class SupportController {
     if (!req.user.tenantId) {
       throw new ForbiddenException("Solo usuarios institucionales pueden abrir tickets de soporte")
     }
-    return this.supportService.createTicket(req.user.tenantId, req.user.id, data)
+    return this.supportService.createTicket(req.user.tenantId, req.user.id, data, req.user, req)
   }
 
   @Get("tickets")
@@ -48,8 +48,8 @@ export class SupportController {
     try {
       const isSuperAdmin = req.user.role === "SUPER_ADMIN" || req.user.role === "SUPPORT_AGENT"
       return await this.supportService.getTicketDetails(ticketId, isSuperAdmin, req.user.tenantId)
-    } catch (e) {
-      throw new HttpException(e.message || "Unknown error", 501)
+    } catch (e: any) {
+      throw new HttpException(e?.message || "Unknown error", 501)
     }
   }
 
@@ -62,7 +62,7 @@ export class SupportController {
     if (req.user.role !== "SUPER_ADMIN" && req.user.role !== "SUPPORT_AGENT") {
       throw new ForbiddenException("Solo el personal de soporte puede cambiar el estado de un ticket")
     }
-    return this.supportService.updateTicketStatus(ticketId, data)
+    return this.supportService.updateTicketStatus(ticketId, data, req.user, req)
   }
 
   @Post("tickets/:id/comments")
@@ -89,9 +89,11 @@ export class SupportController {
     @Param("id") ticketId: string,
     @Body(new ZodValidationPipe(assignTicketSchema)) data: AssignTicketDto
   ) {
-    if (req.user.role !== "SUPER_ADMIN" && req.user.role !== "SUPPORT_AGENT") {
-      throw new ForbiddenException("Solo el personal SaaS puede asignar tickets")
+    // Solo el supervisor decide quién trabaja cada ticket; un agente no se
+    // autoasigna ni reasigna tickets.
+    if (req.user.role !== "SUPER_ADMIN") {
+      throw new ForbiddenException("Solo un supervisor puede asignar tickets")
     }
-    return this.supportService.assignTicket(ticketId, data.assigneeId)
+    return this.supportService.assignTicket(ticketId, data.assigneeId, req.user, req)
   }
 }

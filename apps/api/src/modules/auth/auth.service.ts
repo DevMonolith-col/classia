@@ -201,21 +201,11 @@ export class AuthService {
   }
 
   async impersonate(input: ImpersonateInput, currentUser: RequestUser, request: Request) {
-    if (currentUser.role !== "SUPER_ADMIN" && currentUser.role !== "SUPPORT_AGENT") {
-      throw new UnauthorizedException("Insufficient privileges to impersonate.");
-    }
-
-    if (currentUser.role === "SUPPORT_AGENT") {
-      const activeTickets = await this.prisma.supportTicket.count({
-        where: {
-          tenantId: input.tenantId,
-          assigneeId: currentUser.id,
-          status: { notIn: ["RESOLVED", "CLOSED"] }
-        }
-      });
-      if (activeTickets === 0) {
-        throw new UnauthorizedException("You do not have an active ticket assignment for this tenant.");
-      }
+    // Solo el supervisor (SUPER_ADMIN) puede entrar al colegio de un tenant.
+    // Un agente de soporte (worker) nunca se auto-otorga acceso, aunque tenga
+    // un ticket activo asignado: si hace falta acceso, lo hace el supervisor.
+    if (currentUser.role !== "SUPER_ADMIN") {
+      throw new UnauthorizedException("Solo un supervisor puede acceder al colegio de un tenant.");
     }
 
     const targetTenant = await this.prisma.tenant.findUnique({
