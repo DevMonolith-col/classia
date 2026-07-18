@@ -1,5 +1,6 @@
 export type UserRole =
   | "SUPER_ADMIN"
+  | "SUPPORT_SUPERVISOR"
   | "SUPPORT_AGENT"
   | "TENANT_ADMIN"
   | "PRINCIPAL"
@@ -15,6 +16,7 @@ export type MembershipStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED"
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   SUPER_ADMIN: "Super Administrador",
+  SUPPORT_SUPERVISOR: "Supervisor de Soporte",
   SUPPORT_AGENT: "Agente de Soporte",
   TENANT_ADMIN: "Administrador",
   PRINCIPAL: "Rector",

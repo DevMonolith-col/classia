@@ -13,6 +13,10 @@ import { WsJwtGuard } from "../../common/guards/ws-jwt.guard";
 import { OnEvent } from "@nestjs/event-emitter";
 import { SupportService } from "./support.service";
 
+function isSupportStaff(role: string) {
+  return role === "SUPER_ADMIN" || role === "SUPPORT_SUPERVISOR" || role === "SUPPORT_AGENT";
+}
+
 @WebSocketGateway({ namespace: "support" })
 @UseGuards(WsJwtGuard)
 export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -41,7 +45,7 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
     const user = client.data.user;
     if (!user) return;
     
-    const isSuperAdmin = user.role === "SUPER_ADMIN" || user.role === "SUPPORT_AGENT";
+    const isSuperAdmin = isSupportStaff(user.role);
     try {
       await this.supportService.getTicketDetails(payload.ticketId, isSuperAdmin, user.tenantId);
       void client.join(`ticket:${payload.ticketId}`);
@@ -68,8 +72,8 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
   ) {
     const user = client.data.user;
     if (!user) return;
-    
-    if (user.role === "SUPER_ADMIN" || user.role === "SUPPORT_AGENT") {
+
+    if (isSupportStaff(user.role)) {
       void client.join("dashboard:superadmin");
     } else if (user.tenantId) {
       void client.join(`dashboard:tenant:${user.tenantId}`);
@@ -82,8 +86,8 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
   ) {
     const user = client.data.user;
     if (!user) return;
-    
-    if (user.role === "SUPER_ADMIN" || user.role === "SUPPORT_AGENT") {
+
+    if (isSupportStaff(user.role)) {
       void client.leave("dashboard:superadmin");
     } else if (user.tenantId) {
       void client.leave(`dashboard:tenant:${user.tenantId}`);

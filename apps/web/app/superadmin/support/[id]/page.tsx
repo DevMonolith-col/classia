@@ -37,7 +37,7 @@ export default function SuperAdminTicketDetail() {
   const router = useRouter()
   const jwt = decodeJwt(getAccessToken() || "")
   const currentUser = jwt?.sub
-  const isSupervisor = jwt?.role === "SUPER_ADMIN"
+  const isSupervisor = jwt?.role === "SUPER_ADMIN" || jwt?.role === "SUPPORT_SUPERVISOR"
   const [ticket, setTicket] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -399,7 +399,7 @@ export default function SuperAdminTicketDetail() {
             {ticket.comments?.map((comment: any, index: number) => {
               const isMe = comment.authorId === currentUser
               const isLastInGroup = index === ticket.comments.length - 1 || ticket.comments[index + 1]?.authorId !== comment.authorId
-              const isSupportTeam = comment.author?.memberships?.some((m: any) => m.role === "SUPER_ADMIN" || m.role === "SUPPORT_AGENT")
+              const isSupportTeam = comment.author?.memberships?.some((m: any) => ["SUPER_ADMIN", "SUPPORT_SUPERVISOR", "SUPPORT_AGENT"].includes(m.role))
 
               return (
                 <div key={comment.id} className={`flex items-end gap-2 ${isMe ? 'justify-end' : 'justify-start'}`}>

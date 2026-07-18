@@ -201,10 +201,11 @@ export class AuthService {
   }
 
   async impersonate(input: ImpersonateInput, currentUser: RequestUser, request: Request) {
-    // Solo el supervisor (SUPER_ADMIN) puede entrar al colegio de un tenant.
-    // Un agente de soporte (worker) nunca se auto-otorga acceso, aunque tenga
-    // un ticket activo asignado: si hace falta acceso, lo hace el supervisor.
-    if (currentUser.role !== "SUPER_ADMIN") {
+    // Solo un supervisor (SUPER_ADMIN o SUPPORT_SUPERVISOR) puede entrar al
+    // colegio de un tenant. Un agente de soporte (worker) nunca se
+    // auto-otorga acceso, aunque tenga un ticket activo asignado: si hace
+    // falta acceso, lo hace el supervisor.
+    if (currentUser.role !== "SUPER_ADMIN" && currentUser.role !== "SUPPORT_SUPERVISOR") {
       throw new UnauthorizedException("Solo un supervisor puede acceder al colegio de un tenant.");
     }
 

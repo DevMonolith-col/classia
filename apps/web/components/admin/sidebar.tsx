@@ -13,6 +13,7 @@ import { logout, getStoredUser } from "@/lib/auth"
 
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super Administrador",
+  SUPPORT_SUPERVISOR: "Supervisor de Soporte",
   SUPPORT_AGENT: "Soporte",
   TENANT_ADMIN: "Administrador",
   PRINCIPAL: "Rector",
