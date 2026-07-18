@@ -44,6 +44,7 @@ import { UsersModule } from "./modules/users/users.module";
 import { SupportModule } from "./modules/support/support.module";
 import { SettingsModule } from "./modules/settings/settings.module";
 import { ElectionsModule } from "./modules/elections/elections.module";
+import { DocumentsModule } from "./modules/documents/documents.module";
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { ElectionsModule } from "./modules/elections/elections.module";
     SupportModule,
     SettingsModule,
     ElectionsModule,
+    DocumentsModule,
   ],
   providers: [
     {
