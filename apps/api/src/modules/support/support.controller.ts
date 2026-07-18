@@ -2,17 +2,29 @@ import { Controller, Get, Post, Patch, Body, Param, UseGuards, Req, ForbiddenExc
 import { SupportService } from "./support.service"
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard"
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe"
-import { 
-  createTicketSchema, 
-  CreateTicketDto, 
-  updateTicketStatusSchema, 
-  UpdateTicketStatusDto, 
-  createCommentSchema, 
+import {
+  createTicketSchema,
+  CreateTicketDto,
+  updateTicketStatusSchema,
+  UpdateTicketStatusDto,
+  createCommentSchema,
   CreateCommentDto,
   assignTicketSchema,
   AssignTicketDto
 } from "./support.schemas"
-import { ParseUUIDPipe } from "@nestjs/common"
+
+// "Staff" = todo el personal de la plataforma que trabaja soporte (ve la
+// bandeja global, comenta, cambia estado). "Supervisor" = quien además
+// decide quién trabaja cada ticket y puede entrar al colegio: SUPER_ADMIN
+// (dueño de la plataforma) o SUPPORT_SUPERVISOR (lidera soporte sin tener
+// el resto del poder de plataforma).
+function isSupportStaff(role: string) {
+  return role === "SUPER_ADMIN" || role === "SUPPORT_SUPERVISOR" || role === "SUPPORT_AGENT"
+}
+
+function isSupportSupervisor(role: string) {
+  return role === "SUPER_ADMIN" || role === "SUPPORT_SUPERVISOR"
+}
 
 @Controller("support")
 @UseGuards(JwtAuthGuard)
@@ -32,10 +44,10 @@ export class SupportController {
 
   @Get("tickets")
   async listTickets(@Req() req: any) {
-    if (req.user.role === "SUPER_ADMIN" || req.user.role === "SUPPORT_AGENT") {
+    if (isSupportStaff(req.user.role)) {
       return this.supportService.getAllTicketsForSuperAdmin()
     }
-    
+
     if (req.user.tenantId) {
       return this.supportService.getTicketsForTenant(req.user.tenantId)
     }
@@ -46,8 +58,7 @@ export class SupportController {
   @Get("tickets/:id")
   async getTicketDetails(@Req() req: any, @Param("id") ticketId: string) {
     try {
-      const isSuperAdmin = req.user.role === "SUPER_ADMIN" || req.user.role === "SUPPORT_AGENT"
-      return await this.supportService.getTicketDetails(ticketId, isSuperAdmin, req.user.tenantId)
+      return await this.supportService.getTicketDetails(ticketId, isSupportStaff(req.user.role), req.user.tenantId)
     } catch (e: any) {
       throw new HttpException(e?.message || "Unknown error", 501)
     }
@@ -59,7 +70,7 @@ export class SupportController {
     @Param("id") ticketId: string,
     @Body(new ZodValidationPipe(updateTicketStatusSchema)) data: UpdateTicketStatusDto
   ) {
-    if (req.user.role !== "SUPER_ADMIN" && req.user.role !== "SUPPORT_AGENT") {
+    if (!isSupportStaff(req.user.role)) {
       throw new ForbiddenException("Solo el personal de soporte puede cambiar el estado de un ticket")
     }
     return this.supportService.updateTicketStatus(ticketId, data, req.user, req)
@@ -71,13 +82,12 @@ export class SupportController {
     @Param("id") ticketId: string,
     @Body(new ZodValidationPipe(createCommentSchema)) data: CreateCommentDto
   ) {
-    const isSuperAdmin = req.user.role === "SUPER_ADMIN" || req.user.role === "SUPPORT_AGENT"
-    return this.supportService.addComment(ticketId, req.user.id, data, isSuperAdmin)
+    return this.supportService.addComment(ticketId, req.user.id, data, isSupportStaff(req.user.role))
   }
 
   @Get("agents")
   async getAgents(@Req() req: any) {
-    if (req.user.role !== "SUPER_ADMIN" && req.user.role !== "SUPPORT_AGENT") {
+    if (!isSupportStaff(req.user.role)) {
       throw new ForbiddenException("Solo el personal SaaS puede ver los agentes")
     }
     return this.supportService.getSupportAgents()
@@ -91,7 +101,7 @@ export class SupportController {
   ) {
     // Solo el supervisor decide quién trabaja cada ticket; un agente no se
     // autoasigna ni reasigna tickets.
-    if (req.user.role !== "SUPER_ADMIN") {
+    if (!isSupportSupervisor(req.user.role)) {
       throw new ForbiddenException("Solo un supervisor puede asignar tickets")
     }
     return this.supportService.assignTicket(ticketId, data.assigneeId, req.user, req)

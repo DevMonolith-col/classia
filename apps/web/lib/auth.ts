@@ -21,6 +21,7 @@ export type LoginResult = {
 
 const ROLE_ROUTES: Record<string, string> = {
   SUPER_ADMIN: "/superadmin",
+  SUPPORT_SUPERVISOR: "/superadmin",
   SUPPORT_AGENT: "/superadmin",
   TENANT_ADMIN: "/admin",
   PRINCIPAL: "/admin",

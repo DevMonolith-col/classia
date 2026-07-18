@@ -231,7 +231,7 @@ export default function AdminTicketDetail() {
           {ticket.comments?.map((comment: any, index: number) => {
             const isMe = comment.authorId === currentUser
             const isLastInGroup = index === ticket.comments.length - 1 || ticket.comments[index + 1]?.authorId !== comment.authorId
-            const isSupportTeam = comment.author?.memberships?.some((m: any) => m.role === "SUPER_ADMIN" || m.role === "SUPPORT_AGENT")
+            const isSupportTeam = comment.author?.memberships?.some((m: any) => ["SUPER_ADMIN", "SUPPORT_SUPERVISOR", "SUPPORT_AGENT"].includes(m.role))
             
             return (
               <div key={comment.id} className={`flex items-end gap-2 ${isMe ? 'justify-end' : 'justify-start'}`}>
