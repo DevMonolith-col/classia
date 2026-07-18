@@ -132,19 +132,27 @@ export class ConversationsService {
       orderBy: [{ grade: "asc" }, { section: "asc" }],
     });
 
-    const targets = [];
-    for (const group of groups) {
-      const guardianUserIds = await this.resolveGroupGuardianUserIds(actor.tenantId, group.id);
-      targets.push({
-        groupId: group.id,
-        groupName: group.name,
-        grade: group.grade,
-        section: group.section,
-        recipientCount: new Set(guardianUserIds.filter((id) => id !== actor.id)).size,
-      });
+    // Un solo query para todos los grupos (antes: una query por grupo, N+1). Se
+    // agrupan los acudientes por grupo en memoria para contar destinatarios únicos.
+    const links = await this.prisma.studentGuardian.findMany({
+      where: { student: { tenantId: actor.tenantId, groupId: { in: groupIds }, isActive: true } },
+      select: { student: { select: { groupId: true } }, guardian: { select: { userId: true } } },
+    });
+    const guardiansByGroup = new Map<string, Set<string>>();
+    for (const link of links) {
+      const groupId = link.student.groupId;
+      if (!groupId || link.guardian.userId === actor.id) continue;
+      if (!guardiansByGroup.has(groupId)) guardiansByGroup.set(groupId, new Set());
+      guardiansByGroup.get(groupId)!.add(link.guardian.userId);
     }
 
-    return targets;
+    return groups.map((group) => ({
+      groupId: group.id,
+      groupName: group.name,
+      grade: group.grade,
+      section: group.section,
+      recipientCount: guardiansByGroup.get(group.id)?.size ?? 0,
+    }));
   }
 
   // ─── Escritura ───────────────────────────────────────────────────────────────
