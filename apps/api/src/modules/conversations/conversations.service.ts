@@ -17,6 +17,15 @@ import { BroadcastInput, SendMessageInput } from "./conversations.schemas";
 // obteniendo por la misma vía, solo que acotado a los más recientes.
 const MESSAGE_PAGE_SIZE = 50;
 
+// Techo de conversaciones devueltas en el listado. El frontend no tiene
+// "cargar más" para este endpoint, así que un número bajo aquí no es un
+// límite de página sino que borra conversaciones reales de la vista del
+// usuario sin forma de recuperarlas. Un solo "Comunicado" ya crea un hilo
+// DIRECT por destinatario (un curso normal ronda 20-80 acudientes), así que
+// esto actúa como red de seguridad ante un caso patológico, no como filtro
+// de uso normal.
+const CONVERSATION_LIST_PAGE_SIZE = 300;
+
 const ADMIN_STAFF_ROLES: UserRole[] = [
   UserRole.TENANT_ADMIN,
   UserRole.PRINCIPAL,
@@ -51,6 +60,7 @@ export class ConversationsService {
         ...(isSuperAdmin ? {} : { members: { some: { userId: actor.id } } }),
       },
       orderBy: { lastMessageAt: "desc" },
+      take: CONVERSATION_LIST_PAGE_SIZE,
       select: this.conversationSelect(actor.tenantId),
     });
 
@@ -346,12 +356,24 @@ export class ConversationsService {
   // ─── Autorización ────────────────────────────────────────────────────────────
 
   private async assertCanMessage(actor: RequestUser, targetUserId: string) {
-    const contactIds = await this.resolveContactUserIds(actor);
-    if (!contactIds.has(targetUserId)) {
-      throw new ForbiddenException(
-        "No tienes permiso para iniciar una conversación con este usuario.",
-      );
+    if (this.isAdminStaff(actor.role) || actor.role === UserRole.SUPER_ADMIN) {
+      const count = await this.prisma.tenantMembership.count({
+        where: {
+          tenantId: actor.tenantId,
+          userId: targetUserId,
+          status: MembershipStatus.ACTIVE,
+          role: { in: [UserRole.TEACHER, UserRole.GUARDIAN, ...ADMIN_STAFF_ROLES] },
+        },
+      });
+      if (count > 0) return;
+    } else {
+      const contactIds = await this.resolveContactUserIds(actor);
+      if (contactIds.has(targetUserId)) return;
     }
+
+    throw new ForbiddenException(
+      "No tienes permiso para iniciar una conversación con este usuario.",
+    );
   }
 
   private async assertMember(actor: RequestUser, conversationId: string) {
