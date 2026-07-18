@@ -143,7 +143,7 @@ export class SupportService {
         user: { select: { id: true, firstName: true, lastName: true, email: true } },
       },
       distinct: ["userId"],
-      orderBy: { user: { firstName: "asc" } },
+      orderBy: [{ userId: "asc" }],
     })
 
     return memberships.map((m) => ({ ...m.user, role: m.role }))
