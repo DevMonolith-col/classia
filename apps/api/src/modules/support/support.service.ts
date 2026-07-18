@@ -158,7 +158,20 @@ export class SupportService {
     return ticket
   }
 
-  async addComment(ticketId: string, userId: string, data: CreateCommentDto, isSuperAdmin: boolean) {
+  async addComment(ticketId: string, userId: string, data: CreateCommentDto, isSuperAdmin: boolean, tenantId?: string) {
+    // Un usuario de un colegio solo puede comentar en tickets de su propio
+    // tenant; el personal de soporte (isSuperAdmin) puede comentar en cualquiera.
+    // Sin este check, cualquier usuario autenticado podía inyectar comentarios en
+    // el hilo de soporte de otro colegio conociendo su id (IDOR cross-tenant).
+    const ticket = await this.prisma.supportTicket.findUnique({
+      where: { id: ticketId },
+      select: { tenantId: true },
+    })
+    if (!ticket) throw new NotFoundException("Ticket no encontrado")
+    if (!isSuperAdmin && ticket.tenantId !== tenantId) {
+      throw new ForbiddenException("No tienes acceso a este ticket")
+    }
+
     // If not superadmin, force isInternal to false
     const isInternal = isSuperAdmin ? data.isInternal : false
 
@@ -192,16 +205,10 @@ export class SupportService {
 
       return comment
     })
-    
-    // Attach the ticket info for the gateway to know the tenantId
-    const ticket = await this.prisma.supportTicket.findUnique({
-      where: { id: ticketId },
-      select: { tenantId: true }
-    })
-    
+
     this.eventEmitter.emit("support.comment.added", {
       ticketId,
-      tenantId: ticket?.tenantId,
+      tenantId: ticket.tenantId,
       comment: newComment,
     })
 
