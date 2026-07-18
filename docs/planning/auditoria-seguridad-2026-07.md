@@ -97,15 +97,24 @@ agregación en BD (invoiced/collected/pending exactos, rate 100%, sin pending ne
   (`conversations.service.ts:536`).
 - **`resolveVotingStudent`** — filtrar `isActive: true` (`elections.service.ts:410`).
 
-## FASE 3 — Rendimiento (backend)
+## FASE 3 — Rendimiento (backend) ✅ HECHO (2026-07-18)
 
-- N+1 en reporte de notas y generación masiva de boletines: precargar marks del grupo/año
-  en pocas queries y calcular en memoria (`reports.service.ts:339`,
-  `report-cards.service.ts:248`).
-- `notify()` en lote: un `findMany` de preferencias + `createMany`, no 1 query por usuario
-  (`notifications.service.ts:38`).
-- `listBroadcastTargets`: un solo `groupBy` en vez de una query por grupo
-  (`conversations.service.ts:132`).
+Estado: implementada y verificada. Typecheck limpio; e2e 12/12 (ejercita el notify en
+lote y el broadcast).
+
+- **Motor de boletines** (`report-cards.service.ts`): `subjectPeriodFraction` pasó de una
+  query por (materia × periodo × categoría) a cálculo EN MEMORIA sobre 2 queries por alumno
+  (todas las marks del año + todas las categorías del grupo). Elimina el N+1 severo; el
+  reporte de notas (`reports.service.ts`, que llama `compute()` por alumno) hereda la
+  mejora. Residual menor: `compute()` aún re-lee scale/año/materias por alumno (optimización
+  futura, no crítica).
+- **`notify()` en lote** (`notifications.service.ts`): preferencias EMAIL en un `findMany`,
+  notificaciones y entregas por `createMany` (con UUID generados en app), y encolado por
+  `queue.addBulk`. Antes: 1 query + 1 create + 1 enqueue por usuario en serie. Todo
+  envuelto en try/catch para no romper la acción de dominio. Se eliminó `isChannelEnabled`
+  (código muerto tras el refactor).
+- **`listBroadcastTargets`** (`conversations.service.ts`): un solo `findMany` de
+  `studentGuardian` agrupado en memoria, en vez de una query por grupo (N+1).
 - **✅ RESUELTO — entrega EMAIL de notificaciones (era contaminación de datos del test, NO
   un bug de prod)**. Diagnóstico: el paso 3 del test e2e deshabilita la preferencia
   `ANNOUNCEMENT_PUBLISHED/EMAIL` del acudiente y nunca la resetea; como la BD e2e es
