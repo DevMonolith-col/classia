@@ -4,6 +4,7 @@ import { JwtService } from "@nestjs/jwt";
 import { Request } from "express";
 import { getPermissionsForRole } from "../permissions/permissions";
 import { AuthTokenPayload } from "../../modules/auth/auth.types";
+import { verifyAndDecodeToken } from "./ws-jwt.guard";
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -21,28 +22,18 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const token = authorization.slice("Bearer ".length);
-    const payload = await this.jwt
-      .verifyAsync<AuthTokenPayload>(token, {
-        secret: this.config.get<string>("JWT_SECRET"),
-      })
-      .catch(() => {
-        throw new UnauthorizedException("Invalid access token.");
-      });
-
-    request.user = {
-      id: payload.sub,
-      email: payload.email,
-      tenantId: payload.tenantId,
-      tenantSlug: payload.tenantSlug,
-      membershipId: payload.membershipId,
-      role: payload.role,
-      permissions: getPermissionsForRole(payload.role),
-    };
-    request.tenant = {
-      id: payload.tenantId,
-      slug: payload.tenantSlug,
-      name: payload.tenantSlug,
-    };
+    try {
+      const user = await verifyAndDecodeToken(token, this.jwt, this.config);
+      request.user = user;
+      request.tenant = {
+        id: user.tenantId as string,
+        slug: user.tenantSlug as string,
+        name: user.tenantSlug as string,
+      };
+      return true;
+    } catch {
+      throw new UnauthorizedException("Invalid access token.");
+    }
 
     return true;
   }

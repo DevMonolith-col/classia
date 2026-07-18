@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
+import { UserRole } from "@prisma/client";
 import { Request } from "express";
 import { PERMISSIONS_KEY } from "../decorators/permissions.decorator";
 import { RequestUser } from "../types/request-context";
@@ -30,6 +31,10 @@ export class PermissionsGuard implements CanActivate {
 
     if (!user) {
       throw new UnauthorizedException("Authenticated user is required.");
+    }
+
+    if (user.role === UserRole.SUPER_ADMIN) {
+      return true;
     }
 
     const userPermissions = new Set(user?.permissions ?? []);

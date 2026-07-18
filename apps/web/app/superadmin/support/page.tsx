@@ -14,15 +14,29 @@ import {
   Building2,
   AlertTriangle,
   MessageSquare,
-  User as UserIcon
+  User as UserIcon,
+  X,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api-client"
+import { TICKET_CATEGORIES, TICKET_CATEGORY_LABELS } from "@/components/support/ticket-categories"
 import Link from "next/link"
+import { io, Socket } from "socket.io-client"
+import { API_URL } from "@/lib/env"
+import { getAccessToken } from "@/lib/auth"
+import { attachTokenRefresh } from "@/lib/socket"
 
 type TicketStatus = "OPEN" | "IN_PROGRESS" | "WAITING_ON_CUSTOMER" | "RESOLVED" | "CLOSED"
 type TicketPriority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
@@ -45,6 +59,13 @@ interface SupportTicket {
   _count?: { comments: number }
 }
 
+interface SupportAgent {
+  id: string
+  firstName: string
+  lastName: string
+  role: string
+}
+
 const statusConfig: Record<TicketStatus, { label: string, color: string, icon: any }> = {
   OPEN: { label: "Abierto", color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200", icon: AlertTriangle },
   IN_PROGRESS: { label: "En progreso", color: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200", icon: Clock },
@@ -64,10 +85,13 @@ const PAGE_SIZE = 10
 
 export default function SuperAdminSupportPage() {
   const [tickets, setTickets] = useState<SupportTicket[]>([])
+  const [agents, setAgents] = useState<SupportAgent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "ALL">("ALL")
+  const [categoryFilter, setCategoryFilter] = useState<string>("ALL")
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("ALL")
   const [page, setPage] = useState(1)
 
   useEffect(() => {
@@ -75,10 +99,14 @@ export default function SuperAdminSupportPage() {
     async function fetchTickets() {
       try {
         setLoading(true)
-        const res = await apiFetch("/support/tickets")
-        if (!res.ok) throw new Error("Error al cargar los tickets")
-        const data = await res.json()
+        const [ticketsRes, agentsRes] = await Promise.all([
+          apiFetch("/support/tickets", { silent: true }),
+          apiFetch("/support/agents", { silent: true }),
+        ])
+        if (!ticketsRes.ok) throw new Error("Error al cargar los tickets")
+        const data = await ticketsRes.json()
         if (!cancelled) setTickets(data)
+        if (!cancelled && agentsRes.ok) setAgents(await agentsRes.json())
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Error desconocido")
       } finally {
@@ -86,11 +114,33 @@ export default function SuperAdminSupportPage() {
       }
     }
     fetchTickets()
-    return () => { cancelled = true }
+
+    // Bandeja global en tiempo real: cualquier ticket nuevo o actualizado de
+    // cualquier colegio debe reflejarse aquí sin recargar la página.
+    const token = getAccessToken()
+    let newSocket: Socket | undefined
+    if (token) {
+      newSocket = io(`${API_URL}/support`, {
+        auth: { token },
+        transports: ["websocket"],
+      })
+      attachTokenRefresh(newSocket)
+      newSocket.on("connect", () => newSocket?.emit("dashboard:join"))
+      newSocket.on("ticket:created", () => fetchTickets())
+      newSocket.on("ticket:updated", () => fetchTickets())
+    }
+
+    return () => {
+      cancelled = true
+      newSocket?.emit("dashboard:leave")
+      newSocket?.disconnect()
+    }
   }, [])
 
   const filteredTickets = tickets.filter(t => {
     if (statusFilter !== "ALL" && t.status !== statusFilter) return false
+    if (categoryFilter !== "ALL" && t.category !== categoryFilter) return false
+    if (assigneeFilter !== "ALL" && (assigneeFilter === "UNASSIGNED" ? t.assignee : t.assignee?.id !== assigneeFilter)) return false
     if (search && !t.title.toLowerCase().includes(search.toLowerCase()) && !t.tenant?.name.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
@@ -101,7 +151,16 @@ export default function SuperAdminSupportPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [statusFilter, search])
+  }, [statusFilter, categoryFilter, assigneeFilter, search])
+
+  const hasActiveFilters = statusFilter !== "ALL" || categoryFilter !== "ALL" || assigneeFilter !== "ALL" || search !== ""
+
+  function clearFilters() {
+    setStatusFilter("ALL")
+    setCategoryFilter("ALL")
+    setAssigneeFilter("ALL")
+    setSearch("")
+  }
 
   // Calculate metrics
   const openCount = tickets.filter(t => t.status === "OPEN").length
@@ -148,6 +207,43 @@ export default function SuperAdminSupportPage() {
               {criticalCount > 0 && (
                 <Button variant="destructive" size="sm">
                   Críticos ({criticalCount})
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-col gap-3 pt-3 sm:flex-row sm:items-end">
+              <div className="w-full space-y-1.5 sm:w-56">
+                <Label className="text-xs">Categoría</Label>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="h-9 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Todas las categorías</SelectItem>
+                    {TICKET_CATEGORIES.map((category) => (
+                      <SelectItem key={category} value={category}>{TICKET_CATEGORY_LABELS[category]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full space-y-1.5 sm:w-56">
+                <Label className="text-xs">Resuelto por</Label>
+                <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+                  <SelectTrigger className="h-9 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Cualquiera</SelectItem>
+                    <SelectItem value="UNASSIGNED">Sin asignar</SelectItem>
+                    {agents.map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>{agent.firstName} {agent.lastName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {hasActiveFilters && (
+                <Button variant="ghost" size="sm" className="gap-1.5 sm:ml-auto" onClick={clearFilters}>
+                  <X className="h-3.5 w-3.5" />
+                  Eliminar filtros
                 </Button>
               )}
             </div>
