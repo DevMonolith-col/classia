@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common"
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common"
 import { EventEmitter2 } from "@nestjs/event-emitter"
 import { MembershipStatus, Prisma, UserRole, UserStatus } from "@prisma/client"
 import { Request } from "express"
@@ -8,6 +8,12 @@ import { PrismaService } from "../../core/prisma/prisma.service"
 import { CreateTicketDto, UpdateTicketStatusDto, CreateCommentDto } from "./support.schemas"
 
 const SUPPORT_STAFF_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.SUPPORT_SUPERVISOR, UserRole.SUPPORT_AGENT]
+
+// Techo de tickets devueltos por estos listados: sin esto, un findMany sin
+// take crece sin límite con el tiempo y puede colapsar el servidor cuando
+// el número de tickets/colegios crezca. Los más recientes (por updatedAt)
+// son los que importan operativamente.
+const TICKET_LIST_PAGE_SIZE = 300
 
 @Injectable()
 export class SupportService {
@@ -51,9 +57,13 @@ export class SupportService {
     return this.prisma.supportTicket.findMany({
       where: { tenantId },
       orderBy: { updatedAt: "desc" },
+      take: TICKET_LIST_PAGE_SIZE,
       include: {
+        // El cliente del colegio no ve las notas internas: si se contaran
+        // aquí, el número de "respuestas" en la bandeja no cuadraría con lo
+        // que ve al entrar al ticket, revelando que existen notas ocultas.
         _count: {
-          select: { comments: true }
+          select: { comments: { where: { isInternal: false } } }
         },
         assignee: {
           select: { id: true, firstName: true, lastName: true }
@@ -65,10 +75,13 @@ export class SupportService {
   async getAllTicketsForSuperAdmin() {
     return this.prisma.supportTicket.findMany({
       orderBy: { updatedAt: "desc" },
+      take: TICKET_LIST_PAGE_SIZE,
       include: {
         tenant: {
           select: { name: true, slug: true, primaryDomain: true }
         },
+        // El personal de soporte sí ve las notas internas, así que el conteo
+        // completo aquí es correcto (no hay nada que ocultarles).
         _count: {
           select: { comments: true }
         },
@@ -196,6 +209,16 @@ export class SupportService {
   }
 
   async assignTicket(ticketId: string, assigneeId: string | null, actor: RequestUser, request: Request) {
+    if (assigneeId) {
+      const membership = await this.prisma.tenantMembership.findFirst({
+        where: { userId: assigneeId, role: { in: SUPPORT_STAFF_ROLES }, status: MembershipStatus.ACTIVE },
+        select: { id: true },
+      })
+      if (!membership) {
+        throw new BadRequestException("El usuario asignado debe ser parte del personal de soporte")
+      }
+    }
+
     const previous = await this.prisma.supportTicket.findUniqueOrThrow({
       where: { id: ticketId },
       select: { assigneeId: true, tenantId: true },

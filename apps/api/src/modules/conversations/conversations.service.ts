@@ -58,18 +58,27 @@ export class ConversationsService {
   }
 
   async listContacts(actor: RequestUser): Promise<ContactUser[]> {
+    const contactIds = await this.resolveContactUserIds(actor);
+    return this.fetchContactUsers(actor.tenantId, [...contactIds], actor.id);
+  }
+
+  // Ids de los usuarios con los que `actor` puede conversar, sin hidratar
+  // nombre/rol/orden (eso solo lo necesita listContacts para mostrar la UI).
+  // assertCanMessage reutiliza esto para no cargar y ordenar a todo el
+  // personal/acudientes del tenant solo para comprobar un id.
+  private async resolveContactUserIds(actor: RequestUser): Promise<Set<string>> {
     if (actor.role === UserRole.GUARDIAN) {
       const childGroupIds = await this.resolveOwnChildGroupIds(actor);
       const teacherUserIds = await this.resolveTeacherUserIdsForGroups(actor.tenantId, childGroupIds);
       const adminUserIds = await this.resolveAdminStaffUserIds(actor.tenantId);
-      return this.fetchContactUsers(actor.tenantId, [...teacherUserIds, ...adminUserIds], actor.id);
+      return new Set([...teacherUserIds, ...adminUserIds]);
     }
 
     if (actor.role === UserRole.TEACHER) {
       const myGroupIds = await this.resolveTeacherGroupIds(actor);
       const guardianUserIds = await this.resolveGuardianUserIdsForGroups(actor.tenantId, myGroupIds);
       const adminUserIds = await this.resolveAdminStaffUserIds(actor.tenantId);
-      return this.fetchContactUsers(actor.tenantId, [...guardianUserIds, ...adminUserIds], actor.id);
+      return new Set([...guardianUserIds, ...adminUserIds]);
     }
 
     if (this.isAdminStaff(actor.role) || actor.role === UserRole.SUPER_ADMIN) {
@@ -81,14 +90,10 @@ export class ConversationsService {
         },
         select: { userId: true },
       });
-      return this.fetchContactUsers(
-        actor.tenantId,
-        memberships.map((membership) => membership.userId),
-        actor.id,
-      );
+      return new Set(memberships.map((membership) => membership.userId));
     }
 
-    return [];
+    return new Set();
   }
 
   async listBroadcastTargets(actor: RequestUser) {
@@ -341,8 +346,8 @@ export class ConversationsService {
   // ─── Autorización ────────────────────────────────────────────────────────────
 
   private async assertCanMessage(actor: RequestUser, targetUserId: string) {
-    const contacts = await this.listContacts(actor);
-    if (!contacts.some((contact) => contact.id === targetUserId)) {
+    const contactIds = await this.resolveContactUserIds(actor);
+    if (!contactIds.has(targetUserId)) {
       throw new ForbiddenException(
         "No tienes permiso para iniciar una conversación con este usuario.",
       );
