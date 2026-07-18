@@ -78,6 +78,9 @@ model Tenant {
   gradingCategories GradingCategory[]
   reportCards       ReportCard[]
   supportTickets    SupportTicket[]
+  elections         Election[]
+  documentTemplates DocumentTemplate[]
+  documentIssuances DocumentIssuance[]
 
   @@map("tenants")
 }
@@ -106,6 +109,8 @@ model User {
   assignedSupportTickets  SupportTicket[]           @relation("SupportTicketAssignee")
   authoredSupportTickets  SupportTicket[]           @relation("SupportTicketAuthor")
   authoredTicketComments  TicketComment[]           @relation("TicketCommentAuthor")
+  electionsCreated        Election[]
+  documentsIssued         DocumentIssuance[]        @relation("DocumentIssuedBy")
 
   @@map("users")
 }
@@ -203,6 +208,9 @@ model Student {
   homeworkSubmissions HomeworkSubmission[]
   quizAttempts        QuizAttempt[]
   reportCards         ReportCard[]
+  electionCandidacies ElectionCandidate[]
+  electionVotes       ElectionVoter[]
+  documentIssuances   DocumentIssuance[]
 
   @@unique([tenantId, documentId])
   @@map("students")
@@ -465,6 +473,7 @@ model ReportCard {
   academicYear AcademicYear     @relation(fields: [academicYearId], references: [id])
   period       AcademicPeriod?  @relation(fields: [periodId], references: [id])
   lines        ReportCardLine[]
+  documentIssuances DocumentIssuance[]
 
   @@index([tenantId, studentId, academicYearId])
   @@map("report_cards")
@@ -877,4 +886,136 @@ model SystemSetting {
   updatedAt DateTime @updatedAt
 
   @@map("system_settings")
+}
+
+// ─── Gobierno Escolar (Votaciones) ──────────────────────────────────────────
+
+enum ElectionStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+  PUBLISHED // Resultados publicados a toda la comunidad
+}
+
+model Election {
+  id          String         @id @default(uuid())
+  tenantId    String
+  title       String // Ej: "Elección Personero 2026"
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+  status      ElectionStatus @default(DRAFT)
+  allowBlank  Boolean        @default(true) // Voto en blanco
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tenant     Tenant              @relation(fields: [tenantId], references: [id])
+  createdBy  User                @relation(fields: [createdById], references: [id])
+  candidates ElectionCandidate[]
+  votes      ElectionVote[]
+  voters     ElectionVoter[]
+
+  @@index([tenantId, status])
+  @@map("elections")
+}
+
+model ElectionCandidate {
+  id              String  @id @default(uuid())
+  electionId      String
+  studentId       String? // null = representa el voto en blanco
+  candidateNumber Int // número en el tarjetón (ej. 01, 02)
+  slogan          String?
+  photoUrl        String?
+
+  election Election       @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  student  Student?       @relation(fields: [studentId], references: [id])
+  votes    ElectionVote[]
+
+  @@unique([electionId, candidateNumber])
+  @@map("election_candidates")
+}
+
+// Urna de votos: liga el voto al candidato, JAMÁS al votante (voto secreto).
+model ElectionVote {
+  id          String   @id @default(uuid())
+  electionId  String
+  candidateId String
+  createdAt   DateTime @default(now())
+
+  election  Election          @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  candidate ElectionCandidate @relation(fields: [candidateId], references: [id])
+
+  @@map("election_votes")
+}
+
+// Control de sufragantes: liga al estudiante con la elección solo para saber
+// "ya votó" (participación) — nunca por quién votó. Separado a propósito de
+// ElectionVote: ver participación (Veedor, Rector) nunca implica poder ver
+// el escrutinio mientras la elección sigue ACTIVE.
+model ElectionVoter {
+  id         String   @id @default(uuid())
+  electionId String
+  studentId  String
+  votedAt    DateTime @default(now())
+  ipAddress  String?
+
+  election Election @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  student  Student  @relation(fields: [studentId], references: [id])
+
+  @@unique([electionId, studentId])
+  @@map("election_voters")
+}
+
+// ─── Documentos y Certificados ──────────────────────────────────────────────
+
+enum DocumentType {
+  STUDY_CERTIFICATE // Constancia de estudio
+  REPORT_CARD // Boletín
+}
+
+enum DocumentStatus {
+  PENDING // en cola / generándose (PDF vía worker async)
+  READY
+  FAILED
+}
+
+model DocumentTemplate {
+  id          String       @id @default(uuid())
+  tenantId    String
+  type        DocumentType
+  name        String
+  contentHtml String // Plantilla HTML con variables
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, type])
+  @@map("document_templates")
+}
+
+model DocumentIssuance {
+  id               String         @id @default(uuid())
+  tenantId         String
+  studentId        String
+  reportCardId     String? // si type = REPORT_CARD, reusa los datos ya calculados por el motor de boletines en vez de duplicarlos
+  type             DocumentType
+  status           DocumentStatus @default(PENDING)
+  verificationCode String         @unique // código corto para la URL del QR (ej. X9F2K1)
+  issuedById       String // secretaría/coordinador que lo generó
+  pdfKey           String? // ruta en el storage del PDF ya generado
+  errorMessage     String? // detalle si status = FAILED
+  issuedAt         DateTime       @default(now())
+  readyAt          DateTime?
+  revokedAt        DateTime? // invalida el código QR
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  student    Student     @relation(fields: [studentId], references: [id])
+  reportCard ReportCard? @relation(fields: [reportCardId], references: [id])
+  issuedBy   User        @relation("DocumentIssuedBy", fields: [issuedById], references: [id])
+
+  @@index([tenantId, studentId])
+  @@index([verificationCode])
+  @@map("document_issuances")
 }
