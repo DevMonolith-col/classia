@@ -853,3 +853,15 @@ model TicketComment {
   @@index([ticketId])
   @@map("ticket_comments")
 }
+
+// ─── SaaS System Settings ────────────────────────────────────────────────────
+
+model SystemSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}

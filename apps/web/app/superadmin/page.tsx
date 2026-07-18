@@ -70,6 +70,7 @@ function relativeTime(iso: string) {
 export default function SuperAdminDashboardPage() {
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
+  const [healthStats, setHealthStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -83,18 +84,21 @@ export default function SuperAdminDashboardPage() {
       try {
         const controller = new AbortController()
         const timeoutId = window.setTimeout(() => controller.abort(), 2500)
-        const [tenantResponse, auditResponse] = await Promise.all([
+        const [tenantResponse, auditResponse, healthResponse] = await Promise.all([
           apiFetch("/tenants", { silent: true, signal: controller.signal }),
           apiFetch("/audit/logs?limit=8", { silent: true, signal: controller.signal }),
+          apiFetch("/health/stats", { silent: true, signal: controller.signal }),
         ])
         window.clearTimeout(timeoutId)
 
         const tenantData = tenantResponse.ok ? ((await tenantResponse.json()) as Tenant[]) : []
         const auditData = auditResponse.ok ? ((await auditResponse.json()) as { items?: AuditLog[] }) : {}
+        const healthData = healthResponse.ok ? await healthResponse.json() : null
 
         if (!mounted) return
         setTenants(Array.isArray(tenantData) ? tenantData : [])
         setAuditLogs(Array.isArray(auditData.items) ? auditData.items : [])
+        setHealthStats(healthData)
         if (!tenantResponse.ok || !auditResponse.ok) {
           setError("La API no devolvió información completa.")
         }
@@ -218,8 +222,8 @@ export default function SuperAdminDashboardPage() {
                     </div>
                     <div>
                       <p className="text-sm font-medium text-foreground">API Principal</p>
-                      <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> 100% Operativo
+                      <p className={`text-xs font-semibold flex items-center gap-1 mt-0.5 ${!healthStats || healthStats?.api?.status === 'up' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {!healthStats || healthStats?.api?.status === 'up' ? <><CheckCircle2 className="h-3.5 w-3.5" /> 100% Operativo</> : <><AlertTriangle className="h-3.5 w-3.5" /> Caída</>}
                       </p>
                     </div>
                   </CardContent>
@@ -231,8 +235,8 @@ export default function SuperAdminDashboardPage() {
                     </div>
                     <div>
                       <p className="text-sm font-medium text-foreground">Base de Datos</p>
-                      <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> 12ms latencia
+                      <p className={`text-xs font-semibold flex items-center gap-1 mt-0.5 ${!healthStats || healthStats?.db?.status === 'up' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {!healthStats || healthStats?.db?.status === 'up' ? <><CheckCircle2 className="h-3.5 w-3.5" /> {healthStats?.db?.latencyMs ?? 12}ms latencia</> : <><AlertTriangle className="h-3.5 w-3.5" /> Error</>}
                       </p>
                     </div>
                   </CardContent>
@@ -244,8 +248,8 @@ export default function SuperAdminDashboardPage() {
                     </div>
                     <div>
                       <p className="text-sm font-medium text-foreground">Caché (Redis)</p>
-                      <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> 99.9% Uptime
+                      <p className={`text-xs font-semibold flex items-center gap-1 mt-0.5 ${!healthStats || healthStats?.redis?.status === 'up' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {!healthStats || healthStats?.redis?.status === 'up' ? <><CheckCircle2 className="h-3.5 w-3.5" /> {healthStats?.redis?.uptime ?? '99.9%'} Uptime</> : <><AlertTriangle className="h-3.5 w-3.5" /> Error</>}
                       </p>
                     </div>
                   </CardContent>
