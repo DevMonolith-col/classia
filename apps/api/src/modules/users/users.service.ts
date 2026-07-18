@@ -323,12 +323,13 @@ export class UsersService {
     }
   }
 
+  // Otorgar un rol de plataforma (SUPER_ADMIN, SUPPORT_SUPERVISOR,
+  // SUPPORT_AGENT) es exclusivo del SUPER_ADMIN real: un agente o supervisor
+  // de soporte nunca puede ascenderse a sí mismo ni a nadie más, aunque pasen
+  // el check general de "admin global" para otras acciones.
   private assertCanAssignRole(actor: RequestUser, role: UserRole) {
-    if (this.isGlobalAdmin(actor)) {
-      return;
-    }
-
-    if (role === UserRole.SUPER_ADMIN || role === UserRole.SUPPORT_AGENT) {
+    const PLATFORM_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.SUPPORT_SUPERVISOR, UserRole.SUPPORT_AGENT];
+    if (PLATFORM_ROLES.includes(role) && actor.role !== UserRole.SUPER_ADMIN) {
       throw new ForbiddenException("Only super admins can assign global roles.");
     }
   }
