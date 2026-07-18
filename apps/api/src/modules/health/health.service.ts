@@ -38,10 +38,19 @@ export class HealthService {
       redisStatus = "down";
     }
 
+    const [openTickets, closedTickets] = await Promise.all([
+      this.prisma.supportTicket.count({ where: { status: { in: ["OPEN", "IN_PROGRESS", "WAITING_ON_CUSTOMER"] } } }),
+      this.prisma.supportTicket.count({ where: { status: { in: ["RESOLVED", "CLOSED"] } } })
+    ]);
+
     return {
       api: { status: "up" },
       db: { status: dbStatus, latencyMs: dbLatency },
-      redis: { status: redisStatus, uptime: "99.9%" }
+      redis: { status: redisStatus, uptime: "99.9%" },
+      support: {
+        openTickets,
+        closedTickets
+      }
     };
   }
 }

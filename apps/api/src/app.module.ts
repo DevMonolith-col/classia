@@ -7,7 +7,9 @@ import emailConfig from "./config/email.config";
 import { envSchema } from "./config/env.schema";
 import redisConfig from "./config/redis.config";
 import storageConfig from "./config/storage.config";
+import { APP_INTERCEPTOR } from "@nestjs/core";
 import { AuditCoreModule } from "./core/audit/audit-core.module";
+import { ImpersonationAuditInterceptor } from "./common/interceptors/impersonation-audit.interceptor";
 import { PrismaModule } from "./core/prisma/prisma.module";
 import { QueueModule } from "./core/queue/queue.module";
 import { RedisModule } from "./core/redis/redis.module";
@@ -85,6 +87,12 @@ import { SettingsModule } from "./modules/settings/settings.module";
     AuditModule,
     SupportModule,
     SettingsModule,
+  ],
+  providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ImpersonationAuditInterceptor,
+    },
   ],
 })
 export class AppModule {}

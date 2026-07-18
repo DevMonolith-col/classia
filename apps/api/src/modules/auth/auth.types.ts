@@ -7,4 +7,5 @@ export type AuthTokenPayload = {
   tenantSlug: string;
   membershipId: string;
   role: UserRole;
+  isImpersonated?: boolean;
 };

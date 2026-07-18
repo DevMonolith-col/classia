@@ -299,45 +299,26 @@ export default function SuperAdminDashboardPage() {
               <Card className="shadow-sm h-full flex flex-col">
                 <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
                   <CardTitle className="text-base flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4 text-amber-500" /> Triage de Soporte
+                    <AlertCircle className="h-4 w-4 text-amber-500" /> Rendimiento de Soporte
                   </CardTitle>
                   <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400">
-                    3 Tickets
+                    {healthStats?.support?.openTickets || 0} Abiertos
                   </Badge>
                 </CardHeader>
-                <CardContent className="p-0 flex-1">
-                  <div className="divide-y divide-border">
-                    <div className="p-4 hover:bg-secondary/40 transition-colors">
-                      <div className="flex justify-between items-start mb-1">
-                        <p className="text-sm font-medium text-foreground">Instituto San Jorge</p>
-                        <span className="text-[10px] bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400 px-1.5 py-0.5 rounded font-semibold">Crítico</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-3">Restablecer acceso global de rectoría reportado caído.</p>
-                      <Button variant="outline" size="sm" className="h-7 text-xs w-full bg-background shadow-none">
-                        Revisar acceso <ArrowUpRight className="h-3 w-3 ml-1" />
-                      </Button>
+                <CardContent className="p-4 flex-1">
+                  <div className="grid grid-cols-2 gap-4 h-full">
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl flex flex-col items-center justify-center border border-blue-100 dark:border-blue-900/30 text-center">
+                      <p className="text-3xl font-bold text-blue-700 dark:text-blue-400">{healthStats?.support?.openTickets || 0}</p>
+                      <p className="text-xs font-medium text-blue-600/70 dark:text-blue-400/70 uppercase tracking-wider mt-1">Tickets Abiertos</p>
                     </div>
-                    <div className="p-4 hover:bg-secondary/40 transition-colors">
-                      <div className="flex justify-between items-start mb-1">
-                        <p className="text-sm font-medium text-foreground">Demo Classia</p>
-                        <span className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400 px-1.5 py-0.5 rounded font-semibold">Nuevo</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-3">Validar ambiente piloto (datos semilla) antes de entrega.</p>
-                      <Button variant="outline" size="sm" className="h-7 text-xs w-full bg-background shadow-none">
-                        Verificar tenant <ArrowUpRight className="h-3 w-3 ml-1" />
-                      </Button>
-                    </div>
-                    <div className="p-4 hover:bg-secondary/40 transition-colors">
-                      <div className="flex justify-between items-start mb-1">
-                        <p className="text-sm font-medium text-foreground">Gimnasio Los Andes</p>
-                        <span className="text-[10px] bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 px-1.5 py-0.5 rounded font-semibold">Sistema</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-3">Cuota de almacenamiento casi superada (98%).</p>
-                      <Button variant="outline" size="sm" className="h-7 text-xs w-full bg-background shadow-none">
-                        Ver detalles <ArrowUpRight className="h-3 w-3 ml-1" />
-                      </Button>
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl flex flex-col items-center justify-center border border-emerald-100 dark:border-emerald-900/30 text-center">
+                      <p className="text-3xl font-bold text-emerald-700 dark:text-emerald-400">{healthStats?.support?.closedTickets || 0}</p>
+                      <p className="text-xs font-medium text-emerald-600/70 dark:text-emerald-400/70 uppercase tracking-wider mt-1">Resueltos/Cerrados</p>
                     </div>
                   </div>
+                  <Button variant="outline" size="sm" className="w-full mt-4" asChild>
+                    <Link href="/superadmin/support">Ir a Bandeja de Soporte <ArrowRight className="h-4 w-4 ml-2" /></Link>
+                  </Button>
                 </CardContent>
               </Card>
             </div>

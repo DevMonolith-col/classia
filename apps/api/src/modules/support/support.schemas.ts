@@ -18,6 +18,8 @@ export type UpdateTicketStatusDto = z.infer<typeof updateTicketStatusSchema>
 export const createCommentSchema = z.object({
   content: z.string().min(1),
   isInternal: z.boolean().default(false),
+  attachmentKey: z.string().optional(),
+  attachmentName: z.string().optional(),
 })
 
 export type CreateCommentDto = z.infer<typeof createCommentSchema>
