@@ -132,9 +132,12 @@ export function ChatInterface({
   )
 
   const formatTime = (date: Date) => {
-    const now = new Date()
-    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
-    
+    // Comparar por día de calendario (medianoche a medianoche), no por
+    // bloques de 24h desde "ahora": un mensaje de anoche 23:59 visto de
+    // madrugada quedaba a menos de 24h y se mostraba como si fuera "hoy".
+    const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+    const diffDays = Math.round((startOfDay(new Date()) - startOfDay(date)) / (1000 * 60 * 60 * 24))
+
     if (diffDays === 0) {
       return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
     } else if (diffDays === 1) {
