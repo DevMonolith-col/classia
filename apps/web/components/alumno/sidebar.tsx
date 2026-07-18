@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import {
-  Home, ClipboardList, FileText, Vote,
+  Home, ClipboardList, FileText, Vote, FileCheck2,
   LogOut, Menu, X,
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
@@ -14,6 +14,7 @@ const navigation = [
   { name: "Asignaciones",   href: "/alumno/asignaciones",  icon: FileText },
   { name: "Calificaciones", href: "/alumno/calificaciones",icon: ClipboardList },
   { name: "Votación",       href: "/alumno/votacion",      icon: Vote },
+  { name: "Certificados",   href: "/alumno/certificados",  icon: FileCheck2 },
 ]
 
 interface Props { isCollapsed: boolean; onToggle: () => void }
