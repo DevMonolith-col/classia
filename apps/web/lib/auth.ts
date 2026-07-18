@@ -148,7 +148,7 @@ export async function login(email: string, password: string): Promise<LoginResul
   return data
 }
 
-export async function impersonateTenant(tenantId: string): Promise<LoginResult> {
+export async function impersonateTenant(tenantId: string, returnTo?: string): Promise<LoginResult> {
   const currentAt = getAccessToken()
   const currentRt = getRefreshToken()
   
@@ -178,6 +178,11 @@ export async function impersonateTenant(tenantId: string): Promise<LoginResult> 
     localStorage.setItem("classia_original_rt", currentRt)
     const currentUser = localStorage.getItem("classia_user")
     if (currentUser) localStorage.setItem("classia_original_user", currentUser)
+    if (returnTo) {
+      localStorage.setItem("classia_impersonate_return", returnTo)
+    } else {
+      localStorage.removeItem("classia_impersonate_return")
+    }
   }
 
   const data = (await res.json()) as LoginResult
@@ -192,14 +197,15 @@ export async function impersonateTenant(tenantId: string): Promise<LoginResult> 
   return data
 }
 
-export function exitImpersonation(): boolean {
-  if (typeof localStorage === "undefined") return false
-  
+export function exitImpersonation(): { success: boolean; returnTo: string } {
+  const fallback = "/superadmin/tenants"
+  if (typeof localStorage === "undefined") return { success: false, returnTo: fallback }
+
   const originalAt = localStorage.getItem("classia_original_at")
   const originalRt = localStorage.getItem("classia_original_rt")
-  
-  if (!originalAt || !originalRt) return false
-  
+
+  if (!originalAt || !originalRt) return { success: false, returnTo: fallback }
+
   setTokens(originalAt, originalRt)
   localStorage.removeItem("classia_original_at")
   localStorage.removeItem("classia_original_rt")
@@ -211,7 +217,10 @@ export function exitImpersonation(): boolean {
   } else {
     localStorage.removeItem("classia_user")
   }
-  return true
+
+  const returnTo = localStorage.getItem("classia_impersonate_return") || fallback
+  localStorage.removeItem("classia_impersonate_return")
+  return { success: true, returnTo }
 }
 
 export function isImpersonating(): boolean {
