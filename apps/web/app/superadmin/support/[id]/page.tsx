@@ -411,7 +411,8 @@ export default function SuperAdminTicketDetail() {
                   }>
                     {!isMe && (
                       <p className={`text-[11px] font-medium mb-1 ${isSupportTeam ? 'text-amber-700' : 'text-primary'}`}>
-                        {isSupportTeam ? 'Equipo de Soporte' : (comment.author ? `${comment.author.firstName} ${comment.author.lastName}` : 'Usuario')}
+                        {comment.author ? `${comment.author.firstName} ${comment.author.lastName}` : 'Usuario'}
+                        {isSupportTeam && <span className="ml-1.5 opacity-70">· Soporte</span>}
                         {comment.isInternal && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] bg-amber-200/50 text-amber-800">NOTA INTERNA</span>}
                       </p>
                     )}
