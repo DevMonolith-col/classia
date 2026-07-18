@@ -19,8 +19,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setImpersonatorRole(jwt ? decodeJwt(jwt)?.role ?? null : null)
   }, [])
 
-  const handleExit = () => {
-    const { success, returnTo } = exitImpersonation()
+  const handleExit = async () => {
+    const { success, returnTo } = await exitImpersonation()
     if (success) {
       router.push(returnTo)
     }

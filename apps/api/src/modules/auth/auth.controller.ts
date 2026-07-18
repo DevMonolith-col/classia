@@ -52,6 +52,14 @@ export class AuthController {
     return this.auth.impersonate(body, user, request);
   }
 
+  @Post("exit-impersonation")
+  exitImpersonation(
+    @Body(new ZodValidationPipe(refreshTokenSchema)) body: RefreshTokenInput,
+    @Req() request: Request,
+  ) {
+    return this.auth.exitImpersonation(body, request);
+  }
+
   @Get("me")
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: RequestUser) {

@@ -197,7 +197,7 @@ export async function impersonateTenant(tenantId: string, returnTo?: string): Pr
   return data
 }
 
-export function exitImpersonation(): { success: boolean; returnTo: string } {
+export async function exitImpersonation(): Promise<{ success: boolean; returnTo: string }> {
   const fallback = "/superadmin/tenants"
   if (typeof localStorage === "undefined") return { success: false, returnTo: fallback }
 
@@ -205,6 +205,20 @@ export function exitImpersonation(): { success: boolean; returnTo: string } {
   const originalRt = localStorage.getItem("classia_original_rt")
 
   if (!originalAt || !originalRt) return { success: false, returnTo: fallback }
+
+  // Revocar la sesión de impersonación en el servidor antes de restaurar la
+  // identidad real. Sin esto, la sesión efímera (refresh de 30 días) seguiría
+  // viva y reutilizable. El catch es intencional: si la API falla, igual
+  // restauramos localmente para no dejar al usuario atrapado en el colegio.
+  const impersonationRt = getRefreshToken()
+  if (impersonationRt) {
+    await fetch(`${API_URL}/auth/exit-impersonation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Tenant-Slug": TENANT_SLUG },
+      body: JSON.stringify({ refreshToken: impersonationRt }),
+      credentials: "include",
+    }).catch(() => {})
+  }
 
   setTokens(originalAt, originalRt)
   localStorage.removeItem("classia_original_at")
