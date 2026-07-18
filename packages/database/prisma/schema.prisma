@@ -152,6 +152,13 @@ model AuthSession {
   userAgent        String?
   createdAt        DateTime  @default(now())
 
+  // Impersonación: una sesión de soporte que "entra" a un tenant no crea ninguna
+  // TenantMembership; el rol efectivo vive solo aquí para poder re-emitir el token
+  // en cada refresh sin depender de una fila persistida. Salir de la impersonación
+  // revoca esta sesión en el servidor (no basta con limpiar el cliente).
+  isImpersonated   Boolean   @default(false)
+  impersonatedRole UserRole?
+
   user   User    @relation(fields: [userId], references: [id])
   tenant Tenant? @relation(fields: [tenantId], references: [id])
 
@@ -952,10 +959,14 @@ model ElectionCandidate {
 
 // Urna de votos: liga el voto al candidato, JAMÁS al votante (voto secreto).
 model ElectionVote {
-  id          String   @id @default(uuid())
+  id          String @id @default(uuid())
   electionId  String
   candidateId String
-  createdAt   DateTime @default(now())
+  // Sin timestamp a propósito: el voto es anónimo. Si guardáramos createdAt, al
+  // insertarse en la misma transacción que ElectionVoter.votedAt ambos quedarían
+  // con el MISMO valor (now() es constante dentro de una transacción en Postgres)
+  // y únicos entre votantes, permitiendo un JOIN por timestamp que revela por
+  // quién votó cada estudiante. Sin createdAt, esa correlación es imposible.
 
   election  Election          @relation(fields: [electionId], references: [id], onDelete: Cascade)
   candidate ElectionCandidate @relation(fields: [candidateId], references: [id])

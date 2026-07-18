@@ -2,7 +2,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
-import { MembershipStatus, UserStatus } from "@prisma/client";
+import { MembershipStatus, UserRole, UserStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { Request } from "express";
 import { AuditService } from "../../core/audit/audit.service";
@@ -121,6 +121,42 @@ export class AuthService {
       throw new UnauthorizedException("Invalid refresh token.");
     }
 
+    // Sesión de impersonación: se re-emite conservando el rol efectivo y el flag,
+    // sin depender de ninguna membership (el supervisor no la tiene en el tenant).
+    // Sin esto, tras 15 min el token perdía isImpersonated y la auditoría dejaba
+    // de registrar las mutaciones de la sesión impersonada.
+    if (session.isImpersonated) {
+      await this.prisma.authSession.update({
+        where: { id: session.id },
+        data: { revokedAt: new Date() },
+      });
+
+      const impersonatedRole = session.impersonatedRole ?? UserRole.TENANT_ADMIN;
+      const tokens = await this.createSession({
+        sub: session.user.id,
+        email: session.user.email,
+        tenantId: session.tenant.id,
+        tenantSlug: session.tenant.slug,
+        membershipId: "",
+        role: impersonatedRole,
+        isImpersonated: true,
+        request,
+      });
+
+      await this.audit.record({
+        tenantId: session.tenant.id,
+        userId: session.user.id,
+        actorRole: impersonatedRole,
+        action: "auth.refresh",
+        entityType: "AuthSession",
+        entityId: session.id,
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+
+      return tokens;
+    }
+
     const membership = session.user.memberships.find(
       (item) =>
         item.tenantId === session.tenantId &&
@@ -217,57 +253,21 @@ export class AuthService {
       throw new UnauthorizedException("Target tenant not found.");
     }
 
-    // Al impersonar nunca se otorga ni se conserva SUPER_ADMIN dentro del
-    // tenant: ese rol es exclusivo de quien lo tiene asignado deliberadamente.
-    // Si ya existe una membership real y OPERATIVA (con el rol que sea), se
-    // respeta tal cual y solo se reactiva si estaba suspendida; si no existe,
-    // se crea una temporal de soporte con TENANT_ADMIN para poder operar el
-    // tenant.
-    let membership = await this.prisma.tenantMembership.findUnique({
-      where: {
-        tenantId_userId: {
-          tenantId: targetTenant.id,
-          userId: currentUser.id,
-        },
-      },
-    });
-
-    if (!membership) {
-      membership = await this.prisma.tenantMembership.create({
-        data: {
-          tenantId: targetTenant.id,
-          userId: currentUser.id,
-          role: "TENANT_ADMIN",
-          status: MembershipStatus.ACTIVE,
-        },
-      });
-    } else if (membership.status !== MembershipStatus.ACTIVE) {
-      membership = await this.prisma.tenantMembership.update({
-        where: { id: membership.id },
-        data: { status: MembershipStatus.ACTIVE },
-      });
-    }
-
-    // Las cuentas de soporte (SUPPORT_SUPERVISOR, SUPPORT_AGENT) suelen
-    // "vivir" en un tenant ancla solo para poder autenticarse con su rol
-    // global — esa membership es de solo lectura y no es un cargo real
-    // dentro del colegio. Si la membership encontrada es uno de esos roles,
-    // no la usamos para la sesión de impersonación (se quedaría sin poder
-    // corregir nada); se le da acceso TENANT_ADMIN efectivo para esta
-    // sesión, sin modificar la fila real (para no romper su login normal,
-    // que depende de esa membership para saber que es soporte).
-    // SUPER_ADMIN queda fuera de este downgrade a propósito: si un
-    // SUPER_ADMIN real tiene esa membership es porque se le asignó
-    // deliberadamente, y nunca debe perder poder al impersonar.
-    const READ_ONLY_ANCHOR_ROLES = ["SUPPORT_SUPERVISOR", "SUPPORT_AGENT"];
-    const sessionRole = READ_ONLY_ANCHOR_ROLES.includes(membership.role) ? "TENANT_ADMIN" : membership.role;
+    // Sesión efímera: impersonar NO crea ni modifica ninguna TenantMembership.
+    // El rol efectivo es TENANT_ADMIN (suficiente para operar el colegio) y vive
+    // solo dentro de la AuthSession/token, marcado como impersonación. Así el
+    // supervisor no queda con un cargo permanente en el tenant, y salir de la
+    // impersonación (o dejar expirar la sesión) no deja rastro de acceso.
+    const sessionRole = UserRole.TENANT_ADMIN;
 
     const tokens = await this.createSession({
       sub: currentUser.id,
       email: currentUser.email,
       tenantId: targetTenant.id,
       tenantSlug: targetTenant.slug,
-      membershipId: membership.id,
+      // La impersonación no tiene membership real: se usa un sentinel vacío y el
+      // bootstrap sintetiza la membership a partir del rol de la sesión.
+      membershipId: "",
       role: sessionRole,
       isImpersonated: true,
       request,
@@ -292,10 +292,40 @@ export class AuthService {
       },
       tenant: targetTenant,
       membership: {
-        id: membership.id,
+        id: "",
         role: sessionRole,
       },
     };
+  }
+
+  // Salir de la impersonación: revoca la sesión efímera en el servidor. El cliente
+  // conserva sus tokens originales y los restaura, pero sin esto la sesión de
+  // impersonación (refresh de 30 días) seguiría viva y reutilizable.
+  async exitImpersonation(input: RefreshTokenInput, request: Request) {
+    const refreshTokenHash = this.hashRefreshToken(input.refreshToken);
+    const session = await this.prisma.authSession.findUnique({
+      where: { refreshTokenHash },
+    });
+
+    if (session && !session.revokedAt && session.isImpersonated) {
+      await this.prisma.authSession.update({
+        where: { id: session.id },
+        data: { revokedAt: new Date() },
+      });
+
+      await this.audit.record({
+        tenantId: session.tenantId ?? undefined,
+        userId: session.userId,
+        actorRole: session.impersonatedRole ?? undefined,
+        action: "auth.impersonate_ended",
+        entityType: "AuthSession",
+        entityId: session.id,
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+    }
+
+    return { status: "ok" };
   }
 
   async signAccessToken(payload: AuthTokenPayload) {
@@ -318,6 +348,10 @@ export class AuthService {
         expiresAt,
         ipAddress: input.request.ip,
         userAgent: input.request.headers["user-agent"],
+        isImpersonated: input.isImpersonated ?? false,
+        // El rol efectivo de la impersonación se guarda para poder re-emitir el
+        // token en cada refresh sin leer ninguna membership.
+        impersonatedRole: input.isImpersonated ? input.role : null,
       },
     });
 
