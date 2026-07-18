@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Send, Lock, Clock, CheckCircle2, XCircle, AlertTriangle, User, Paperclip, FileIcon } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
+import { ArrowLeft, Send, Lock, Clock, CheckCircle2, XCircle, AlertTriangle, User, Paperclip, FileIcon, LogIn, ChevronDown, Info, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
@@ -12,10 +11,11 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api-client"
 import Link from "next/link"
-import { LogIn } from "lucide-react"
 import { io, Socket } from "socket.io-client"
 import { API_URL } from "@/lib/env"
-import { getAccessToken } from "@/lib/auth"
+import { getAccessToken, decodeJwt } from "@/lib/auth"
+import { RemoteImage } from "@/components/shared/remote-image"
+import { AttachmentPreviewDialog } from "@/components/shared/attachment-preview-dialog"
 
 const statusConfig: Record<string, { label: string, color: string, icon: any }> = {
   OPEN: { label: "Abierto", color: "bg-blue-100 text-blue-800", icon: AlertTriangle },
@@ -25,22 +25,36 @@ const statusConfig: Record<string, { label: string, color: string, icon: any }> 
   CLOSED: { label: "Cerrado", color: "bg-slate-100 text-slate-800", icon: XCircle },
 }
 
+const priorityConfig: Record<string, { label: string, color: string }> = {
+  LOW: { label: "Baja", color: "text-slate-500" },
+  MEDIUM: { label: "Media", color: "text-blue-500" },
+  HIGH: { label: "Alta", color: "text-amber-500" },
+  CRITICAL: { label: "Crítica", color: "text-red-500 font-bold" },
+}
+
 export default function SuperAdminTicketDetail() {
   const { id } = useParams() as { id: string }
   const router = useRouter()
+  const jwt = decodeJwt(getAccessToken() || "")
+  const currentUser = jwt?.sub
+  const isSupervisor = jwt?.role === "SUPER_ADMIN"
   const [ticket, setTicket] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
-  
+
   const [reply, setReply] = useState("")
   const [isInternal, setIsInternal] = useState(false)
   const [replying, setReplying] = useState(false)
+
+  const [previewAttachmentKey, setPreviewAttachmentKey] = useState<string | null>(null)
+  const [previewAttachmentName, setPreviewAttachmentName] = useState<string | null>(null)
   const [attachment, setAttachment] = useState<File | null>(null)
   const [agents, setAgents] = useState<any[]>([])
   const [assigning, setAssigning] = useState(false)
   const [impersonating, setImpersonating] = useState(false)
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
   const [socket, setSocket] = useState<Socket | null>(null)
+  const [showDetails, setShowDetails] = useState(false)
 
   const fetchTicketAndAgents = async () => {
     try {
@@ -156,7 +170,7 @@ export default function SuperAdminTicketDetail() {
     try {
       let attachmentKey: string | undefined
       let attachmentName: string | undefined
-      
+
       if (attachment) {
         const formData = new FormData()
         formData.append("file", attachment)
@@ -172,14 +186,14 @@ export default function SuperAdminTicketDetail() {
 
       const res = await apiFetch(`/support/tickets/${id}/comments`, {
         method: "POST",
-        body: JSON.stringify({ 
-          content: reply || (attachment ? "Archivo adjunto" : ""), 
+        body: JSON.stringify({
+          content: reply || (attachment ? "Archivo adjunto" : ""),
           isInternal,
           attachmentKey,
           attachmentName
         })
       })
-      
+
       if (res.ok) {
         setReply("")
         setIsInternal(false)
@@ -198,170 +212,353 @@ export default function SuperAdminTicketDetail() {
 
   const status = statusConfig[ticket.status]
   const StatusIcon = status.icon
+  const priority = priorityConfig[ticket.priority] ?? priorityConfig.MEDIUM
+  const isTicketActive = ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED'
+  const assignee = agents.find((a) => a.id === ticket.assigneeId)
 
-  return (
-    <div className="min-h-screen bg-background pb-10">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/superadmin/support"><ArrowLeft className="h-5 w-5" /></Link>
-            </Button>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Volver a Soporte B2B</p>
-              <div className="flex items-center gap-3">
-                <h1 className="text-xl font-bold line-clamp-1">{ticket.title}</h1>
-                <Badge variant="outline" className={status.color}><StatusIcon className="h-3 w-3 mr-1"/>{status.label}</Badge>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <select 
-              className="flex h-9 w-[180px] items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-              value={ticket.assigneeId || ""}
-              onChange={(e) => handleAssign(e.target.value)}
-              disabled={assigning}
-            >
-              <option value="">Sin asignar</option>
-              {agents.map(a => (
-                <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>
-              ))}
-            </select>
-            <select 
-              className="flex h-9 w-[180px] items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-              value={ticket.status}
-              onChange={(e) => handleStatusChange(e.target.value)}
-            >
-              <option value="OPEN">Marcar como Abierto</option>
-              <option value="IN_PROGRESS">Marcar En Progreso</option>
-              <option value="WAITING_ON_CUSTOMER">Esperando al cliente</option>
-              <option value="RESOLVED">Marcar Resuelto</option>
-              <option value="CLOSED">Cerrar Ticket</option>
-            </select>
-          </div>
+  // Panel de control: misma información para supervisor y trabajador, pero
+  // solo el supervisor puede reasignar el ticket u otorgarse acceso al colegio.
+  const controlPanel = (
+    <div className="space-y-4 p-4">
+      <div>
+        <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Colegio</Label>
+        <div className="mt-1 flex items-center gap-1.5 text-sm font-medium text-foreground">
+          <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          {ticket.tenant?.name ?? "Colegio desconocido"}
         </div>
-      </header>
+      </div>
 
-      <div className="px-4 py-5 sm:px-6 lg:px-8 max-w-5xl mx-auto space-y-6">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Categoría</Label>
+          <p className="mt-1 text-sm text-foreground">{ticket.category || "General"}</p>
+        </div>
+        <div>
+          <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Prioridad</Label>
+          <p className={`mt-1 text-sm ${priority.color}`}>{priority.label}</p>
+        </div>
+      </div>
 
-      {ticket.assigneeId && ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED' && (
-        <div className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-lg p-4">
-          <div className="text-sm">
-            <p className="font-semibold text-primary">Acceso de Soporte Autorizado</p>
-            <p className="text-muted-foreground">Como este ticket está asignado y activo, tienes permiso para entrar al dashboard del colegio {ticket.tenant.name}.</p>
-          </div>
-          <Button onClick={handleImpersonate} disabled={impersonating} className="gap-2 shrink-0">
-            <LogIn className={`h-4 w-4 ${impersonating ? 'animate-pulse' : ''}`} />
-            Entrar al Colegio
+      <div>
+        <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Estado</Label>
+        <select
+          className="mt-1 flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+          value={ticket.status}
+          onChange={(e) => handleStatusChange(e.target.value)}
+        >
+          <option value="OPEN">Abierto</option>
+          <option value="IN_PROGRESS">En progreso</option>
+          <option value="WAITING_ON_CUSTOMER">Esperando al cliente</option>
+          <option value="RESOLVED">Resuelto</option>
+          <option value="CLOSED">Cerrado</option>
+        </select>
+      </div>
+
+      <div>
+        <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Asignado a {!isSupervisor && "(solo el supervisor reasigna)"}
+        </Label>
+        {isSupervisor ? (
+          <select
+            className="mt-1 flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+            value={ticket.assigneeId || ""}
+            onChange={(e) => handleAssign(e.target.value)}
+            disabled={assigning}
+          >
+            <option value="">Sin asignar</option>
+            {agents.map(a => (
+              <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>
+            ))}
+          </select>
+        ) : (
+          <p className="mt-1 text-sm text-foreground">
+            {assignee ? `${assignee.firstName} ${assignee.lastName}` : "Sin asignar"}
+          </p>
+        )}
+      </div>
+
+      {isSupervisor && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+          <p className="text-xs font-semibold text-primary">Acceso al colegio</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {isTicketActive
+              ? "Entra directamente al colegio para diagnosticar o corregir el problema."
+              : "El ticket ya está cerrado; el acceso solo aplica a tickets activos."}
+          </p>
+          <Button
+            size="sm"
+            className="mt-2 w-full gap-2"
+            onClick={handleImpersonate}
+            disabled={impersonating || !isTicketActive}
+          >
+            <LogIn className="h-3.5 w-3.5" /> Entrar al sistema
           </Button>
         </div>
       )}
+    </div>
+  )
 
-      <Card>
-        <CardContent className="p-6">
-          <div className="prose dark:prose-invert max-w-none text-sm">
-            {ticket.description}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="space-y-4 pt-4">
-        <h3 className="font-semibold text-lg">Historial de Conversación</h3>
-        
-        {ticket.comments?.map((comment: any) => (
-          <div key={comment.id} className={`p-4 rounded-lg border ${comment.isInternal ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'bg-background'}`}>
-            <div className="flex justify-between items-start mb-2">
+  return (
+    <div className="flex h-screen w-full overflow-hidden bg-background">
+      {/* Chat: independiente del panel de control */}
+      <div className="flex h-full min-w-0 flex-1 flex-col relative">
+        <header className="sticky top-0 z-10 border-b border-border bg-background/95 px-4 py-2 backdrop-blur sm:px-6">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" asChild>
+              <Link href="/superadmin/support"><ArrowLeft className="h-5 w-5" /></Link>
+            </Button>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="font-medium text-sm">
-                  {comment.authorId === ticket.authorId ? 'Cliente (Colegio)' : 'Soporte SaaS'}
-                </span>
-                {comment.isInternal && (
-                  <Badge variant="secondary" className="bg-amber-100 text-amber-800 hover:bg-amber-100 text-[10px]">
-                    <Lock className="h-3 w-3 mr-1" /> Nota Interna
-                  </Badge>
+                <Badge variant="outline" className={`${status.color} shrink-0 px-1.5 h-5 text-[10px]`}>
+                  <StatusIcon className="h-2.5 w-2.5 mr-1" />{status.label}
+                </Badge>
+                {ticket.priority === 'CRITICAL' && (
+                  <Badge variant="destructive" className="animate-pulse shrink-0 px-1.5 h-5 text-[10px]">Crítica</Badge>
                 )}
               </div>
-              <span className="text-xs text-muted-foreground">{new Date(comment.createdAt).toLocaleString()}</span>
+              <h1 className="mt-0.5 line-clamp-1 text-sm font-bold sm:text-base">{ticket.title}</h1>
             </div>
-            <p className="text-sm whitespace-pre-wrap">{comment.content}</p>
-            {comment.attachmentKey && (
-              <a 
-                href={`/api/files/url?key=${comment.attachmentKey}`} 
-                target="_blank" 
-                className="inline-flex items-center gap-1 mt-2 text-xs text-primary hover:underline bg-primary/5 px-2 py-1 rounded border border-primary/20"
-              >
-                <FileIcon className="h-3 w-3" />
-                {comment.attachmentName || "Adjunto"}
-              </a>
+            <Button variant="outline" size="sm" className="gap-1.5 lg:hidden" onClick={() => setShowDetails((s) => !s)}>
+              <Info className="h-3.5 w-3.5" />
+              Detalles
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showDetails ? "rotate-180" : ""}`} />
+            </Button>
+          </div>
+          {showDetails && (
+            <div className="mt-2 rounded-lg border border-border bg-card lg:hidden">
+              {controlPanel}
+            </div>
+          )}
+        </header>
+
+        <div className="flex-1 min-h-0 overflow-y-auto w-full" style={{
+          backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")"
+        }}>
+          <div className="w-full px-4 py-4 sm:px-6 space-y-3">
+            {/* Initial Ticket Description as a Chat Bubble */}
+            <div className={`flex items-end gap-2 ${ticket.authorId === currentUser ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] px-4 py-2 shadow-sm ${
+                  ticket.authorId === currentUser
+                    ? "rounded-[20px] rounded-br-md bg-blue-500 text-white"
+                    : "rounded-[20px] rounded-bl-md bg-secondary text-foreground"
+                } ${!ticket.comments?.length && ticket.authorId === currentUser ? 'rounded-br-[20px]' : ''} ${!ticket.comments?.length && ticket.authorId !== currentUser ? 'rounded-bl-[20px]' : ''}`}>
+
+                {ticket.authorId !== currentUser && (
+                  <p className="text-[11px] font-medium text-primary mb-2 border-b border-primary/20 pb-1">
+                    {ticket.author ? `${ticket.author.firstName} ${ticket.author.lastName}` : 'Usuario'} ha reportado un problema
+                  </p>
+                )}
+
+                <div className="space-y-2 text-[14px]">
+                  <div className="bg-black/10 dark:bg-black/20 p-2 rounded-md">
+                    <p><span className="font-semibold opacity-90">Asunto:</span> {ticket.title}</p>
+                    <p><span className="font-semibold opacity-90">Categoría:</span> {ticket.category || "General"}</p>
+                  </div>
+
+                  <div>
+                    <p className="font-semibold opacity-90 mb-0.5">Descripción:</p>
+                    <p className="leading-relaxed whitespace-pre-wrap">{ticket.description}</p>
+                  </div>
+                </div>
+
+                {ticket.attachmentKey && (
+                  ticket.attachmentName?.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                    <div className="mt-2 relative rounded-lg overflow-hidden border border-white/20">
+                      <RemoteImage
+                        fileKey={ticket.attachmentKey}
+                        alt="Adjunto"
+                        className="max-w-full max-h-[300px] object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setPreviewAttachmentKey(ticket.attachmentKey)
+                        setPreviewAttachmentName(ticket.attachmentName || "Adjunto")
+                      }}
+                      className="inline-flex items-center gap-1 mt-2 text-xs hover:underline px-3 py-2 rounded-xl border transition-colors text-white bg-white/20 border-white/30 hover:bg-white/30"
+                    >
+                      <FileIcon className="h-4 w-4 shrink-0" />
+                      <span className="truncate max-w-[150px]">{ticket.attachmentName || "Adjunto"}</span>
+                    </button>
+                  )
+                )}
+
+                <div className={`mt-1 flex items-center justify-end gap-1 ${ticket.authorId === currentUser ? 'text-blue-100' : 'text-muted-foreground'}`}>
+                  <span className="text-[10px]">
+                    {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Comments */}
+            {ticket.comments?.map((comment: any, index: number) => {
+              const isMe = comment.authorId === currentUser
+              const isLastInGroup = index === ticket.comments.length - 1 || ticket.comments[index + 1]?.authorId !== comment.authorId
+              const isSupportTeam = comment.author?.memberships?.some((m: any) => m.role === "SUPER_ADMIN" || m.role === "SUPPORT_AGENT")
+
+              return (
+                <div key={comment.id} className={`flex items-end gap-2 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] px-4 py-2 shadow-sm ${
+                      isMe
+                        ? "rounded-[20px] rounded-br-md bg-amber-500 text-white"
+                        : (isSupportTeam ? "rounded-[20px] rounded-bl-md bg-amber-100 text-amber-900 border border-amber-200" : "rounded-[20px] rounded-bl-md bg-secondary text-foreground")
+                    } ${isLastInGroup && isMe ? "rounded-br-[20px]" : ""} ${isLastInGroup && !isMe ? "rounded-bl-[20px]" : ""}`
+                  }>
+                    {!isMe && (
+                      <p className={`text-[11px] font-medium mb-1 ${isSupportTeam ? 'text-amber-700' : 'text-primary'}`}>
+                        {isSupportTeam ? 'Equipo de Soporte' : (comment.author ? `${comment.author.firstName} ${comment.author.lastName}` : 'Usuario')}
+                        {comment.isInternal && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] bg-amber-200/50 text-amber-800">NOTA INTERNA</span>}
+                      </p>
+                    )}
+                    {isMe && comment.isInternal && (
+                      <p className="text-[9px] font-medium mb-1 text-amber-100">NOTA INTERNA</p>
+                    )}
+                    <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{comment.content}</p>
+
+                    {comment.attachmentKey && (
+                      comment.attachmentName?.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                        <div className={`mt-2 relative rounded-lg overflow-hidden border ${isMe ? 'border-white/20' : 'border-border'}`}>
+                          <RemoteImage
+                            fileKey={comment.attachmentKey}
+                            alt="Adjunto"
+                            className="max-w-full max-h-[300px] object-contain"
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setPreviewAttachmentKey(comment.attachmentKey)
+                            setPreviewAttachmentName(comment.attachmentName || "Adjunto")
+                          }}
+                          className={`inline-flex items-center gap-1 mt-2 text-xs hover:underline px-3 py-2 rounded-xl border transition-colors ${
+                            isMe
+                              ? 'text-white bg-white/20 border-white/30 hover:bg-white/30'
+                              : 'text-foreground bg-background border-border hover:bg-muted'
+                          }`}
+                        >
+                          <FileIcon className="h-4 w-4 shrink-0" />
+                          <span className="truncate max-w-[150px]">{comment.attachmentName || "Adjunto"}</span>
+                        </button>
+                      )
+                    )}
+
+                    <div className={`mt-1 flex items-center justify-end gap-1 ${isMe ? 'text-amber-100' : (isSupportTeam ? 'text-amber-700/70' : 'text-muted-foreground')}`}>
+                      <span className="text-[10px]">
+                        {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+
+            {typingUsers.size > 0 && (
+              <div className="flex justify-start">
+                <div className="bg-secondary text-muted-foreground rounded-[20px] px-4 py-2 flex items-center gap-1 text-sm shadow-sm">
+                  <span className="animate-bounce">.</span>
+                  <span className="animate-bounce delay-75">.</span>
+                  <span className="animate-bounce delay-150">.</span>
+                </div>
+              </div>
             )}
           </div>
-        ))}
-        
-        {typingUsers.size > 0 && (
-          <div className="text-sm text-muted-foreground italic flex items-center gap-2 px-4 py-2">
-            <span className="flex gap-1">
-              <span className="animate-bounce">.</span>
-              <span className="animate-bounce delay-75">.</span>
-              <span className="animate-bounce delay-150">.</span>
-            </span>
-            El cliente está escribiendo...
+        </div>
+
+        {isTicketActive ? (
+          <div className="p-4 bg-background border-t border-border mt-auto sticky bottom-0 flex items-end gap-2">
+            <input
+              type="file"
+              id="file-upload"
+              className="hidden"
+              onChange={(e) => setAttachment(e.target.files?.[0] || null)}
+            />
+            <label htmlFor="file-upload" className="cursor-pointer">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full text-blue-500 hover:bg-secondary transition-colors">
+                <Paperclip className="h-5 w-5" />
+              </div>
+            </label>
+
+            <div className="relative flex-1 flex flex-col gap-1">
+              {attachment && (
+                <div className="absolute -top-8 left-2 bg-secondary/80 backdrop-blur text-xs px-3 py-1.5 rounded-full flex items-center gap-2 border shadow-sm z-10">
+                  <span className="truncate max-w-[150px]">{attachment.name}</span>
+                  <button onClick={() => setAttachment(null)} className="text-destructive hover:bg-destructive/10 rounded-full p-0.5">
+                    <XCircle className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+              <Textarea
+                placeholder={isInternal ? "Escribe una nota interna oculta para el cliente..." : "Escribe tu respuesta para el cliente..."}
+                value={reply}
+                onChange={e => {
+                  setReply(e.target.value)
+                  if (socket && !isInternal) {
+                    socket.emit("typing:start", { ticketId: id })
+                    clearTimeout((window as any).typingTimeout)
+                    ;(window as any).typingTimeout = setTimeout(() => {
+                      socket.emit("typing:stop", { ticketId: id })
+                    }, 1500)
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleReply();
+                  }
+                }}
+                className={`min-h-[36px] max-h-[120px] resize-none rounded-2xl px-4 py-2 text-[15px] focus-visible:ring-1 ${isInternal ? 'bg-amber-50 dark:bg-amber-900/10 placeholder:text-amber-700/50 text-amber-900' : 'bg-secondary/50'}`}
+                rows={1}
+              />
+            </div>
+
+            <Button
+              size="icon"
+              className={`h-9 w-9 shrink-0 rounded-full transition-colors ${isInternal ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-500 hover:bg-blue-600'}`}
+              onClick={handleReply}
+              disabled={replying || (!reply.trim() && !attachment)}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+
+            <div className="flex items-center gap-1.5 ml-1">
+              <Switch
+                id="internal-mode"
+                checked={isInternal}
+                onCheckedChange={setIsInternal}
+              />
+              <Label htmlFor="internal-mode" className="text-xs font-medium cursor-pointer flex items-center gap-1" title="Activar para dejar un comentario solo visible para soporte">
+                <Lock className="h-3 w-3 text-amber-500" />
+                <span className="hidden sm:inline">Interno</span>
+              </Label>
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 bg-secondary/30 text-center border-t border-border mt-auto">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              <p className="text-sm">Este ticket ha sido cerrado y ya no admite respuestas.</p>
+            </div>
           </div>
         )}
       </div>
 
-      <Card className="mt-8 border-primary/20 shadow-sm sticky bottom-4">
-        <CardContent className="p-4 space-y-4">
-          <div className="flex items-center justify-between border-b pb-3">
-            <Label className="font-semibold">Añadir respuesta</Label>
-            <div className="flex items-center gap-2">
-              <Label htmlFor="internal-note" className="text-sm cursor-pointer">Nota Interna (Oculta al cliente)</Label>
-              <Switch id="internal-note" checked={isInternal} onCheckedChange={setIsInternal} />
-            </div>
-          </div>
-          <Textarea 
-            placeholder={isInternal ? "Escribe una nota para tu equipo técnico..." : "Escribe tu respuesta al colegio..."}
-            className={`min-h-[100px] ${isInternal ? 'bg-amber-50/50 focus-visible:ring-amber-500' : ''}`}
-            value={reply}
-            onChange={e => {
-              setReply(e.target.value)
-              if (socket && !isInternal) {
-                socket.emit("typing:start", { ticketId: id })
-                clearTimeout((window as any).typingTimeout)
-                ;(window as any).typingTimeout = setTimeout(() => {
-                  socket.emit("typing:stop", { ticketId: id })
-                }, 1500)
-              }
-            }}
-          />
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <input
-                type="file"
-                id="file-upload"
-                className="hidden"
-                onChange={(e) => setAttachment(e.target.files?.[0] || null)}
-              />
-              <label htmlFor="file-upload" className="cursor-pointer text-muted-foreground hover:text-foreground">
-                <Paperclip className="h-5 w-5" />
-              </label>
-              {attachment && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  {attachment.name}
-                  <button onClick={() => setAttachment(null)} className="text-destructive hover:underline ml-1">
-                    (quitar)
-                  </button>
-                </span>
-              )}
-            </div>
-            <Button onClick={handleReply} disabled={replying || (!reply.trim() && !attachment)} className={isInternal ? "bg-amber-600 hover:bg-amber-700 text-white" : "gap-2"}>
-              {isInternal ? <Lock className="h-4 w-4 mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-              {replying ? "Enviando..." : (isInternal ? "Guardar Nota Interna" : "Enviar Respuesta")}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Panel de control: distinto del chat, visible siempre en escritorio */}
+      <aside className="hidden w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-card lg:flex">
+        <div className="border-b border-border p-4">
+          <h2 className="text-sm font-semibold text-foreground">Panel de control</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">Misma información para supervisor y agente.</p>
+        </div>
+        {controlPanel}
+      </aside>
+
+      <AttachmentPreviewDialog
+        open={!!previewAttachmentKey}
+        onOpenChange={(open) => !open && setPreviewAttachmentKey(null)}
+        fileKey={previewAttachmentKey}
+        fileName={previewAttachmentName}
+      />
     </div>
-  </div>
   )
 }
