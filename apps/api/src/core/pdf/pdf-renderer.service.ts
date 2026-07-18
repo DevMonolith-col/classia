@@ -14,11 +14,21 @@ export class PdfRendererService implements OnModuleDestroy {
     const browser = await this.getBrowser()
     const page = await browser.newPage()
     try {
-      // El HTML que se renderiza acá lo arman los propios módulos (plantillas
-      // de certificados, tablas de reportes) con datos ya resueltos, nunca JS
-      // de terceros - desactivarlo cierra de raíz cualquier intento de
-      // fetch/XHR saliente desde el proceso del servidor.
+      // Desactivar JS es defensa en profundidad, pero NO impide que Chromium
+      // cargue subrecursos (<img>, <link>, fuentes, <iframe>). Una plantilla
+      // editable por un admin de colegio (no confiable a nivel infra) podría
+      // apuntar a una URL interna (metadata del cloud, servicios internos) y
+      // exfiltrarla dentro del PDF. Por eso interceptamos toda petición y solo
+      // permitimos recursos embebidos (data:), abortando cualquier otra.
       await page.setJavaScriptEnabled(false)
+      await page.setRequestInterception(true)
+      page.on("request", (req) => {
+        if (req.url().startsWith("data:")) {
+          void req.continue()
+        } else {
+          void req.abort()
+        }
+      })
       // Timeout explícito: una plantilla con CSS roto o una imagen externa
       // que nunca resuelve no debe poder colgar el worker para siempre.
       await page.setContent(html, { waitUntil: "load", timeout: 15_000 })
