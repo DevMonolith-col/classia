@@ -98,6 +98,50 @@ async function main() {
     },
   });
 
+  // ── Equipo de soporte B2B ────────────────────────────────────────────────
+  // Supervisor: asigna tickets y otorga acceso a un colegio, sin el resto
+  // del poder de plataforma que tiene SUPER_ADMIN. Agentes: trabajan los
+  // tickets que el supervisor les asigna.
+  const supportSupervisor = await prisma.user.upsert({
+    where: { email: "supervisor.soporte@classia.com.co" },
+    update: { firstName: "Camila", lastName: "Rodríguez", status: UserStatus.ACTIVE, passwordHash },
+    create: {
+      email: "supervisor.soporte@classia.com.co",
+      passwordHash,
+      firstName: "Camila",
+      lastName: "Rodríguez",
+      status: UserStatus.ACTIVE,
+    },
+  });
+  await prisma.tenantMembership.upsert({
+    where: { tenantId_userId: { tenantId: tenant.id, userId: supportSupervisor.id } },
+    update: { role: UserRole.SUPPORT_SUPERVISOR },
+    create: { tenantId: tenant.id, userId: supportSupervisor.id, role: UserRole.SUPPORT_SUPERVISOR },
+  });
+
+  const supportAgents = [
+    { email: "agente1.soporte@classia.com.co", firstName: "Daniel", lastName: "Torres" },
+    { email: "agente2.soporte@classia.com.co", firstName: "Valentina", lastName: "Ramírez" },
+  ];
+  for (const agent of supportAgents) {
+    const agentUser = await prisma.user.upsert({
+      where: { email: agent.email },
+      update: { firstName: agent.firstName, lastName: agent.lastName, status: UserStatus.ACTIVE, passwordHash },
+      create: {
+        email: agent.email,
+        passwordHash,
+        firstName: agent.firstName,
+        lastName: agent.lastName,
+        status: UserStatus.ACTIVE,
+      },
+    });
+    await prisma.tenantMembership.upsert({
+      where: { tenantId_userId: { tenantId: tenant.id, userId: agentUser.id } },
+      update: { role: UserRole.SUPPORT_AGENT },
+      create: { tenantId: tenant.id, userId: agentUser.id, role: UserRole.SUPPORT_AGENT },
+    });
+  }
+
   // Usuario profesor demo
   const teacherUser = await prisma.user.upsert({
     where: { email: "lopez@demo.classia.co" },
@@ -557,6 +601,7 @@ async function main() {
 
   console.log("Demo seed completed.");
   console.log(`Demo password for development only: ${demoPassword}`);
+  console.log("Support team: supervisor.soporte@classia.com.co, agente1.soporte@classia.com.co, agente2.soporte@classia.com.co");
 }
 
 main()
