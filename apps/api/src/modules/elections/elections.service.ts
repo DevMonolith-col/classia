@@ -409,11 +409,14 @@ export class ElectionsService {
 
   private async resolveVotingStudent(actor: RequestUser) {
     const student = await this.prisma.student.findFirst({
-      where: { userId: actor.id, tenantId: actor.tenantId },
+      // isActive: true → un estudiante retirado/graduado con login activo no puede
+      // votar (y así votedCount nunca supera el total de elegibles, que sí filtra
+      // por isActive en getParticipation).
+      where: { userId: actor.id, tenantId: actor.tenantId, isActive: true },
       select: { id: true },
     })
     if (!student) {
-      throw new ForbiddenException("Esta cuenta no tiene un perfil de estudiante")
+      throw new ForbiddenException("Esta cuenta no tiene un perfil de estudiante activo")
     }
     return student
   }
