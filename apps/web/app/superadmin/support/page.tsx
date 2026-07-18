@@ -68,7 +68,6 @@ export default function SuperAdminSupportPage() {
   const [error, setError] = useState("")
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "ALL">("ALL")
-  const [priorityFilter, setPriorityFilter] = useState<TicketPriority | "ALL">("ALL")
   const [page, setPage] = useState(1)
 
   useEffect(() => {
@@ -92,7 +91,6 @@ export default function SuperAdminSupportPage() {
 
   const filteredTickets = tickets.filter(t => {
     if (statusFilter !== "ALL" && t.status !== statusFilter) return false
-    if (priorityFilter !== "ALL" && t.priority !== priorityFilter) return false
     if (search && !t.title.toLowerCase().includes(search.toLowerCase()) && !t.tenant?.name.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
@@ -103,7 +101,7 @@ export default function SuperAdminSupportPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [statusFilter, priorityFilter, search])
+  }, [statusFilter, search])
 
   // Calculate metrics
   const openCount = tickets.filter(t => t.status === "OPEN").length
@@ -130,7 +128,7 @@ export default function SuperAdminSupportPage() {
                 <CardTitle>Bandeja de Entrada Global</CardTitle>
                 <CardDescription>Gestiona las peticiones de todos los colegios de la plataforma.</CardDescription>
               </div>
-              <div className="relative w-full sm:w-64">
+              <div className="relative w-full sm:w-72">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Buscar ticket o colegio..."
@@ -139,17 +137,6 @@ export default function SuperAdminSupportPage() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <select
-                className="flex h-10 w-full sm:w-[150px] items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value as any)}
-              >
-                <option value="ALL">Prioridad: Todas</option>
-                <option value="CRITICAL">Crítica</option>
-                <option value="HIGH">Alta</option>
-                <option value="MEDIUM">Media</option>
-                <option value="LOW">Baja</option>
-              </select>
             </div>
             <div className="flex flex-wrap gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => setStatusFilter("ALL")} className={statusFilter === "ALL" ? "bg-secondary" : ""}>
