@@ -4,7 +4,9 @@ import { Request } from "express"
 import { RequestUser } from "../../common/types/request-context"
 import { AuditService } from "../../core/audit/audit.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
-import { AddCandidateInput, CreateElectionInput } from "./elections.schemas"
+import { AddCandidateInput, CreateElectionInput, UpdateElectionInput } from "./elections.schemas"
+
+const ELECTION_LIST_PAGE_SIZE = 200
 
 // Transiciones válidas: solo hacia adelante, sin saltos ni retrocesos. Una
 // vez ACTIVE, la elección no puede volver a DRAFT (evita reabrir el tarjetón
@@ -64,6 +66,7 @@ export class ElectionsService {
     return this.prisma.election.findMany({
       where: { tenantId: actor.tenantId },
       orderBy: { createdAt: "desc" },
+      take: ELECTION_LIST_PAGE_SIZE,
       include: { _count: { select: { candidates: true, voters: true } } },
     })
   }
@@ -72,9 +75,10 @@ export class ElectionsService {
   // gestión (que exige ELECTIONS_MONITOR, permiso que un estudiante no tiene).
   async listVotableElections(actor: RequestUser) {
     const student = await this.resolveVotingStudent(actor)
+    const now = new Date()
 
     const elections = await this.prisma.election.findMany({
-      where: { tenantId: actor.tenantId, status: ElectionStatus.ACTIVE },
+      where: { tenantId: actor.tenantId, status: ElectionStatus.ACTIVE, startDate: { lte: now }, endDate: { gte: now } },
       orderBy: { endDate: "asc" },
       select: { id: true, title: true, description: true, endDate: true },
     })
@@ -93,7 +97,39 @@ export class ElectionsService {
     return this.findElectionOrThrow(electionId, actor.tenantId)
   }
 
-  async addCandidate(electionId: string, actor: RequestUser, data: AddCandidateInput) {
+  async updateElection(electionId: string, actor: RequestUser, data: UpdateElectionInput, request: Request) {
+    const election = await this.findElectionOrThrow(electionId, actor.tenantId)
+    if (election.status !== ElectionStatus.DRAFT) {
+      throw new BadRequestException("Solo se puede editar mientras la elección está en borrador")
+    }
+
+    const updated = await this.prisma.election.update({
+      where: { id: electionId },
+      data: {
+        title: data.title,
+        description: data.description,
+        startDate: data.startDate,
+        endDate: data.endDate,
+      },
+    })
+
+    await this.audit.record({
+      tenantId: actor.tenantId,
+      userId: actor.id,
+      actorRole: actor.role,
+      action: "election.updated",
+      entityType: "Election",
+      entityId: electionId,
+      oldValues: { title: election.title, startDate: election.startDate, endDate: election.endDate },
+      newValues: { title: updated.title, startDate: updated.startDate, endDate: updated.endDate },
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    })
+
+    return updated
+  }
+
+  async addCandidate(electionId: string, actor: RequestUser, data: AddCandidateInput, request: Request) {
     const election = await this.findElectionOrThrow(electionId, actor.tenantId)
     if (election.status !== ElectionStatus.DRAFT) {
       throw new BadRequestException("Solo se pueden agregar candidatos mientras la elección está en borrador")
@@ -109,8 +145,9 @@ export class ElectionsService {
       }
     }
 
+    let candidate
     try {
-      return await this.prisma.electionCandidate.create({
+      candidate = await this.prisma.electionCandidate.create({
         data: {
           electionId,
           studentId: data.studentId,
@@ -125,6 +162,51 @@ export class ElectionsService {
       }
       throw e
     }
+
+    await this.audit.record({
+      tenantId: actor.tenantId,
+      userId: actor.id,
+      actorRole: actor.role,
+      action: "election.candidate_added",
+      entityType: "Election",
+      entityId: electionId,
+      newValues: { candidateNumber: candidate.candidateNumber, studentId: candidate.studentId },
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    })
+
+    return candidate
+  }
+
+  async deleteCandidate(electionId: string, candidateId: string, actor: RequestUser, request: Request) {
+    const election = await this.findElectionOrThrow(electionId, actor.tenantId)
+    if (election.status !== ElectionStatus.DRAFT) {
+      throw new BadRequestException("Solo se pueden quitar candidatos mientras la elección está en borrador")
+    }
+
+    const candidate = election.candidates.find((c) => c.id === candidateId)
+    if (!candidate) {
+      throw new NotFoundException("Candidato no encontrado")
+    }
+    if (candidate.studentId === null) {
+      throw new BadRequestException("La opción de voto en blanco no se puede eliminar; desactivá el voto en blanco al crear la elección si no la querés")
+    }
+
+    await this.prisma.electionCandidate.delete({ where: { id: candidateId } })
+
+    await this.audit.record({
+      tenantId: actor.tenantId,
+      userId: actor.id,
+      actorRole: actor.role,
+      action: "election.candidate_removed",
+      entityType: "Election",
+      entityId: electionId,
+      oldValues: { candidateNumber: candidate.candidateNumber, studentId: candidate.studentId },
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    })
+
+    return { status: "ok" as const }
   }
 
   async updateStatus(electionId: string, actor: RequestUser, nextStatus: ElectionStatus, request: Request) {
@@ -164,8 +246,8 @@ export class ElectionsService {
     const student = await this.resolveVotingStudent(actor)
     const election = await this.findElectionOrThrow(electionId, actor.tenantId)
 
-    if (election.status !== ElectionStatus.ACTIVE) {
-      throw new ForbiddenException("Esta elección no está activa")
+    if (!this.isVotingOpen(election)) {
+      throw new ForbiddenException("Esta elección no está activa en este momento")
     }
 
     const alreadyVoted = await this.prisma.electionVoter.findUnique({
@@ -188,8 +270,8 @@ export class ElectionsService {
     const student = await this.resolveVotingStudent(actor)
     const election = await this.findElectionOrThrow(electionId, actor.tenantId)
 
-    if (election.status !== ElectionStatus.ACTIVE) {
-      throw new ForbiddenException("Esta elección no está activa")
+    if (!this.isVotingOpen(election)) {
+      throw new ForbiddenException("Esta elección no está activa en este momento")
     }
     let resolvedCandidateId = candidateId
     if (candidateId === null) {
@@ -305,6 +387,14 @@ export class ElectionsService {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+  // ACTIVE por sí solo no basta: si el Rector se olvida de cerrarla, seguiría
+  // aceptando votos indefinidamente después de endDate. La ventana de fechas
+  // manda tanto como el estado.
+  private isVotingOpen(election: { status: ElectionStatus; startDate: Date; endDate: Date }): boolean {
+    const now = new Date()
+    return election.status === ElectionStatus.ACTIVE && now >= election.startDate && now <= election.endDate
+  }
 
   private async findElectionOrThrow(electionId: string, tenantId: string) {
     const election = await this.prisma.election.findUnique({

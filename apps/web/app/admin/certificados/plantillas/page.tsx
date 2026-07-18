@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Save } from "lucide-react"
+import { ArrowLeft, Save, Eye } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 type DocType = "STUDY_CERTIFICATE" | "REPORT_CARD"
 
@@ -24,6 +25,8 @@ export default function PlantillasCertificadosPage() {
   const [contentHtml, setContentHtml] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [previewing, setPreviewing] = useState(false)
 
   const load = useCallback(async (docType: DocType) => {
     setLoading(true)
@@ -52,6 +55,23 @@ export default function PlantillasCertificadosPage() {
       alert(err instanceof Error ? err.message : "Error desconocido")
     } finally {
       setSaving(false)
+    }
+  }
+
+  const preview = async () => {
+    setPreviewing(true)
+    try {
+      const res = await apiFetch(`/documents/templates/${type}/preview`, {
+        method: "POST",
+        body: JSON.stringify({ contentHtml }),
+      })
+      if (!res.ok) throw new Error("No se pudo generar la vista previa")
+      const body = await res.json()
+      setPreviewHtml(body.html)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error desconocido")
+    } finally {
+      setPreviewing(false)
     }
   }
 
@@ -105,13 +125,29 @@ export default function PlantillasCertificadosPage() {
                   className="font-mono text-xs"
                 />
               </div>
-              <Button onClick={save} disabled={saving} className="gap-2">
-                <Save className="h-4 w-4" /> {saving ? "Guardando..." : "Guardar plantilla"}
-              </Button>
+              <div className="flex gap-2">
+                <Button onClick={save} disabled={saving} className="gap-2">
+                  <Save className="h-4 w-4" /> {saving ? "Guardando..." : "Guardar plantilla"}
+                </Button>
+                <Button onClick={preview} disabled={previewing} variant="outline" className="gap-2">
+                  <Eye className="h-4 w-4" /> {previewing ? "Generando..." : "Vista previa"}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </>
       )}
+
+      <Dialog open={Boolean(previewHtml)} onOpenChange={(open) => !open && setPreviewHtml(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Vista previa</DialogTitle>
+          </DialogHeader>
+          <div className="h-[70vh] overflow-hidden rounded-lg border border-border">
+            {previewHtml && <iframe srcDoc={previewHtml} sandbox="" className="h-full w-full" title="Vista previa de la plantilla" />}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

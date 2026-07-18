@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Vote, Plus, Users, Lock, Megaphone, Trophy } from "lucide-react"
+import { ArrowLeft, Vote, Plus, Users, Lock, Megaphone, Trophy, Pencil, Trash2 } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { getCurrentUser } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
@@ -11,8 +11,27 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { StudentCombobox, type StudentOption } from "@/components/admin/student-combobox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type Candidate = {
   id: string
@@ -64,6 +83,19 @@ export default function EleccionDetallePage() {
   const [newCandidateSlogan, setNewCandidateSlogan] = useState("")
   const [addingCandidate, setAddingCandidate] = useState(false)
   const [changingStatus, setChangingStatus] = useState(false)
+
+  const [editOpen, setEditOpen] = useState(false)
+  const [editForm, setEditForm] = useState({ title: "", description: "", startDate: "", endDate: "" })
+  const [saving, setSaving] = useState(false)
+  const [candidateToDelete, setCandidateToDelete] = useState<Candidate | null>(null)
+  const [deletingCandidate, setDeletingCandidate] = useState(false)
+
+  // "2026-07-18T10:00:00.000Z" -> "2026-07-18T10:00" (lo que espera <input type="datetime-local">)
+  const toLocalInput = (iso: string) => {
+    const d = new Date(iso)
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -121,6 +153,61 @@ export default function EleccionDetallePage() {
     }
   }
 
+  const openEdit = () => {
+    if (!election) return
+    setEditForm({
+      title: election.title,
+      description: election.description ?? "",
+      startDate: toLocalInput(election.startDate),
+      endDate: toLocalInput(election.endDate),
+    })
+    setEditOpen(true)
+  }
+
+  const saveEdit = async () => {
+    if (!editForm.title.trim() || !editForm.startDate || !editForm.endDate) return
+    setSaving(true)
+    try {
+      const res = await apiFetch(`/elections/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          title: editForm.title.trim(),
+          description: editForm.description.trim() || undefined,
+          startDate: new Date(editForm.startDate).toISOString(),
+          endDate: new Date(editForm.endDate).toISOString(),
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.message || "No se pudo guardar la elección")
+      }
+      setEditOpen(false)
+      load()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error desconocido")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const confirmDeleteCandidate = async () => {
+    if (!candidateToDelete) return
+    setDeletingCandidate(true)
+    try {
+      const res = await apiFetch(`/elections/${id}/candidates/${candidateToDelete.id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.message || "No se pudo eliminar el candidato")
+      }
+      setCandidateToDelete(null)
+      load()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error desconocido")
+    } finally {
+      setDeletingCandidate(false)
+    }
+  }
+
   const changeStatus = async (status: string) => {
     setChangingStatus(true)
     try {
@@ -149,14 +236,51 @@ export default function EleccionDetallePage() {
         <Button variant="ghost" size="icon" asChild>
           <Link href="/admin/elecciones"><ArrowLeft className="h-5 w-5" /></Link>
         </Button>
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold">{election.title}</h1>
+            <h1 className="text-xl font-bold truncate">{election.title}</h1>
             <Badge variant="outline" className={status.className}>{status.label}</Badge>
           </div>
           {election.description && <p className="text-sm text-muted-foreground">{election.description}</p>}
         </div>
+        {canManage && election.status === "DRAFT" && (
+          <Button variant="outline" size="sm" onClick={openEdit} className="gap-2 shrink-0">
+            <Pencil className="h-4 w-4" /> Editar
+          </Button>
+        )}
       </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar elección</DialogTitle>
+            <DialogDescription>Solo se puede editar mientras esté en borrador.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Título</Label>
+              <Input value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Descripción (opcional)</Label>
+              <Textarea value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Inicio</Label>
+                <Input type="datetime-local" value={editForm.startDate} onChange={(e) => setEditForm((f) => ({ ...f, startDate: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Cierre</Label>
+                <Input type="datetime-local" value={editForm.endDate} onChange={(e) => setEditForm((f) => ({ ...f, endDate: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={saveEdit} disabled={saving}>{saving ? "Guardando..." : "Guardar cambios"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {canManage && (
         <Card>
@@ -223,10 +347,15 @@ export default function EleccionDetallePage() {
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
                     {c.candidateNumber}
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{c.student ? `${c.student.firstName} ${c.student.lastName}` : "—"}</p>
                     {c.slogan && <p className="truncate text-xs text-muted-foreground">{c.slogan}</p>}
                   </div>
+                  {canManage && election.status === "DRAFT" && (
+                    <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setCandidateToDelete(c)} title="Eliminar candidato">
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
@@ -285,6 +414,22 @@ export default function EleccionDetallePage() {
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={Boolean(candidateToDelete)} onOpenChange={(open) => !open && setCandidateToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar este candidato?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {candidateToDelete?.student ? `${candidateToDelete.student.firstName} ${candidateToDelete.student.lastName}` : "Este candidato"} se
+              quitará del tarjetón. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteCandidate} disabled={deletingCandidate}>Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

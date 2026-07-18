@@ -8,7 +8,14 @@ import { PERMISSIONS } from "../../common/permissions/permissions"
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe"
 import { RequestUser } from "../../common/types/request-context"
 import { DocumentsService } from "./documents.service"
-import { IssueDocumentInput, UpdateTemplateInput, issueDocumentSchema, updateTemplateSchema } from "./documents.schemas"
+import {
+  IssueDocumentInput,
+  PreviewTemplateInput,
+  UpdateTemplateInput,
+  issueDocumentSchema,
+  previewTemplateSchema,
+  updateTemplateSchema,
+} from "./documents.schemas"
 
 // Sin @UseGuards a nivel de clase: /verify/:code es pública a propósito
 // (terceros externos verifican un PDF impreso sin login), el resto exige
@@ -49,6 +56,16 @@ export class DocumentsController {
     return this.documents.updateTemplate(user, type, data)
   }
 
+  @Post("templates/:type/preview")
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
+  previewTemplate(
+    @Param("type") type: DocumentType,
+    @Body(new ZodValidationPipe(previewTemplateSchema)) data: PreviewTemplateInput,
+  ) {
+    return this.documents.previewTemplate(type, data.contentHtml)
+  }
+
   // Pública: un tercero (universidad, entidad) verifica un PDF impreso sin
   // sesión. No exponer nada que no vaya ya impreso en el propio documento.
   @Get("verify/:code")
@@ -75,5 +92,12 @@ export class DocumentsController {
   @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
   revoke(@Param("id") id: string, @CurrentUser() user: RequestUser) {
     return this.documents.revoke(id, user)
+  }
+
+  @Post(":id/retry")
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
+  retry(@Param("id") id: string, @CurrentUser() user: RequestUser) {
+    return this.documents.retry(id, user)
   }
 }

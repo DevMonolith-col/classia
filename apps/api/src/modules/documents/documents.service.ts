@@ -6,10 +6,18 @@ import { DocumentType } from "@prisma/client"
 import { RequestUser } from "../../common/types/request-context"
 import { PrismaService } from "../../core/prisma/prisma.service"
 import { StorageService } from "../../core/storage/storage.service"
-import { DEFAULT_TEMPLATE_HTML, DEFAULT_TEMPLATE_NAMES } from "./documents.templates"
+import QRCode from "qrcode"
+import { DEFAULT_TEMPLATE_HTML, DEFAULT_TEMPLATE_NAMES, buildSampleVars, renderTemplate } from "./documents.templates"
 import { IssueDocumentInput, UpdateTemplateInput } from "./documents.schemas"
 
 export const DOCUMENTS_QUEUE = "documents"
+
+// Puppeteer puede fallar por razones transitorias (el navegador compartido
+// se reinicia, un pico de memoria momentáneo) que un reintento automático
+// resuelve solo, sin que la secretaría tenga que darse cuenta y reintentar
+// a mano. Backoff exponencial para no reintentar 3 veces en el mismo segundo
+// si el problema es de fondo (ej. Chromium realmente caído).
+const GENERATE_JOB_OPTIONS = { attempts: 3, backoff: { type: "exponential" as const, delay: 5_000 } }
 
 function generateVerificationCode(): string {
   // Base32-ish, sin caracteres ambiguos (0/O, 1/I) - va impreso en el PDF.
@@ -64,7 +72,7 @@ export class DocumentsService {
       },
     })
 
-    await this.queue.add("generate", { issuanceId: issuance.id })
+    await this.queue.add("generate", { issuanceId: issuance.id }, GENERATE_JOB_OPTIONS)
 
     return issuance
   }
@@ -101,6 +109,19 @@ export class DocumentsService {
         downloadUrl: i.status === "READY" && i.pdfKey ? await this.storage.getSignedDownloadUrl(i.pdfKey) : null,
       })),
     )
+  }
+
+  async retry(issuanceId: string, actor: RequestUser) {
+    const issuance = await this.findIssuanceOrThrow(issuanceId, actor)
+    if (issuance.status !== "FAILED") {
+      throw new BadRequestException("Solo se pueden reintentar documentos que fallaron")
+    }
+    const updated = await this.prisma.documentIssuance.update({
+      where: { id: issuanceId },
+      data: { status: "PENDING", errorMessage: null },
+    })
+    await this.queue.add("generate", { issuanceId: updated.id }, GENERATE_JOB_OPTIONS)
+    return updated
   }
 
   async revoke(issuanceId: string, actor: RequestUser) {
@@ -143,6 +164,14 @@ export class DocumentsService {
       where: { tenantId_type: { tenantId: actor.tenantId, type } },
       data: { name: data.name, contentHtml: data.contentHtml },
     })
+  }
+
+  // Vista previa del editor: renderiza el HTML tal cual está en el textarea
+  // (aún no guardado) con datos ficticios, sin tocar la BD ni pasar por
+  // Puppeteer - el editor necesita feedback instantáneo, no un PDF real.
+  async previewTemplate(type: DocumentType, contentHtml: string) {
+    const qrDataUrl = await QRCode.toDataURL("https://classia.co/verify/AB12CD34", { margin: 1, width: 180 })
+    return { html: renderTemplate(contentHtml, buildSampleVars(type, qrDataUrl)) }
   }
 
   async getOrCreateTemplate(tenantId: string, type: DocumentType) {

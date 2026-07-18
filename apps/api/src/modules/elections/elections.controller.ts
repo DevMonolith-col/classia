@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from "@nestjs/common"
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Req, UseGuards } from "@nestjs/common"
 import { Request } from "express"
 import { CurrentUser } from "../../common/decorators/current-user.decorator"
 import { Permissions } from "../../common/decorators/permissions.decorator"
@@ -12,10 +12,12 @@ import {
   AddCandidateInput,
   CastVoteInput,
   CreateElectionInput,
+  UpdateElectionInput,
   UpdateElectionStatusInput,
   addCandidateSchema,
   castVoteSchema,
   createElectionSchema,
+  updateElectionSchema,
   updateElectionStatusSchema,
 } from "./elections.schemas"
 
@@ -53,14 +55,37 @@ export class ElectionsController {
     return this.elections.getElection(id, user)
   }
 
+  @Put(":id")
+  @Permissions(PERMISSIONS.ELECTIONS_MANAGE)
+  update(
+    @Param("id") id: string,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+    @Body(new ZodValidationPipe(updateElectionSchema)) data: UpdateElectionInput,
+  ) {
+    return this.elections.updateElection(id, user, data, request)
+  }
+
   @Post(":id/candidates")
   @Permissions(PERMISSIONS.ELECTIONS_MANAGE)
   addCandidate(
     @Param("id") id: string,
     @CurrentUser() user: RequestUser,
+    @Req() request: Request,
     @Body(new ZodValidationPipe(addCandidateSchema)) data: AddCandidateInput,
   ) {
-    return this.elections.addCandidate(id, user, data)
+    return this.elections.addCandidate(id, user, data, request)
+  }
+
+  @Delete(":id/candidates/:candidateId")
+  @Permissions(PERMISSIONS.ELECTIONS_MANAGE)
+  removeCandidate(
+    @Param("id") id: string,
+    @Param("candidateId") candidateId: string,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+  ) {
+    return this.elections.deleteCandidate(id, candidateId, user, request)
   }
 
   @Patch(":id/status")
