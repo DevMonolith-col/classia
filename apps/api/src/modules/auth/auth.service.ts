@@ -263,6 +263,7 @@ export class AuthService {
       tenantSlug: targetTenant.slug,
       membershipId: membership.id,
       role: membership.role,
+      isImpersonated: true,
       request,
     });
 
@@ -321,6 +322,7 @@ export class AuthService {
       tenantSlug: input.tenantSlug,
       membershipId: input.membershipId,
       role: input.role,
+      isImpersonated: input.isImpersonated,
     });
 
     return {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Send, Lock, Clock, CheckCircle2, XCircle, AlertTriangle, User } from "lucide-react"
+import { ArrowLeft, Send, Lock, Clock, CheckCircle2, XCircle, AlertTriangle, User, Paperclip, FileIcon } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -13,6 +13,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api-client"
 import Link from "next/link"
 import { LogIn } from "lucide-react"
+import { io, Socket } from "socket.io-client"
+import { API_URL } from "@/lib/env"
+import { getAccessToken } from "@/lib/auth"
 
 const statusConfig: Record<string, { label: string, color: string, icon: any }> = {
   OPEN: { label: "Abierto", color: "bg-blue-100 text-blue-800", icon: AlertTriangle },
@@ -32,6 +35,7 @@ export default function SuperAdminTicketDetail() {
   const [reply, setReply] = useState("")
   const [isInternal, setIsInternal] = useState(false)
   const [replying, setReplying] = useState(false)
+  const [attachment, setAttachment] = useState<File | null>(null)
   const [agents, setAgents] = useState<any[]>([])
   const [assigning, setAssigning] = useState(false)
   const [impersonating, setImpersonating] = useState(false)
@@ -56,6 +60,34 @@ export default function SuperAdminTicketDetail() {
 
   useEffect(() => {
     fetchTicketAndAgents()
+
+    const token = getAccessToken()
+    if (!token) return
+
+    const socket: Socket = io(`${API_URL}/support`, {
+      auth: { token },
+      transports: ["websocket"],
+    })
+
+    socket.on("connect", () => {
+      socket.emit("ticket:join", { ticketId: id })
+    })
+
+    socket.on("ticket:comment", (payload) => {
+      if (payload.ticketId === id) {
+        setTicket((prev: any) => {
+          if (!prev) return prev
+          // Prevent duplicates
+          if (prev.comments?.some((c: any) => c.id === payload.comment.id)) return prev
+          return { ...prev, comments: [...(prev.comments || []), payload.comment] }
+        })
+      }
+    })
+
+    return () => {
+      socket.emit("ticket:leave", { ticketId: id })
+      socket.disconnect()
+    }
   }, [id])
 
   const handleAssign = async (assigneeId: string) => {
@@ -105,18 +137,43 @@ export default function SuperAdminTicketDetail() {
   }
 
   const handleReply = async () => {
-    if (!reply.trim()) return
+    if (!reply.trim() && !attachment) return
     setReplying(true)
     try {
+      let attachmentKey: string | undefined
+      let attachmentName: string | undefined
+      
+      if (attachment) {
+        const formData = new FormData()
+        formData.append("file", attachment)
+        const uploadRes = await apiFetch("/files", {
+          method: "POST",
+          body: formData,
+        })
+        if (!uploadRes.ok) throw new Error("Error subiendo archivo")
+        const uploadData = await uploadRes.json()
+        attachmentKey = uploadData.key
+        attachmentName = attachment.name
+      }
+
       const res = await apiFetch(`/support/tickets/${id}/comments`, {
         method: "POST",
-        body: JSON.stringify({ content: reply, isInternal })
+        body: JSON.stringify({ 
+          content: reply || (attachment ? "Archivo adjunto" : ""), 
+          isInternal,
+          attachmentKey,
+          attachmentName
+        })
       })
+      
       if (res.ok) {
         setReply("")
         setIsInternal(false)
+        setAttachment(null)
         fetchTicketAndAgents()
       }
+    } catch (e: any) {
+      alert(e.message || "Error al responder")
     } finally {
       setReplying(false)
     }
@@ -214,6 +271,16 @@ export default function SuperAdminTicketDetail() {
               <span className="text-xs text-muted-foreground">{new Date(comment.createdAt).toLocaleString()}</span>
             </div>
             <p className="text-sm whitespace-pre-wrap">{comment.content}</p>
+            {comment.attachmentKey && (
+              <a 
+                href={`/api/files/url?key=${comment.attachmentKey}`} 
+                target="_blank" 
+                className="inline-flex items-center gap-1 mt-2 text-xs text-primary hover:underline bg-primary/5 px-2 py-1 rounded border border-primary/20"
+              >
+                <FileIcon className="h-3 w-3" />
+                {comment.attachmentName || "Adjunto"}
+              </a>
+            )}
           </div>
         ))}
       </div>
@@ -233,8 +300,27 @@ export default function SuperAdminTicketDetail() {
             value={reply}
             onChange={e => setReply(e.target.value)}
           />
-          <div className="flex justify-end">
-            <Button onClick={handleReply} disabled={replying || !reply.trim()} className={isInternal ? "bg-amber-600 hover:bg-amber-700 text-white" : "gap-2"}>
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                id="file-upload"
+                className="hidden"
+                onChange={(e) => setAttachment(e.target.files?.[0] || null)}
+              />
+              <label htmlFor="file-upload" className="cursor-pointer text-muted-foreground hover:text-foreground">
+                <Paperclip className="h-5 w-5" />
+              </label>
+              {attachment && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  {attachment.name}
+                  <button onClick={() => setAttachment(null)} className="text-destructive hover:underline ml-1">
+                    (quitar)
+                  </button>
+                </span>
+              )}
+            </div>
+            <Button onClick={handleReply} disabled={replying || (!reply.trim() && !attachment)} className={isInternal ? "bg-amber-600 hover:bg-amber-700 text-white" : "gap-2"}>
               {isInternal ? <Lock className="h-4 w-4 mr-2" /> : <Send className="h-4 w-4 mr-2" />}
               {replying ? "Enviando..." : (isInternal ? "Guardar Nota Interna" : "Enviar Respuesta")}
             </Button>

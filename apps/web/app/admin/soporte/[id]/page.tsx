@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Send, Clock, CheckCircle2, XCircle, AlertTriangle, User, LifeBuoy } from "lucide-react"
+import { ArrowLeft, Send, Clock, CheckCircle2, XCircle, AlertTriangle, User, LifeBuoy, Paperclip, FileIcon } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -10,6 +10,9 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api-client"
 import Link from "next/link"
+import { io, Socket } from "socket.io-client"
+import { API_URL } from "@/lib/env"
+import { getAccessToken } from "@/lib/auth"
 
 const statusConfig: Record<string, { label: string, color: string, icon: any }> = {
   OPEN: { label: "Abierto", color: "bg-blue-100 text-blue-800", icon: AlertTriangle },
@@ -28,6 +31,7 @@ export default function AdminTicketDetail() {
   
   const [reply, setReply] = useState("")
   const [replying, setReplying] = useState(false)
+  const [attachment, setAttachment] = useState<File | null>(null)
 
   const fetchTicket = async () => {
     try {
@@ -43,20 +47,71 @@ export default function AdminTicketDetail() {
 
   useEffect(() => {
     fetchTicket()
+
+    const token = getAccessToken()
+    if (!token) return
+
+    const socket: Socket = io(`${API_URL}/support`, {
+      auth: { token },
+      transports: ["websocket"],
+    })
+
+    socket.on("connect", () => {
+      socket.emit("ticket:join", { ticketId: id })
+    })
+
+    socket.on("ticket:comment", (payload) => {
+      if (payload.ticketId === id) {
+        setTicket((prev: any) => {
+          if (!prev) return prev
+          if (prev.comments?.some((c: any) => c.id === payload.comment.id)) return prev
+          return { ...prev, comments: [...(prev.comments || []), payload.comment] }
+        })
+      }
+    })
+
+    return () => {
+      socket.emit("ticket:leave", { ticketId: id })
+      socket.disconnect()
+    }
   }, [id])
 
   const handleReply = async () => {
-    if (!reply.trim()) return
+    if (!reply.trim() && !attachment) return
     setReplying(true)
     try {
+      let attachmentKey: string | undefined
+      let attachmentName: string | undefined
+      
+      if (attachment) {
+        const formData = new FormData()
+        formData.append("file", attachment)
+        const uploadRes = await apiFetch("/files", {
+          method: "POST",
+          body: formData,
+        })
+        if (!uploadRes.ok) throw new Error("Error subiendo archivo")
+        const uploadData = await uploadRes.json()
+        attachmentKey = uploadData.key
+        attachmentName = attachment.name
+      }
+
       const res = await apiFetch(`/support/tickets/${id}/comments`, {
         method: "POST",
-        body: JSON.stringify({ content: reply, isInternal: false })
+        body: JSON.stringify({ 
+          content: reply || (attachment ? "Archivo adjunto" : ""), 
+          isInternal: false,
+          attachmentKey,
+          attachmentName
+        })
       })
       if (res.ok) {
         setReply("")
+        setAttachment(null)
         fetchTicket()
       }
+    } catch (e: any) {
+      alert(e.message || "Error al responder")
     } finally {
       setReplying(false)
     }
@@ -115,6 +170,16 @@ export default function AdminTicketDetail() {
                   <span className="text-xs text-muted-foreground">{new Date(comment.createdAt).toLocaleString()}</span>
                 </div>
                 <p className="text-sm whitespace-pre-wrap">{comment.content}</p>
+                {comment.attachmentKey && (
+                  <a 
+                    href={`/api/files/url?key=${comment.attachmentKey}`} 
+                    target="_blank" 
+                    className={`inline-flex items-center gap-1 mt-2 text-xs hover:underline px-2 py-1 rounded border ${isMe ? 'text-primary bg-primary/10 border-primary/20' : 'text-blue-600 bg-blue-50 border-blue-200'}`}
+                  >
+                    <FileIcon className="h-3 w-3" />
+                    {comment.attachmentName || "Adjunto"}
+                  </a>
+                )}
               </div>
             )
           })}
@@ -134,8 +199,27 @@ export default function AdminTicketDetail() {
               value={reply}
               onChange={e => setReply(e.target.value)}
             />
-            <div className="flex justify-end">
-              <Button onClick={handleReply} disabled={replying || !reply.trim()} className="gap-2">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  id="file-upload"
+                  className="hidden"
+                  onChange={(e) => setAttachment(e.target.files?.[0] || null)}
+                />
+                <label htmlFor="file-upload" className="cursor-pointer text-muted-foreground hover:text-foreground">
+                  <Paperclip className="h-5 w-5" />
+                </label>
+                {attachment && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    {attachment.name}
+                    <button onClick={() => setAttachment(null)} className="text-destructive hover:underline ml-1">
+                      (quitar)
+                    </button>
+                  </span>
+                )}
+              </div>
+              <Button onClick={handleReply} disabled={replying || (!reply.trim() && !attachment)} className="gap-2">
                 <Send className="h-4 w-4" />
                 {replying ? "Enviando..." : "Enviar mensaje"}
               </Button>

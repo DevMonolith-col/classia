@@ -843,10 +843,12 @@ model TicketComment {
   id          String        @id @default(uuid())
   ticketId    String
   authorId    String        // Puede ser SuperAdmin o el cliente
-  content     String
-  isInternal  Boolean       @default(false)
+  content        String
+  isInternal     Boolean       @default(false)
+  attachmentKey  String?
+  attachmentName String?
   
-  createdAt   DateTime      @default(now())
+  createdAt      DateTime      @default(now())
 
   ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   

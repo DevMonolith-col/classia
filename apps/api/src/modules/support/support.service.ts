@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common"
+import { EventEmitter2 } from "@nestjs/event-emitter"
 import { PrismaService } from "../../core/prisma/prisma.service"
 import { CreateTicketDto, UpdateTicketStatusDto, CreateCommentDto } from "./support.schemas"
 
 @Injectable()
 export class SupportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2
+  ) {}
 
   async createTicket(tenantId: string, userId: string, data: CreateTicketDto) {
     return this.prisma.supportTicket.create({
@@ -88,13 +92,15 @@ export class SupportService {
     // If not superadmin, force isInternal to false
     const isInternal = isSuperAdmin ? data.isInternal : false
 
-    return this.prisma.$transaction(async (tx: any) => {
+    const result = await this.prisma.$transaction(async (tx: any) => {
       const comment = await tx.ticketComment.create({
         data: {
           ticketId,
           authorId: userId,
           content: data.content,
           isInternal,
+          attachmentKey: data.attachmentKey,
+          attachmentName: data.attachmentName,
         }
       })
       
@@ -106,6 +112,13 @@ export class SupportService {
 
       return comment
     })
+    
+    this.eventEmitter.emit("support.comment.added", {
+      ticketId,
+      comment: result,
+    })
+
+    return result
   }
 
   async assignTicket(ticketId: string, assigneeId: string | null) {
