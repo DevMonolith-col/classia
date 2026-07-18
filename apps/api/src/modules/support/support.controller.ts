@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards, Req, ForbiddenException } from "@nestjs/common"
+import { Controller, Get, Post, Patch, Body, Param, UseGuards, Req, ForbiddenException, HttpException } from "@nestjs/common"
 import { SupportService } from "./support.service"
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard"
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe"
@@ -44,15 +44,19 @@ export class SupportController {
   }
 
   @Get("tickets/:id")
-  async getTicketDetails(@Req() req: any, @Param("id", ParseUUIDPipe) ticketId: string) {
-    const isSuperAdmin = req.user.role === "SUPER_ADMIN" || req.user.role === "SUPPORT_AGENT"
-    return this.supportService.getTicketDetails(ticketId, isSuperAdmin, req.user.tenantId)
+  async getTicketDetails(@Req() req: any, @Param("id") ticketId: string) {
+    try {
+      const isSuperAdmin = req.user.role === "SUPER_ADMIN" || req.user.role === "SUPPORT_AGENT"
+      return await this.supportService.getTicketDetails(ticketId, isSuperAdmin, req.user.tenantId)
+    } catch (e) {
+      throw new HttpException(e.message || "Unknown error", 501)
+    }
   }
 
   @Patch("tickets/:id/status")
   async updateTicketStatus(
     @Req() req: any,
-    @Param("id", ParseUUIDPipe) ticketId: string,
+    @Param("id") ticketId: string,
     @Body(new ZodValidationPipe(updateTicketStatusSchema)) data: UpdateTicketStatusDto
   ) {
     if (req.user.role !== "SUPER_ADMIN" && req.user.role !== "SUPPORT_AGENT") {
@@ -64,7 +68,7 @@ export class SupportController {
   @Post("tickets/:id/comments")
   async addComment(
     @Req() req: any,
-    @Param("id", ParseUUIDPipe) ticketId: string,
+    @Param("id") ticketId: string,
     @Body(new ZodValidationPipe(createCommentSchema)) data: CreateCommentDto
   ) {
     const isSuperAdmin = req.user.role === "SUPER_ADMIN" || req.user.role === "SUPPORT_AGENT"
@@ -82,7 +86,7 @@ export class SupportController {
   @Patch("tickets/:id/assign")
   async assignTicket(
     @Req() req: any,
-    @Param("id", ParseUUIDPipe) ticketId: string,
+    @Param("id") ticketId: string,
     @Body(new ZodValidationPipe(assignTicketSchema)) data: AssignTicketDto
   ) {
     if (req.user.role !== "SUPER_ADMIN" && req.user.role !== "SUPPORT_AGENT") {
