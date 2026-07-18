@@ -147,6 +147,7 @@ export class NotificationsListeners {
     const students = await this.prisma.student.findMany({
       where: {
         tenantId: event.tenantId,
+        isActive: true, // no notificar a familias de alumnos retirados
         ...(event.groupId ? { groupId: event.groupId } : {}),
       },
       select: {
