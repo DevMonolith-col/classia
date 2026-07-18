@@ -219,9 +219,10 @@ export class AuthService {
 
     // Al impersonar nunca se otorga ni se conserva SUPER_ADMIN dentro del
     // tenant: ese rol es exclusivo de quien lo tiene asignado deliberadamente.
-    // Si ya existe una membership real (con el rol que sea), se respeta tal
-    // cual y solo se reactiva si estaba suspendida; si no existe, se crea una
-    // temporal de soporte con TENANT_ADMIN para poder operar el tenant.
+    // Si ya existe una membership real y OPERATIVA (con el rol que sea), se
+    // respeta tal cual y solo se reactiva si estaba suspendida; si no existe,
+    // se crea una temporal de soporte con TENANT_ADMIN para poder operar el
+    // tenant.
     let membership = await this.prisma.tenantMembership.findUnique({
       where: {
         tenantId_userId: {
@@ -247,13 +248,27 @@ export class AuthService {
       });
     }
 
+    // Las cuentas de soporte (SUPPORT_SUPERVISOR, SUPPORT_AGENT) suelen
+    // "vivir" en un tenant ancla solo para poder autenticarse con su rol
+    // global — esa membership es de solo lectura y no es un cargo real
+    // dentro del colegio. Si la membership encontrada es uno de esos roles,
+    // no la usamos para la sesión de impersonación (se quedaría sin poder
+    // corregir nada); se le da acceso TENANT_ADMIN efectivo para esta
+    // sesión, sin modificar la fila real (para no romper su login normal,
+    // que depende de esa membership para saber que es soporte).
+    // SUPER_ADMIN queda fuera de este downgrade a propósito: si un
+    // SUPER_ADMIN real tiene esa membership es porque se le asignó
+    // deliberadamente, y nunca debe perder poder al impersonar.
+    const READ_ONLY_ANCHOR_ROLES = ["SUPPORT_SUPERVISOR", "SUPPORT_AGENT"];
+    const sessionRole = READ_ONLY_ANCHOR_ROLES.includes(membership.role) ? "TENANT_ADMIN" : membership.role;
+
     const tokens = await this.createSession({
       sub: currentUser.id,
       email: currentUser.email,
       tenantId: targetTenant.id,
       tenantSlug: targetTenant.slug,
       membershipId: membership.id,
-      role: membership.role,
+      role: sessionRole,
       isImpersonated: true,
       request,
     });
@@ -261,7 +276,7 @@ export class AuthService {
     await this.audit.record({
       tenantId: targetTenant.id,
       userId: currentUser.id,
-      actorRole: membership.role,
+      actorRole: sessionRole,
       action: "auth.impersonate",
       entityType: "Tenant",
       entityId: targetTenant.id,
@@ -278,7 +293,7 @@ export class AuthService {
       tenant: targetTenant,
       membership: {
         id: membership.id,
-        role: membership.role,
+        role: sessionRole,
       },
     };
   }

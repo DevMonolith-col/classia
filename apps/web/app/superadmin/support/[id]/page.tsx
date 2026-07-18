@@ -13,7 +13,7 @@ import { apiFetch } from "@/lib/api-client"
 import Link from "next/link"
 import { io, Socket } from "socket.io-client"
 import { API_URL } from "@/lib/env"
-import { getAccessToken, decodeJwt } from "@/lib/auth"
+import { getAccessToken, decodeJwt, impersonateTenant } from "@/lib/auth"
 import { RemoteImage } from "@/components/shared/remote-image"
 import { AttachmentPreviewDialog } from "@/components/shared/attachment-preview-dialog"
 
@@ -137,17 +137,10 @@ export default function SuperAdminTicketDetail() {
     if (!ticket?.tenantId) return
     setImpersonating(true)
     try {
-      const res = await apiFetch("/auth/impersonate", {
-        method: "POST",
-        body: JSON.stringify({ tenantId: ticket.tenantId })
-      })
-      if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.message || "Error de impersonation")
-      }
+      await impersonateTenant(ticket.tenantId)
       router.push("/admin")
     } catch (e: any) {
-      alert(e.message)
+      alert(e.message || "Error de impersonation")
       setImpersonating(false)
     }
   }
@@ -395,35 +388,37 @@ export default function SuperAdminTicketDetail() {
               </div>
             </div>
 
-            {/* Comments */}
+            {/* Comments. "Nosotros" (todo el equipo de soporte: supervisor y
+                cualquier agente, sin importar quién esté viendo la pantalla)
+                siempre va del mismo lado, como en cualquier herramienta de
+                soporte seria — la separación real es equipo vs. cliente, no
+                "yo" vs. "todos los demás". Cada burbuja igual muestra el
+                nombre real de quién la escribió, para que el supervisor
+                pueda darle seguimiento a cada agente. */}
             {ticket.comments?.map((comment: any, index: number) => {
               const isMe = comment.authorId === currentUser
-              const isLastInGroup = index === ticket.comments.length - 1 || ticket.comments[index + 1]?.authorId !== comment.authorId
               const isSupportTeam = comment.author?.memberships?.some((m: any) => ["SUPER_ADMIN", "SUPPORT_SUPERVISOR", "SUPPORT_AGENT"].includes(m.role))
+              const isUs = isSupportTeam
+              const isLastInGroup = index === ticket.comments.length - 1 || ticket.comments[index + 1]?.authorId !== comment.authorId
 
               return (
-                <div key={comment.id} className={`flex items-end gap-2 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div key={comment.id} className={`flex items-end gap-2 ${isUs ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[85%] px-4 py-2 shadow-sm ${
-                      isMe
-                        ? "rounded-[20px] rounded-br-md bg-amber-500 text-white"
-                        : (isSupportTeam ? "rounded-[20px] rounded-bl-md bg-amber-100 text-amber-900 border border-amber-200" : "rounded-[20px] rounded-bl-md bg-secondary text-foreground")
-                    } ${isLastInGroup && isMe ? "rounded-br-[20px]" : ""} ${isLastInGroup && !isMe ? "rounded-bl-[20px]" : ""}`
+                      isUs
+                        ? `rounded-[20px] rounded-br-md ${isMe ? 'bg-amber-500 text-white' : 'bg-amber-600 text-white'}`
+                        : "rounded-[20px] rounded-bl-md bg-secondary text-foreground"
+                    } ${isLastInGroup && isUs ? "rounded-br-[20px]" : ""} ${isLastInGroup && !isUs ? "rounded-bl-[20px]" : ""}`
                   }>
-                    {!isMe && (
-                      <p className={`text-[11px] font-medium mb-1 ${isSupportTeam ? 'text-amber-700' : 'text-primary'}`}>
-                        {comment.author ? `${comment.author.firstName} ${comment.author.lastName}` : 'Usuario'}
-                        {isSupportTeam && <span className="ml-1.5 opacity-70">· Soporte</span>}
-                        {comment.isInternal && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] bg-amber-200/50 text-amber-800">NOTA INTERNA</span>}
-                      </p>
-                    )}
-                    {isMe && comment.isInternal && (
-                      <p className="text-[9px] font-medium mb-1 text-amber-100">NOTA INTERNA</p>
-                    )}
+                    <p className={`text-[11px] font-medium mb-1 ${isUs ? 'text-amber-100' : 'text-primary'}`}>
+                      {comment.author ? `${comment.author.firstName} ${comment.author.lastName}` : 'Usuario'}
+                      {isMe && <span className="ml-1.5 opacity-70">(tú)</span>}
+                      {comment.isInternal && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] bg-amber-200/50 text-amber-900">NOTA INTERNA</span>}
+                    </p>
                     <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{comment.content}</p>
 
                     {comment.attachmentKey && (
                       comment.attachmentName?.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                        <div className={`mt-2 relative rounded-lg overflow-hidden border ${isMe ? 'border-white/20' : 'border-border'}`}>
+                        <div className={`mt-2 relative rounded-lg overflow-hidden border ${isUs ? 'border-white/20' : 'border-border'}`}>
                           <RemoteImage
                             fileKey={comment.attachmentKey}
                             alt="Adjunto"
@@ -437,7 +432,7 @@ export default function SuperAdminTicketDetail() {
                             setPreviewAttachmentName(comment.attachmentName || "Adjunto")
                           }}
                           className={`inline-flex items-center gap-1 mt-2 text-xs hover:underline px-3 py-2 rounded-xl border transition-colors ${
-                            isMe
+                            isUs
                               ? 'text-white bg-white/20 border-white/30 hover:bg-white/30'
                               : 'text-foreground bg-background border-border hover:bg-muted'
                           }`}
@@ -448,7 +443,7 @@ export default function SuperAdminTicketDetail() {
                       )
                     )}
 
-                    <div className={`mt-1 flex items-center justify-end gap-1 ${isMe ? 'text-amber-100' : (isSupportTeam ? 'text-amber-700/70' : 'text-muted-foreground')}`}>
+                    <div className={`mt-1 flex items-center justify-end gap-1 ${isUs ? 'text-amber-100' : 'text-muted-foreground'}`}>
                       <span className="text-[10px]">
                         {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
