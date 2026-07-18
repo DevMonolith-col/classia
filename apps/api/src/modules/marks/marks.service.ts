@@ -39,6 +39,7 @@ export type MarkWriteInput = {
   subjectId: string;
   teacherId: string;
   homeworkId?: string | null;
+  categoryId?: string | null;
   title: string;
   value: number;
   maxValue?: number;
@@ -93,6 +94,7 @@ export class MarksService {
       subjectId: input.subjectId,
       teacherId: input.teacherId,
       homeworkId: input.homeworkId ?? null,
+      categoryId: input.categoryId ?? null,
       academicYearId: activeYear.id,
       title: input.title,
       value: input.value,
@@ -117,6 +119,8 @@ export class MarksService {
           update: {
             teacherId: input.teacherId,
             academicYearId: activeYear.id,
+            // undefined = no cambiar; solo se reasigna si el llamante manda un valor.
+            categoryId: input.categoryId,
             title: input.title,
             value: input.value,
             maxValue: input.maxValue,
@@ -247,6 +251,7 @@ export class MarksService {
         subjectId: input.subjectId,
         teacherId,
         homeworkId: input.homeworkId,
+        categoryId: input.categoryId,
         title: input.title,
         value: input.value,
         maxValue: input.maxValue,
@@ -280,6 +285,7 @@ export class MarksService {
         value: input.value,
         maxValue: input.maxValue,
         comment: input.comment === null ? null : input.comment,
+        categoryId: input.categoryId,
         period: input.period,
         date: input.date,
         isPublished: input.isPublished,
@@ -356,6 +362,7 @@ export class MarksService {
           teacherId,
           academicYearId: activeYear.id,
           homeworkId: input.homeworkId,
+          categoryId: input.categoryId,
           title: input.title,
           value: record.value,
           maxValue: input.maxValue,
@@ -372,6 +379,7 @@ export class MarksService {
             update: {
               teacherId,
               academicYearId: activeYear.id,
+              categoryId: input.categoryId,
               title: input.title,
               value: record.value,
               maxValue: input.maxValue,
@@ -549,6 +557,7 @@ export class MarksService {
       id: true,
       tenantId: true,
       homeworkId: true,
+      categoryId: true,
       title: true,
       value: true,
       maxValue: true,

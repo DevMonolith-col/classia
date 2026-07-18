@@ -97,11 +97,16 @@ export class ReportCardsService {
         weightedSum += catFraction * cat.weight;
         weightWithMarks += cat.weight;
       }
-      return weightWithMarks > 0 ? weightedSum / weightWithMarks : null;
+      // Solo devolvemos la ponderada si al menos una categoría tuvo notas. Si hay
+      // categorías configuradas pero ninguna nota está asignada a ellas todavía
+      // (p. ej. notas cargadas antes de configurar categorías, o sin categoryId),
+      // NO dejamos la materia sin nota: caemos al promedio simple del periodo.
+      if (weightWithMarks > 0) return weightedSum / weightWithMarks;
     }
 
-    // Sin categorías: promedio simple de las notas del periodo por secuencia,
-    // acotado al año académico — sin esto, "periodo 1" mezclaría todos los años.
+    // Sin categorías (o con categorías pero sin notas categorizadas): promedio
+    // simple de las notas del periodo por secuencia, acotado al año académico —
+    // sin esto, "periodo 1" mezclaría todos los años.
     const marks = await this.prisma.mark.findMany({
       where: { studentId, subjectId, period: periodSequence, academicYearId, isPublished: true },
       select: { value: true, maxValue: true },
