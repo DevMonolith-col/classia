@@ -256,22 +256,25 @@ export default function SuperAdminTicketDetail() {
 
       <div>
         <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Asignado a {!isSupervisor && "(solo el supervisor reasigna)"}
+          Asignado a
         </Label>
         {isSupervisor ? (
-          <select
-            className="mt-1 flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-            value={ticket.assigneeId || ""}
-            onChange={(e) => handleAssign(e.target.value)}
-            disabled={assigning}
-          >
-            <option value="">Sin asignar</option>
-            {agents.map(a => (
-              <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>
-            ))}
-          </select>
+          <>
+            <select
+              className="mt-1 flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+              value={ticket.assigneeId || ""}
+              onChange={(e) => handleAssign(e.target.value)}
+              disabled={assigning}
+            >
+              <option value="">Sin asignar</option>
+              {agents.map(a => (
+                <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-muted-foreground">Solo el supervisor reasigna.</p>
+          </>
         ) : (
-          <p className="mt-1 text-sm text-foreground">
+          <p className="mt-1 text-sm font-medium text-foreground">
             {assignee ? `${assignee.firstName} ${assignee.lastName}` : "Sin asignar"}
           </p>
         )}
