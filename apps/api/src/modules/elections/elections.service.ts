@@ -68,12 +68,29 @@ export class ElectionsService {
     })
   }
 
+  // Para el estudiante: solo lo que puede votar, sin el resto del panel de
+  // gestión (que exige ELECTIONS_MONITOR, permiso que un estudiante no tiene).
+  async listVotableElections(actor: RequestUser) {
+    const student = await this.resolveVotingStudent(actor)
+
+    const elections = await this.prisma.election.findMany({
+      where: { tenantId: actor.tenantId, status: ElectionStatus.ACTIVE },
+      orderBy: { endDate: "asc" },
+      select: { id: true, title: true, description: true, endDate: true },
+    })
+    if (elections.length === 0) return []
+
+    const voted = await this.prisma.electionVoter.findMany({
+      where: { studentId: student.id, electionId: { in: elections.map((e) => e.id) } },
+      select: { electionId: true },
+    })
+    const votedIds = new Set(voted.map((v) => v.electionId))
+
+    return elections.map((e) => ({ ...e, alreadyVoted: votedIds.has(e.id) }))
+  }
+
   async getElection(electionId: string, actor: RequestUser) {
-    const election = await this.findElectionOrThrow(electionId, actor.tenantId)
-    return {
-      ...election,
-      candidates: election.candidates.map((c) => this.mapCandidate(c)),
-    }
+    return this.findElectionOrThrow(electionId, actor.tenantId)
   }
 
   async addCandidate(electionId: string, actor: RequestUser, data: AddCandidateInput) {
@@ -163,7 +180,7 @@ export class ElectionsService {
       allowBlank: election.allowBlank,
       endDate: election.endDate,
       alreadyVoted: Boolean(alreadyVoted),
-      candidates: election.candidates.map((c) => this.mapCandidate(c)),
+      candidates: election.candidates,
     }
   }
 
@@ -292,7 +309,7 @@ export class ElectionsService {
   private async findElectionOrThrow(electionId: string, tenantId: string) {
     const election = await this.prisma.election.findUnique({
       where: { id: electionId },
-      include: { candidates: true },
+      include: { candidates: { include: { student: { select: { firstName: true, lastName: true } } } } },
     })
     if (!election || election.tenantId !== tenantId) {
       throw new NotFoundException("Elección no encontrada")
@@ -309,10 +326,6 @@ export class ElectionsService {
       throw new ForbiddenException("Esta cuenta no tiene un perfil de estudiante")
     }
     return student
-  }
-
-  private mapCandidate(c: { id: string; studentId: string | null; candidateNumber: number; slogan: string | null; photoUrl: string | null }) {
-    return c
   }
 
   private assertTenant(actor: RequestUser): asserts actor is RequestUser & { tenantId: string } {

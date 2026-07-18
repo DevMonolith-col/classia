@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Calendar,
   MessageSquare, BarChart3, Settings, LogOut, Menu, X,
   Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone, SlidersHorizontal, LifeBuoy, ChevronDown,
-  UserCog, School, BookMarked, Mail, Briefcase
+  UserCog, School, BookMarked, Mail, Briefcase, Vote
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 
@@ -66,6 +66,7 @@ const navigation: NavItem[] = [
     icon: Briefcase,
     children: [
       { name: "Reportes", href: "/admin/reportes", icon: BarChart3 },
+      { name: "Gobierno Escolar", href: "/admin/elecciones", icon: Vote },
       { name: "Soporte", href: "/admin/soporte", icon: LifeBuoy },
       { name: "Plugins", href: "/admin/plugins", icon: Puzzle },
       { name: "Configuración", href: "/admin/configuracion", icon: Settings },
