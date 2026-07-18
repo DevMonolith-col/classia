@@ -62,6 +62,34 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
     void client.leave(`ticket:${payload.ticketId}:internal`);
   }
 
+  @SubscribeMessage("dashboard:join")
+  handleJoinDashboard(
+    @ConnectedSocket() client: Socket
+  ) {
+    const user = client.data.user;
+    if (!user) return;
+    
+    if (user.role === "SUPER_ADMIN" || user.role === "SUPPORT_AGENT") {
+      void client.join("dashboard:superadmin");
+    } else if (user.tenantId) {
+      void client.join(`dashboard:tenant:${user.tenantId}`);
+    }
+  }
+
+  @SubscribeMessage("dashboard:leave")
+  handleLeaveDashboard(
+    @ConnectedSocket() client: Socket
+  ) {
+    const user = client.data.user;
+    if (!user) return;
+    
+    if (user.role === "SUPER_ADMIN" || user.role === "SUPPORT_AGENT") {
+      void client.leave("dashboard:superadmin");
+    } else if (user.tenantId) {
+      void client.leave(`dashboard:tenant:${user.tenantId}`);
+    }
+  }
+
   @SubscribeMessage("typing:start")
   handleTypingStart(
     @ConnectedSocket() client: Socket,
@@ -87,11 +115,29 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   @OnEvent("support.comment.added")
-  handleCommentAdded(payload: { ticketId: string; comment: any }) {
+  handleCommentAdded(payload: { ticketId: string; tenantId?: string; comment: any }) {
     if (payload.comment.isInternal) {
       this.server.to(`ticket:${payload.ticketId}:internal`).emit("ticket:comment", payload);
     } else {
       this.server.to(`ticket:${payload.ticketId}`).emit("ticket:comment", payload);
     }
+    
+    // Also notify dashboards to update their list/unread counters
+    this.server.to("dashboard:superadmin").emit("ticket:updated", { ticketId: payload.ticketId });
+    if (payload.tenantId) {
+      this.server.to(`dashboard:tenant:${payload.tenantId}`).emit("ticket:updated", { ticketId: payload.ticketId });
+    }
+  }
+
+  @OnEvent("support.ticket.created")
+  handleTicketCreated(payload: any) {
+    this.server.to("dashboard:superadmin").emit("ticket:created", payload);
+    this.server.to(`dashboard:tenant:${payload.tenantId}`).emit("ticket:created", payload);
+  }
+
+  @OnEvent("support.ticket.updated")
+  handleTicketUpdated(payload: any) {
+    this.server.to("dashboard:superadmin").emit("ticket:updated", payload);
+    this.server.to(`dashboard:tenant:${payload.tenantId}`).emit("ticket:updated", payload);
   }
 }

@@ -178,7 +178,9 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
-                <p className="truncate text-xs text-sidebar-foreground/50">Super Administrador</p>
+                <p className="truncate text-xs text-sidebar-foreground/50">
+                  {user?.role === "SUPPORT_AGENT" ? "Agente de Soporte" : "Super Administrador"}
+                </p>
               </div>
             </div>
           )}
