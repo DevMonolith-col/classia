@@ -20,5 +20,6 @@ import { NOTIFICATIONS_QUEUE, NotificationsService } from "./notifications.servi
     NotificationsProcessor,
     EmailService,
   ],
+  exports: [EmailService],
 })
 export class NotificationsModule {}

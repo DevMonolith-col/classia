@@ -10,6 +10,7 @@ import storageConfig from "./config/storage.config";
 import { APP_INTERCEPTOR } from "@nestjs/core";
 import { AuditCoreModule } from "./core/audit/audit-core.module";
 import { ImpersonationAuditInterceptor } from "./common/interceptors/impersonation-audit.interceptor";
+import { PdfModule } from "./core/pdf/pdf.module";
 import { PrismaModule } from "./core/prisma/prisma.module";
 import { QueueModule } from "./core/queue/queue.module";
 import { RedisModule } from "./core/redis/redis.module";
@@ -45,6 +46,8 @@ import { SupportModule } from "./modules/support/support.module";
 import { SettingsModule } from "./modules/settings/settings.module";
 import { ElectionsModule } from "./modules/elections/elections.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
+import { PaymentsModule } from "./modules/payments/payments.module";
+import { ReportsModule } from "./modules/reports/reports.module";
 
 @Module({
   imports: [
@@ -59,6 +62,7 @@ import { DocumentsModule } from "./modules/documents/documents.module";
     RedisModule,
     QueueModule,
     StorageModule,
+    PdfModule,
     AuditCoreModule,
     TenantContextModule,
     HealthModule,
@@ -91,6 +95,8 @@ import { DocumentsModule } from "./modules/documents/documents.module";
     SettingsModule,
     ElectionsModule,
     DocumentsModule,
+    PaymentsModule,
+    ReportsModule,
   ],
   providers: [
     {
