@@ -32,6 +32,9 @@ export type ComputedReportCard = {
   lines: SubjectLine[];
 };
 
+type PreloadedMark = { subjectId: string; period: number; categoryId: string | null; value: number; maxValue: number };
+type PreloadedCategory = { id: string; subjectId: string; periodId: string; weight: number };
+
 @Injectable()
 export class ReportCardsService {
   constructor(
@@ -66,52 +69,41 @@ export class ReportCardsService {
   }
 
   /**
-   * Fracción (0..1) lograda por un estudiante en una materia y periodo. Usa las
-   * categorías ponderadas del profesor si existen (promediando las notas de cada
-   * una y ponderando por su weight); si no hay categorías configuradas, cae a un
-   * promedio simple de las notas del periodo. Devuelve null si no hay notas.
+   * Fracción (0..1) lograda por un estudiante en una materia y periodo, calculada
+   * EN MEMORIA sobre las notas y categorías ya precargadas (ver compute()). Usa las
+   * categorías ponderadas del profesor si existen (promediando las notas de cada una
+   * y ponderando por su weight); si no hay categorías, o hay pero sin notas
+   * asignadas, cae a un promedio simple de las notas del periodo. null si no hay notas.
+   * Antes era una query por (materia × periodo × categoría), lo que producía un N+1
+   * severo en la generación masiva.
    */
-  private async subjectPeriodFraction(
-    studentId: string,
-    groupId: string,
+  private subjectPeriodFraction(
+    marks: PreloadedMark[],
+    categories: PreloadedCategory[],
     subjectId: string,
     periodId: string,
     periodSequence: number,
-    academicYearId: string,
-  ): Promise<number | null> {
-    const categories = await this.prisma.gradingCategory.findMany({
-      where: { groupId, subjectId, periodId },
-      select: { id: true, weight: true },
-    });
+  ): number | null {
+    const cats = categories.filter((c) => c.subjectId === subjectId && c.periodId === periodId);
 
-    if (categories.length > 0) {
+    if (cats.length > 0) {
       let weightWithMarks = 0;
       let weightedSum = 0;
-      for (const cat of categories) {
-        const marks = await this.prisma.mark.findMany({
-          where: { studentId, categoryId: cat.id, isPublished: true },
-          select: { value: true, maxValue: true },
-        });
-        if (marks.length === 0) continue;
-        const catFraction = this.mean(marks.map((m) => m.value / m.maxValue));
+      for (const cat of cats) {
+        const catMarks = marks.filter((m) => m.categoryId === cat.id);
+        if (catMarks.length === 0) continue;
+        const catFraction = this.mean(catMarks.map((m) => m.value / m.maxValue));
         weightedSum += catFraction * cat.weight;
         weightWithMarks += cat.weight;
       }
-      // Solo devolvemos la ponderada si al menos una categoría tuvo notas. Si hay
-      // categorías configuradas pero ninguna nota está asignada a ellas todavía
-      // (p. ej. notas cargadas antes de configurar categorías, o sin categoryId),
-      // NO dejamos la materia sin nota: caemos al promedio simple del periodo.
+      // Solo la ponderada si al menos una categoría tuvo notas; si no, fallback.
       if (weightWithMarks > 0) return weightedSum / weightWithMarks;
     }
 
     // Sin categorías (o con categorías pero sin notas categorizadas): promedio
-    // simple de las notas del periodo por secuencia, acotado al año académico —
-    // sin esto, "periodo 1" mezclaría todos los años.
-    const marks = await this.prisma.mark.findMany({
-      where: { studentId, subjectId, period: periodSequence, academicYearId, isPublished: true },
-      select: { value: true, maxValue: true },
-    });
-    return marks.length > 0 ? this.mean(marks.map((m) => m.value / m.maxValue)) : null;
+    // simple de las notas del periodo por secuencia.
+    const periodMarks = marks.filter((m) => m.subjectId === subjectId && m.period === periodSequence);
+    return periodMarks.length > 0 ? this.mean(periodMarks.map((m) => m.value / m.maxValue)) : null;
   }
 
   // ── Cálculo de un boletín (periodo o año) sin persistir ──────────────────
@@ -127,13 +119,29 @@ export class ReportCardsService {
 
     const subjects = await this.studentSubjects(student.groupId);
 
+    // Se precargan en 2 queries todas las notas del alumno en el año y todas las
+    // categorías del grupo para los periodos del año; el resto del cálculo es en
+    // memoria. Antes cada (materia × periodo × categoría) hacía su propia query.
+    const [marks, categories] = student.groupId
+      ? await Promise.all([
+          this.prisma.mark.findMany({
+            where: { studentId, academicYearId: year.id, isPublished: true },
+            select: { subjectId: true, period: true, categoryId: true, value: true, maxValue: true },
+          }),
+          this.prisma.gradingCategory.findMany({
+            where: { groupId: student.groupId, periodId: { in: year.periods.map((p) => p.id) } },
+            select: { id: true, subjectId: true, periodId: true, weight: true },
+          }),
+        ])
+      : [[] as PreloadedMark[], [] as PreloadedCategory[]];
+
     if (periodId) {
       const period = year.periods.find((p) => p.id === periodId);
       if (!period) throw new NotFoundException("Period not found in this academic year.");
       const lines: SubjectLine[] = [];
       for (const s of subjects) {
         const fraction = student.groupId
-          ? await this.subjectPeriodFraction(studentId, student.groupId, s.id, period.id, period.sequence, year.id)
+          ? this.subjectPeriodFraction(marks, categories, s.id, period.id, period.sequence)
           : null;
         lines.push(this.toLine(scale, s.id, s.name, fraction));
       }
@@ -147,7 +155,7 @@ export class ReportCardsService {
       let weighted = 0;
       for (const period of year.periods) {
         if (!student.groupId) continue;
-        const fraction = await this.subjectPeriodFraction(studentId, student.groupId, s.id, period.id, period.sequence, year.id);
+        const fraction = this.subjectPeriodFraction(marks, categories, s.id, period.id, period.sequence);
         if (fraction === null) continue;
         const periodFinal = this.clamp(fraction * scale.maxValue, scale.minValue, scale.maxValue);
         weighted += periodFinal * period.weight;
