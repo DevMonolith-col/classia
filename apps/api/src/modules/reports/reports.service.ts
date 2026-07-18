@@ -100,13 +100,15 @@ export class ReportsService {
         type: data.type,
         format: data.format,
         filters: this.filtersToJson(data.filters),
-        frequency: data.frequency,
+        frequencyType: data.frequencyType,
+        intervalValue: data.intervalValue,
+        dayOfMonth: data.frequencyType === "MONTHLY" ? data.dayOfMonth : null,
         recipients: data.recipients,
         createdById: actor.id,
       },
     })
 
-    await this.upsertScheduler(schedule.id, schedule.frequency)
+    await this.upsertScheduler(schedule.id, schedule)
 
     await this.audit.record({
       tenantId: actor.tenantId,
@@ -115,7 +117,7 @@ export class ReportsService {
       action: "reports.schedule_created",
       entityType: "ReportSchedule",
       entityId: schedule.id,
-      newValues: { type: schedule.type, frequency: schedule.frequency, recipients: schedule.recipients },
+      newValues: { type: schedule.type, frequencyType: schedule.frequencyType, intervalValue: schedule.intervalValue, recipients: schedule.recipients },
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     })
@@ -136,7 +138,7 @@ export class ReportsService {
     const schedule = await this.findScheduleOrThrow(scheduleId, actor.tenantId)
     const updated = await this.prisma.reportSchedule.update({ where: { id: scheduleId }, data: { active } })
     if (active) {
-      await this.upsertScheduler(schedule.id, schedule.frequency)
+      await this.upsertScheduler(schedule.id, schedule)
     } else {
       await this.removeScheduler(schedule.id)
     }
@@ -147,12 +149,17 @@ export class ReportsService {
     const schedule = await this.findScheduleOrThrow(scheduleId, actor.tenantId)
     const updated = await this.prisma.reportSchedule.update({
       where: { id: scheduleId },
-      data: { frequency: data.frequency, recipients: data.recipients },
+      data: {
+        frequencyType: data.frequencyType,
+        intervalValue: data.intervalValue,
+        dayOfMonth: data.frequencyType === "MONTHLY" ? data.dayOfMonth : null,
+        recipients: data.recipients,
+      },
     })
-    // El cron pattern depende de la frecuencia: si cambió, hay que re-registrar
+    // La recurrencia depende de estos campos: si cambiaron, hay que re-registrar
     // el scheduler en Redis (el anterior no se actualiza solo).
     if (updated.active) {
-      await this.upsertScheduler(scheduleId, updated.frequency)
+      await this.upsertScheduler(scheduleId, updated)
     }
 
     await this.audit.record({
@@ -162,8 +169,8 @@ export class ReportsService {
       action: "reports.schedule_updated",
       entityType: "ReportSchedule",
       entityId: scheduleId,
-      oldValues: { frequency: schedule.frequency, recipients: schedule.recipients },
-      newValues: { frequency: updated.frequency, recipients: updated.recipients },
+      oldValues: { frequencyType: schedule.frequencyType, intervalValue: schedule.intervalValue, dayOfMonth: schedule.dayOfMonth, recipients: schedule.recipients },
+      newValues: { frequencyType: updated.frequencyType, intervalValue: updated.intervalValue, dayOfMonth: updated.dayOfMonth, recipients: updated.recipients },
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     })
@@ -183,7 +190,7 @@ export class ReportsService {
       action: "reports.schedule_deleted",
       entityType: "ReportSchedule",
       entityId: scheduleId,
-      oldValues: { type: schedule.type, frequency: schedule.frequency },
+      oldValues: { type: schedule.type, frequencyType: schedule.frequencyType, intervalValue: schedule.intervalValue },
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     })
@@ -194,21 +201,32 @@ export class ReportsService {
   // Se llama una vez al boot (ver ReportsModule.onModuleInit) por si Redis
   // perdió el estado de los schedulers entre reinicios.
   async reconcileSchedulers() {
-    const schedules = await this.prisma.reportSchedule.findMany({ where: { active: true }, select: { id: true, frequency: true } })
+    const schedules = await this.prisma.reportSchedule.findMany({
+      where: { active: true },
+      select: { id: true, frequencyType: true, intervalValue: true, dayOfMonth: true },
+    })
     for (const s of schedules) {
-      await this.upsertScheduler(s.id, s.frequency)
+      await this.upsertScheduler(s.id, s)
     }
   }
 
-  private async upsertScheduler(scheduleId: string, frequency: "WEEKLY" | "MONTHLY") {
-    // Lunes 7am (semanal) o día 1 de cada mes 7am (mensual) - hora fija server-side,
-    // no configurable por el usuario en esta primera versión.
-    const pattern = frequency === "WEEKLY" ? "0 7 * * 1" : "0 7 1 * *"
-    await this.queue.upsertJobScheduler(
-      `schedule:${scheduleId}`,
-      { pattern },
-      { name: "scheduled-run", data: { scheduleId }, opts: REPORT_JOB_OPTIONS },
-    )
+  private async upsertScheduler(
+    scheduleId: string,
+    recurrence: { frequencyType: "DAYS" | "MONTHLY"; intervalValue: number; dayOfMonth: number | null },
+  ) {
+    // DAYS: intervalo puro (bullmq "every") - la primera corrida arranca al
+    // registrarse y las siguientes van cada N días desde ahí, sin hora fija.
+    // MONTHLY: cron real a las 7am del día elegido, cada N meses.
+    const schedulerOpts =
+      recurrence.frequencyType === "DAYS"
+        ? { every: recurrence.intervalValue * 24 * 60 * 60 * 1000 }
+        : { pattern: `0 7 ${recurrence.dayOfMonth} */${recurrence.intervalValue} *` }
+
+    await this.queue.upsertJobScheduler(`schedule:${scheduleId}`, schedulerOpts, {
+      name: "scheduled-run",
+      data: { scheduleId },
+      opts: REPORT_JOB_OPTIONS,
+    })
   }
 
   private async removeScheduler(scheduleId: string) {
