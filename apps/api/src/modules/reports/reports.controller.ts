@@ -13,10 +13,12 @@ import {
   GenerateReportInput,
   PreviewReportInput,
   ToggleScheduleInput,
+  UpdateScheduleInput,
   createScheduleSchema,
   generateReportSchema,
   previewReportSchema,
   toggleScheduleSchema,
+  updateScheduleSchema,
 } from "./reports.schemas"
 
 @Controller()
@@ -66,6 +68,16 @@ export class ReportsController {
     @Body(new ZodValidationPipe(toggleScheduleSchema)) body: ToggleScheduleInput,
   ) {
     return this.reports.toggleSchedule(id, user, body.active)
+  }
+
+  @Patch("report-schedules/:id")
+  updateSchedule(
+    @Param("id") id: string,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+    @Body(new ZodValidationPipe(updateScheduleSchema)) data: UpdateScheduleInput,
+  ) {
+    return this.reports.updateSchedule(id, user, data, request)
   }
 
   @Delete("report-schedules/:id")

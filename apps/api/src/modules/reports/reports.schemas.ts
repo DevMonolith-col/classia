@@ -34,3 +34,9 @@ export const createScheduleSchema = z.object({
   recipients: z.array(z.string().email()).min(1).max(20),
 })
 export type CreateScheduleInput = z.infer<typeof createScheduleSchema>
+
+export const updateScheduleSchema = z.object({
+  frequency: z.enum(["WEEKLY", "MONTHLY"]),
+  recipients: z.array(z.string().email()).min(1).max(20),
+})
+export type UpdateScheduleInput = z.infer<typeof updateScheduleSchema>
