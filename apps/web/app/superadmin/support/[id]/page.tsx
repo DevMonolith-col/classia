@@ -137,7 +137,7 @@ export default function SuperAdminTicketDetail() {
     if (!ticket?.tenantId) return
     setImpersonating(true)
     try {
-      await impersonateTenant(ticket.tenantId)
+      await impersonateTenant(ticket.tenantId, `/superadmin/support/${id}`)
       router.push("/admin")
     } catch (e: any) {
       alert(e.message || "Error de impersonation")
