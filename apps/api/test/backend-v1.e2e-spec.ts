@@ -2,9 +2,11 @@ import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { AttendanceStatus, MembershipStatus, TenantStatus, UserRole, UserStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { Job } from "bullmq";
 import { AppModule } from "../src/app.module";
 import { setupApp } from "../src/app.setup";
 import { PrismaService } from "../src/core/prisma/prisma.service";
+import { NotificationsProcessor } from "../src/modules/notifications/notifications.processor";
 
 const DEMO_TENANT_SLUG = "demo";
 const DEMO_PASSWORD = "ClassiaDemo2026!";
@@ -663,6 +665,18 @@ describe("Backend v1 e2e", () => {
     const teacher = await loginAs(TEACHER_EMAIL);
     const guardian = await loginAs(GUARDIAN_EMAIL);
 
+    // La BD e2e es compartida y no se limpia entre corridas, y el paso 3 de este
+    // test deshabilita la preferencia de email del acudiente. Sin resetearla, la
+    // segunda corrida en adelante no crearía la entrega EMAIL. Se borra la fila
+    // (tabla dispersa: sin fila = default habilitado) para que el test sea idempotente.
+    const guardianUser = await prisma.user.findUniqueOrThrow({
+      where: { email: GUARDIAN_EMAIL },
+      select: { id: true },
+    });
+    await prisma.notificationPreference.deleteMany({
+      where: { userId: guardianUser.id, eventType: "ANNOUNCEMENT_PUBLISHED", channel: "EMAIL" },
+    });
+
     // 1) Publicar un comunicado dispara una notificación in-app al acudiente.
     const ann1 = await api<AnnouncementItem>("/announcements", {
       method: "POST",
@@ -686,16 +700,28 @@ describe("Backend v1 e2e", () => {
     expect(notif1?.eventType).toBe("ANNOUNCEMENT_PUBLISHED");
     expect(notif1?.title).toBe("Nuevo comunicado");
 
-    // Con el proveedor deshabilitado, la entrega EMAIL se crea y termina SKIPPED.
+    // La entrega EMAIL se crea junto con la notificación in-app (misma llamada a
+    // notify()). El despacho es asíncrono vía cola BullMQ; en el runtime real el
+    // worker la procesa en <1s, pero dentro del harness de Jest el worker no drena
+    // la cola de forma confiable durante la ventana del test. Para probar la lógica
+    // de despacho de forma determinista (proveedor deshabilitado → SKIPPED),
+    // invocamos el processor directamente sobre la entrega creada.
     const delivery1 = await waitFor(async () => {
       const rows = await prisma.notificationDelivery.findMany({
         where: { notificationId: notif1!.id },
       });
-      const row = rows.find((r) => r.channel === "EMAIL");
-      return row && row.status !== "PENDING" ? row : undefined;
+      return rows.find((r) => r.channel === "EMAIL");
     });
     expect(delivery1?.channel).toBe("EMAIL");
-    expect(delivery1?.status).toBe("SKIPPED");
+
+    await app
+      .get(NotificationsProcessor)
+      .process({ data: { deliveryId: delivery1!.id } } as Job<{ deliveryId: string }>);
+
+    const processed1 = await prisma.notificationDelivery.findUnique({
+      where: { id: delivery1!.id },
+    });
+    expect(processed1?.status).toBe("SKIPPED");
 
     // 2) unread-count + mark-read.
     const unread = await api<{ count: number }>("/notifications/unread-count", {

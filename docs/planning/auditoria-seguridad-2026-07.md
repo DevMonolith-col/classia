@@ -106,13 +106,16 @@ agregación en BD (invoiced/collected/pending exactos, rate 100%, sin pending ne
   (`notifications.service.ts:38`).
 - `listBroadcastTargets`: un solo `groupBy` en vez de una query por grupo
   (`conversations.service.ts:132`).
-- **⚠️ Pendiente detectado en Fase 1 — entrega EMAIL de notificaciones**: el test e2e
-  "creates in-app notifications from events…" falla porque el `NotificationDelivery` de
-  canal EMAIL se queda en `PENDING` (nunca pasa a `SKIPPED`). El worker BullMQ
-  (`NotificationsProcessor`) no procesa el job en el contexto de test. Falta determinar si
-  es solo infra de test (el worker no arranca dentro de `Test.createTestingModule`) o un
-  bug real de despacho en runtime. Estaba oculto porque la suite e2e no arrancaba (ver
-  Notas de ejecución). Investigar aquí.
+- **✅ RESUELTO — entrega EMAIL de notificaciones (era contaminación de datos del test, NO
+  un bug de prod)**. Diagnóstico: el paso 3 del test e2e deshabilita la preferencia
+  `ANNOUNCEMENT_PUBLISHED/EMAIL` del acudiente y nunca la resetea; como la BD e2e es
+  compartida y no se limpia, desde la segunda corrida ya no se creaba la entrega EMAIL →
+  el test veía `undefined`. Se verificó que el worker de producción está sano: en la API
+  real, tras publicar un comunicado, la entrega pasó a `SKIPPED` en ~576ms
+  (`EMAIL_PROVIDER=disabled`). Fixes en el test: (1) resetear la preferencia al inicio
+  (idempotente entre corridas), (2) invocar el `NotificationsProcessor` directamente en vez
+  de esperar al worker (determinista, sin depender del timing de la cola en el harness).
+  Suite ahora 12/12, estable en corridas repetidas.
 
 ## FASE 4 — Scheduler de reportes (backend)
 
