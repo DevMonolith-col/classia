@@ -17,6 +17,7 @@ import {
   RefreshCw,
   AlertCircle,
   Trash2,
+  Pencil,
 } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -85,6 +86,7 @@ const STATUS_BADGE: Record<ReportStatus, { label: string; className: string }> =
 }
 
 const FREQUENCY_LABELS = { WEEKLY: "Cada lunes", MONTHLY: "1ro de cada mes" }
+const HISTORY_PAGE_SIZE = 15
 
 export default function AdminReportesPage() {
   const [selectedType, setSelectedType] = useState<ReportType | null>(null)
@@ -108,6 +110,14 @@ export default function AdminReportesPage() {
   const [scheduleForm, setScheduleForm] = useState({ frequency: "WEEKLY" as "WEEKLY" | "MONTHLY", recipients: "" })
   const [creatingSchedule, setCreatingSchedule] = useState(false)
   const [scheduleToDelete, setScheduleToDelete] = useState<ReportSchedule | null>(null)
+  const [scheduleToEdit, setScheduleToEdit] = useState<ReportSchedule | null>(null)
+  const [scheduleEditForm, setScheduleEditForm] = useState({ frequency: "WEEKLY" as "WEEKLY" | "MONTHLY", recipients: "" })
+  const [savingScheduleEdit, setSavingScheduleEdit] = useState(false)
+
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyTypeFilter, setHistoryTypeFilter] = useState<ReportType | "">("")
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<ReportStatus | "">("")
+  const [historyPage, setHistoryPage] = useState(0)
 
   const activeType = REPORT_TYPES.find((t) => t.id === selectedType)
 
@@ -249,6 +259,50 @@ export default function AdminReportesPage() {
 
   const typeLabel = (type: ReportType) => REPORT_TYPES.find((t) => t.id === type)?.name ?? type
 
+  const filteredHistory = useMemo(() => {
+    return reports.filter((r) => (!historyTypeFilter || r.type === historyTypeFilter) && (!historyStatusFilter || r.status === historyStatusFilter))
+  }, [reports, historyTypeFilter, historyStatusFilter])
+
+  const historyPageCount = Math.max(1, Math.ceil(filteredHistory.length / HISTORY_PAGE_SIZE))
+  const historyPageItems = filteredHistory.slice(historyPage * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE + HISTORY_PAGE_SIZE)
+
+  const clearHistoryFilters = () => {
+    setHistoryTypeFilter("")
+    setHistoryStatusFilter("")
+    setHistoryPage(0)
+  }
+
+  const openScheduleEdit = (schedule: ReportSchedule) => {
+    setScheduleToEdit(schedule)
+    setScheduleEditForm({ frequency: schedule.frequency, recipients: schedule.recipients.join(", ") })
+  }
+
+  const saveScheduleEdit = async () => {
+    if (!scheduleToEdit) return
+    const recipients = scheduleEditForm.recipients
+      .split(/[,\n]/)
+      .map((r) => r.trim())
+      .filter(Boolean)
+    if (recipients.length === 0) return
+    setSavingScheduleEdit(true)
+    try {
+      const res = await apiFetch(`/report-schedules/${scheduleToEdit.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ frequency: scheduleEditForm.frequency, recipients }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.message || "No se pudo guardar la programación")
+      }
+      setScheduleToEdit(null)
+      load()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error desconocido")
+    } finally {
+      setSavingScheduleEdit(false)
+    }
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="mb-8">
@@ -384,6 +438,9 @@ export default function AdminReportesPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Reportes Recientes</CardTitle>
+            {reports.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={() => { setHistoryPage(0); setHistoryOpen(true) }}>Ver todos</Button>
+            )}
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -392,7 +449,7 @@ export default function AdminReportesPage() {
               <p className="text-sm text-muted-foreground">Todavía no se ha generado ningún reporte.</p>
             ) : (
               <div className="space-y-3">
-                {reports.slice(0, 15).map((report) => {
+                {reports.slice(0, 5).map((report) => {
                   const status = STATUS_BADGE[report.status]
                   return (
                     <div key={report.id} className="flex items-center gap-4 rounded-lg border border-border p-4">
@@ -454,6 +511,9 @@ export default function AdminReportesPage() {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <Switch checked={schedule.active} onCheckedChange={() => toggleSchedule(schedule)} />
+                      <Button variant="ghost" size="icon" onClick={() => openScheduleEdit(schedule)} title="Editar">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => setScheduleToDelete(schedule)} title="Eliminar">
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
@@ -510,6 +570,75 @@ export default function AdminReportesPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Historial de reportes</DialogTitle>
+            <DialogDescription>Buscá un reporte ya generado antes de crear uno nuevo con los mismos filtros.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={historyTypeFilter || "ALL"} onValueChange={(v) => { setHistoryTypeFilter(v === "ALL" ? "" : (v as ReportType)); setHistoryPage(0) }}>
+              <SelectTrigger className="w-56"><SelectValue placeholder="Tipo" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Todos los tipos</SelectItem>
+                {REPORT_TYPES.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={historyStatusFilter || "ALL"} onValueChange={(v) => { setHistoryStatusFilter(v === "ALL" ? "" : (v as ReportStatus)); setHistoryPage(0) }}>
+              <SelectTrigger className="w-44"><SelectValue placeholder="Estado" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Todos los estados</SelectItem>
+                <SelectItem value="PENDING">Generando</SelectItem>
+                <SelectItem value="READY">Listo</SelectItem>
+                <SelectItem value="FAILED">Falló</SelectItem>
+              </SelectContent>
+            </Select>
+            {(historyTypeFilter || historyStatusFilter) && (
+              <Button variant="ghost" size="sm" onClick={clearHistoryFilters}>Eliminar filtros</Button>
+            )}
+          </div>
+          <div className="max-h-[50vh] space-y-2 overflow-auto">
+            {historyPageItems.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">No hay reportes para este filtro.</p>
+            ) : (
+              historyPageItems.map((report) => {
+                const status = STATUS_BADGE[report.status]
+                return (
+                  <div key={report.id} className="flex items-center gap-4 rounded-lg border border-border p-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary">
+                      <FileText className="h-4 w-4 text-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-medium text-foreground">{typeLabel(report.type)}</p>
+                        <Badge variant="outline" className={status.className}>{status.label}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {report.format} · {new Date(report.createdAt).toLocaleDateString("es-CO")} · {report.downloadCount} descargas
+                      </p>
+                    </div>
+                    {report.status === "READY" && (
+                      <Button variant="ghost" size="icon" onClick={() => download(report.id)} title="Descargar">
+                        <Download className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+          {historyPageCount > 1 && (
+            <div className="flex items-center justify-between pt-1">
+              <Button variant="outline" size="sm" disabled={historyPage === 0} onClick={() => setHistoryPage((p) => p - 1)}>Anterior</Button>
+              <span className="text-xs text-muted-foreground">Página {historyPage + 1} de {historyPageCount}</span>
+              <Button variant="outline" size="sm" disabled={historyPage >= historyPageCount - 1} onClick={() => setHistoryPage((p) => p + 1)}>Siguiente</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
         <DialogContent>
           <DialogHeader>
@@ -539,6 +668,39 @@ export default function AdminReportesPage() {
           </div>
           <DialogFooter>
             <Button onClick={createSchedule} disabled={creatingSchedule}>{creatingSchedule ? "Programando..." : "Programar"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(scheduleToEdit)} onOpenChange={(open) => !open && setScheduleToEdit(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar programación</DialogTitle>
+            <DialogDescription>{scheduleToEdit ? typeLabel(scheduleToEdit.type) : ""}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Frecuencia</Label>
+              <Select value={scheduleEditForm.frequency} onValueChange={(v) => setScheduleEditForm((f) => ({ ...f, frequency: v as "WEEKLY" | "MONTHLY" }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WEEKLY">Semanal (cada lunes)</SelectItem>
+                  <SelectItem value="MONTHLY">Mensual (día 1)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Destinatarios</Label>
+              <Input
+                value={scheduleEditForm.recipients}
+                onChange={(e) => setScheduleEditForm((f) => ({ ...f, recipients: e.target.value }))}
+                placeholder="rectoria@colegio.edu.co, secretaria@colegio.edu.co"
+              />
+              <p className="text-xs text-muted-foreground">Separá varios correos con comas.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={saveScheduleEdit} disabled={savingScheduleEdit}>{savingScheduleEdit ? "Guardando..." : "Guardar cambios"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

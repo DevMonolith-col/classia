@@ -9,7 +9,7 @@ import { PrismaService } from "../../core/prisma/prisma.service"
 import { StorageService } from "../../core/storage/storage.service"
 import { ReportCardsService } from "../report-cards/report-cards.service"
 import { PaymentsService } from "../payments/payments.service"
-import { CreateScheduleInput, GenerateReportInput, ReportFilters } from "./reports.schemas"
+import { CreateScheduleInput, GenerateReportInput, ReportFilters, UpdateScheduleInput } from "./reports.schemas"
 
 export const REPORTS_QUEUE = "reports"
 
@@ -140,6 +140,34 @@ export class ReportsService {
     } else {
       await this.removeScheduler(schedule.id)
     }
+    return updated
+  }
+
+  async updateSchedule(scheduleId: string, actor: RequestUser, data: UpdateScheduleInput, request: Request) {
+    const schedule = await this.findScheduleOrThrow(scheduleId, actor.tenantId)
+    const updated = await this.prisma.reportSchedule.update({
+      where: { id: scheduleId },
+      data: { frequency: data.frequency, recipients: data.recipients },
+    })
+    // El cron pattern depende de la frecuencia: si cambió, hay que re-registrar
+    // el scheduler en Redis (el anterior no se actualiza solo).
+    if (updated.active) {
+      await this.upsertScheduler(scheduleId, updated.frequency)
+    }
+
+    await this.audit.record({
+      tenantId: actor.tenantId,
+      userId: actor.id,
+      actorRole: actor.role,
+      action: "reports.schedule_updated",
+      entityType: "ReportSchedule",
+      entityId: scheduleId,
+      oldValues: { frequency: schedule.frequency, recipients: schedule.recipients },
+      newValues: { frequency: updated.frequency, recipients: updated.recipients },
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    })
+
     return updated
   }
 
