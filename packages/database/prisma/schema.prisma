@@ -496,6 +496,11 @@ model ReportCard {
   lines        ReportCardLine[]
   documentIssuances DocumentIssuance[]
 
+  // Un boletín por estudiante/año/periodo. Evita duplicados cuando dos generate()
+  // concurrentes hacen findFirst→miss→create a la vez. El caso anual (periodId
+  // NULL) se cubre con un índice parcial adicional en la migración, porque Postgres
+  // trata cada NULL como distinto y no lo bloquea con este unique.
+  @@unique([studentId, academicYearId, periodId])
   @@index([tenantId, studentId, academicYearId])
   @@map("report_cards")
 }

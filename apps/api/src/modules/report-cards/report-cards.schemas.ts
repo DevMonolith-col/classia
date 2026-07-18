@@ -16,6 +16,7 @@ export const generateReportCardSchema = z.object({
 export type GenerateReportCardInput = z.infer<typeof generateReportCardSchema>;
 
 export const generateBulkSchema = z.object({
+  tenantId: z.string().min(1).optional(), // requerido solo para admin global (SUPER_ADMIN/SUPPORT_AGENT)
   groupId: z.string().min(1).optional(), // ausente = todos los grupos del colegio
   academicYearId: z.string().min(1).optional(),
   periodId: z.string().min(1).optional(),
