@@ -21,7 +21,7 @@ export type LoginResult = {
 
 const ROLE_ROUTES: Record<string, string> = {
   SUPER_ADMIN: "/superadmin",
-  SUPPORT_AGENT: "/admin",
+  SUPPORT_AGENT: "/superadmin",
   TENANT_ADMIN: "/admin",
   PRINCIPAL: "/admin",
   COORDINATOR: "/admin",
@@ -59,7 +59,12 @@ export function setTokens(accessToken: string, refreshToken: string) {
 export function clearTokens() {
   deleteCookie("classia_at")
   deleteCookie("classia_rt")
-  if (typeof localStorage !== "undefined") localStorage.removeItem("classia_user")
+  if (typeof localStorage !== "undefined") {
+    localStorage.removeItem("classia_user")
+    localStorage.removeItem("classia_original_at")
+    localStorage.removeItem("classia_original_rt")
+    localStorage.removeItem("classia_original_user")
+  }
 }
 
 export function getAccessToken(): string | null {
