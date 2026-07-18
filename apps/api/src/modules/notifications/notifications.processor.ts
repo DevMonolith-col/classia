@@ -7,6 +7,19 @@ import { PrismaService } from "../../core/prisma/prisma.service";
 import { EmailService } from "./email/email.service";
 import { NOTIFICATIONS_QUEUE } from "./notifications.service";
 
+// El título/cuerpo de la notificación pueden ser contenido escrito por otro
+// usuario (p. ej. el preview de un mensaje). Sin escapar, un usuario podía
+// inyectar HTML/enlaces de phishing en un correo enviado desde el dominio del
+// colegio a la bandeja de la víctima.
+function escapeHtml(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 @Processor(NOTIFICATIONS_QUEUE)
 export class NotificationsProcessor extends WorkerHost {
   private readonly logger = new Logger(NotificationsProcessor.name);
@@ -50,10 +63,10 @@ export class NotificationsProcessor extends WorkerHost {
       to: user.email,
       subject: delivery.notification.title,
       html:
-        `<p>Hola ${user.firstName},</p>` +
-        `<p><strong>${delivery.notification.title}</strong></p>` +
-        `<p>${delivery.notification.body}</p>` +
-        `<p><a href="${webUrl}">Ver en Classia</a></p>`,
+        `<p>Hola ${escapeHtml(user.firstName)},</p>` +
+        `<p><strong>${escapeHtml(delivery.notification.title)}</strong></p>` +
+        `<p>${escapeHtml(delivery.notification.body)}</p>` +
+        `<p><a href="${escapeHtml(webUrl)}">Ver en Classia</a></p>`,
     });
 
     if (result.status === "sent") {
