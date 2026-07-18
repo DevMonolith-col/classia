@@ -103,6 +103,8 @@ model User {
   notifications           Notification[]
   notificationPreferences NotificationPreference[]
   assignedSupportTickets  SupportTicket[]           @relation("SupportTicketAssignee")
+  authoredSupportTickets  SupportTicket[]           @relation("SupportTicketAuthor")
+  authoredTicketComments  TicketComment[]           @relation("TicketCommentAuthor")
 
   @@map("users")
 }
@@ -828,10 +830,13 @@ model SupportTicket {
   priority    TicketPriority @default(MEDIUM)
   category    String         
   
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  attachmentKey  String?
+  attachmentName String?
 
   tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  author      User           @relation("SupportTicketAuthor", fields: [authorId], references: [id])
   assignee    User?          @relation("SupportTicketAssignee", fields: [assigneeId], references: [id])
   comments    TicketComment[]
 
@@ -851,6 +856,7 @@ model TicketComment {
   createdAt      DateTime      @default(now())
 
   ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author      User          @relation("TicketCommentAuthor", fields: [authorId], references: [id])
   
   @@index([ticketId])
   @@map("ticket_comments")
