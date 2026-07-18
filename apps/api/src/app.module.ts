@@ -43,6 +43,7 @@ import { TenantsModule } from "./modules/tenants/tenants.module";
 import { UsersModule } from "./modules/users/users.module";
 import { SupportModule } from "./modules/support/support.module";
 import { SettingsModule } from "./modules/settings/settings.module";
+import { ElectionsModule } from "./modules/elections/elections.module";
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { SettingsModule } from "./modules/settings/settings.module";
     AuditModule,
     SupportModule,
     SettingsModule,
+    ElectionsModule,
   ],
   providers: [
     {
