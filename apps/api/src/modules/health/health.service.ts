@@ -38,10 +38,20 @@ export class HealthService {
       redisStatus = "down";
     }
 
-    const [openTickets, closedTickets] = await Promise.all([
-      this.prisma.supportTicket.count({ where: { status: { in: ["OPEN", "IN_PROGRESS", "WAITING_ON_CUSTOMER"] } } }),
-      this.prisma.supportTicket.count({ where: { status: { in: ["RESOLVED", "CLOSED"] } } })
-    ]);
+    let openTickets = 0;
+    let closedTickets = 0;
+    if (dbStatus === "up") {
+      try {
+        const counts = await Promise.all([
+          this.prisma.supportTicket.count({ where: { status: { in: ["OPEN", "IN_PROGRESS", "WAITING_ON_CUSTOMER"] } } }),
+          this.prisma.supportTicket.count({ where: { status: { in: ["RESOLVED", "CLOSED"] } } })
+        ]);
+        openTickets = counts[0];
+        closedTickets = counts[1];
+      } catch (err) {
+        // Ignore DB errors for stats
+      }
+    }
 
     return {
       api: { status: "up" },

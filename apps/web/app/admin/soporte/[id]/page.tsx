@@ -32,6 +32,8 @@ export default function AdminTicketDetail() {
   const [reply, setReply] = useState("")
   const [replying, setReplying] = useState(false)
   const [attachment, setAttachment] = useState<File | null>(null)
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
+  const [socket, setSocket] = useState<Socket | null>(null)
 
   const fetchTicket = async () => {
     try {
@@ -51,16 +53,17 @@ export default function AdminTicketDetail() {
     const token = getAccessToken()
     if (!token) return
 
-    const socket: Socket = io(`${API_URL}/support`, {
+    const newSocket: Socket = io(`${API_URL}/support`, {
       auth: { token },
       transports: ["websocket"],
     })
+    setSocket(newSocket)
 
-    socket.on("connect", () => {
-      socket.emit("ticket:join", { ticketId: id })
+    newSocket.on("connect", () => {
+      newSocket.emit("ticket:join", { ticketId: id })
     })
 
-    socket.on("ticket:comment", (payload) => {
+    newSocket.on("ticket:comment", (payload) => {
       if (payload.ticketId === id) {
         setTicket((prev: any) => {
           if (!prev) return prev
@@ -70,9 +73,20 @@ export default function AdminTicketDetail() {
       }
     })
 
+    newSocket.on("typing", (payload) => {
+      if (payload.ticketId === id) {
+        setTypingUsers(prev => {
+          const next = new Set(prev)
+          if (payload.isTyping) next.add(payload.userId)
+          else next.delete(payload.userId)
+          return next
+        })
+      }
+    })
+
     return () => {
-      socket.emit("ticket:leave", { ticketId: id })
-      socket.disconnect()
+      newSocket.emit("ticket:leave", { ticketId: id })
+      newSocket.disconnect()
     }
   }, [id])
 
@@ -183,6 +197,17 @@ export default function AdminTicketDetail() {
               </div>
             )
           })}
+          
+          {typingUsers.size > 0 && (
+            <div className="text-sm text-muted-foreground italic flex items-center gap-2 px-4 py-2">
+              <span className="flex gap-1">
+                <span className="animate-bounce">.</span>
+                <span className="animate-bounce delay-75">.</span>
+                <span className="animate-bounce delay-150">.</span>
+              </span>
+              El equipo de soporte está escribiendo...
+            </div>
+          )}
         </div>
       )}
 
@@ -197,7 +222,16 @@ export default function AdminTicketDetail() {
               placeholder="Escribe tu mensaje..."
               className="min-h-[100px]"
               value={reply}
-              onChange={e => setReply(e.target.value)}
+              onChange={e => {
+                setReply(e.target.value)
+                if (socket) {
+                  socket.emit("typing:start", { ticketId: id })
+                  clearTimeout((window as any).typingTimeout)
+                  ;(window as any).typingTimeout = setTimeout(() => {
+                    socket.emit("typing:stop", { ticketId: id })
+                  }, 1500)
+                }
+              }}
             />
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
