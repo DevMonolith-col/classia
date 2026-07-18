@@ -36,6 +36,7 @@ import Link from "next/link"
 import { io, Socket } from "socket.io-client"
 import { API_URL } from "@/lib/env"
 import { getAccessToken } from "@/lib/auth"
+import { attachTokenRefresh } from "@/lib/socket"
 
 type TicketStatus = "OPEN" | "IN_PROGRESS" | "WAITING_ON_CUSTOMER" | "RESOLVED" | "CLOSED"
 type TicketPriority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
@@ -123,6 +124,7 @@ export default function SuperAdminSupportPage() {
         auth: { token },
         transports: ["websocket"],
       })
+      attachTokenRefresh(newSocket)
       newSocket.on("connect", () => newSocket?.emit("dashboard:join"))
       newSocket.on("ticket:created", () => fetchTickets())
       newSocket.on("ticket:updated", () => fetchTickets())

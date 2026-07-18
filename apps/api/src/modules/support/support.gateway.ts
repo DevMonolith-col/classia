@@ -8,13 +8,23 @@ import {
   OnGatewayDisconnect,
 } from "@nestjs/websockets";
 import { UseGuards, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { JwtService } from "@nestjs/jwt";
+import { UserRole } from "@prisma/client";
 import { Server, Socket } from "socket.io";
-import { WsJwtGuard } from "../../common/guards/ws-jwt.guard";
+import { WsJwtGuard, verifyAndDecodeToken } from "../../common/guards/ws-jwt.guard";
 import { OnEvent } from "@nestjs/event-emitter";
 import { SupportService } from "./support.service";
 
-function isSupportStaff(role: string) {
-  return role === "SUPER_ADMIN" || role === "SUPPORT_SUPERVISOR" || role === "SUPPORT_AGENT";
+function isSupportStaff(role: UserRole) {
+  return role === UserRole.SUPER_ADMIN || role === UserRole.SUPPORT_SUPERVISOR || role === UserRole.SUPPORT_AGENT;
+}
+
+function extractToken(client: Socket): string | undefined {
+  return (
+    (client.handshake.auth?.token as string | undefined) ||
+    client.handshake.headers?.authorization?.replace("Bearer ", "")
+  );
 }
 
 @WebSocketGateway({ namespace: "support" })
@@ -25,16 +35,62 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   private logger = new Logger(SupportGateway.name);
 
-  constructor(private readonly supportService: SupportService) {}
+  // Timers que expulsan al cliente en cuanto su JWT expira (los sockets no
+  // reciben un 401 solos: sin esto, un cliente puede quedar "conectado" con
+  // un token vencido indefinidamente).
+  private expiryTimers = new Map<string, NodeJS.Timeout>();
 
-  handleConnection(client: Socket) {
-    // Check if token is invalid, but WsJwtGuard applies at the class level for SubscribeMessage.
-    // For pure connection, we can just allow it and let SubscribeMessage reject,
-    // or manually verify here. WsJwtGuard handles messages well.
+  constructor(
+    private readonly supportService: SupportService,
+    private readonly jwt: JwtService,
+    private readonly config: ConfigService,
+  ) {}
+
+  async handleConnection(client: Socket) {
+    // Verificación activa del JWT al conectar: sin esto, cualquiera podía
+    // abrir el socket sin credenciales válidas y quedarse conectado
+    // indefinidamente (solo se rechazaba al primer @SubscribeMessage), lo
+    // que permite agotar memoria del servidor con conexiones anónimas.
+    const token = extractToken(client);
+    if (!token) {
+      client.disconnect(true);
+      return;
+    }
+
+    try {
+      client.data.user = await verifyAndDecodeToken(token, this.jwt, this.config);
+    } catch {
+      client.disconnect(true);
+      return;
+    }
+
+    this.scheduleExpiry(client, token);
   }
 
   handleDisconnect(client: Socket) {
-    // Clean up if needed
+    const timer = this.expiryTimers.get(client.id);
+    if (timer) {
+      clearTimeout(timer);
+      this.expiryTimers.delete(client.id);
+    }
+  }
+
+  private scheduleExpiry(client: Socket, token: string) {
+    const decoded = this.jwt.decode(token) as { exp?: number } | null;
+    if (!decoded?.exp) return;
+
+    const msUntilExpiry = decoded.exp * 1000 - Date.now();
+    if (msUntilExpiry <= 0) {
+      client.disconnect(true);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      client.emit("token_expired");
+      client.disconnect(true);
+    }, msUntilExpiry);
+
+    this.expiryTimers.set(client.id, timer);
   }
 
   @SubscribeMessage("ticket:join")

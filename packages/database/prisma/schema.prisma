@@ -616,20 +616,24 @@ enum ConversationType {
 }
 
 model Conversation {
-  id          String           @id @default(uuid())
-  tenantId    String
-  type        ConversationType @default(DIRECT)
-  title       String? // requerido para type = GROUP
-  groupId     String? // curso de origen, si el hilo se derivó de un curso
-  subjectId   String? // materia de origen, si aplica
-  createdById String
-  createdAt   DateTime         @default(now())
-  archivedAt  DateTime?
+  id            String           @id @default(uuid())
+  tenantId      String
+  type          ConversationType @default(DIRECT)
+  title         String? // requerido para type = GROUP
+  groupId       String? // curso de origen, si el hilo se derivó de un curso
+  subjectId     String? // materia de origen, si aplica
+  createdById   String
+  createdAt     DateTime         @default(now())
+  archivedAt    DateTime?
+  lastMessageAt DateTime         @default(now()) // evita traer todos los mensajes solo para ordenar/previsualizar la lista
+  directKey     String?          // clave determinística "userIdMenor:userIdMayor" solo para type = DIRECT; delega el control de concurrencia de "crear si no existe" a la BD
 
   members  ConversationMember[]
   messages ConversationMessage[]
 
+  @@unique([tenantId, directKey])
   @@index([tenantId, type])
+  @@index([tenantId, lastMessageAt])
   @@map("conversations")
 }
 
