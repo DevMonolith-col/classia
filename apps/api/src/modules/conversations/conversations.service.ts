@@ -36,11 +36,13 @@ export class ConversationsService {
   // ─── Lectura ────────────────────────────────────────────────────────────────
 
   async listConversations(actor: RequestUser) {
+    const isSuperAdmin = actor.role === UserRole.SUPER_ADMIN;
+    
     const conversations = await this.prisma.conversation.findMany({
       where: {
         tenantId: actor.tenantId,
         archivedAt: null,
-        members: { some: { userId: actor.id } },
+        ...(isSuperAdmin ? {} : { members: { some: { userId: actor.id } } }),
       },
       select: this.conversationSelect(actor.tenantId),
     });
@@ -65,7 +67,7 @@ export class ConversationsService {
       return this.fetchContactUsers(actor.tenantId, [...guardianUserIds, ...adminUserIds], actor.id);
     }
 
-    if (this.isAdminStaff(actor.role)) {
+    if (this.isAdminStaff(actor.role) || actor.role === UserRole.SUPER_ADMIN) {
       const memberships = await this.prisma.tenantMembership.findMany({
         where: {
           tenantId: actor.tenantId,

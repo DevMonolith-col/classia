@@ -231,45 +231,41 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
   )
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="lg:pl-64">
-        <div className="p-4 lg:p-6">
-          {loading ? (
-            <div className="flex h-[calc(100vh-4rem)] items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
-              Cargando conversaciones…
-            </div>
-          ) : error ? (
-            <div className="flex h-[calc(100vh-4rem)] flex-col items-center justify-center gap-3 rounded-xl border border-border bg-card">
-              <p className="text-sm text-muted-foreground">
-                No se pudieron cargar las conversaciones.
-              </p>
-              <button
-                onClick={() => {
-                  setLoading(true)
-                  void loadData()
-                }}
-                className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-600"
-              >
-                Reintentar
-              </button>
-            </div>
-          ) : (
-            <ChatInterface
-              conversations={conversations}
-              contacts={contacts}
-              currentUserId={currentUserId}
-              userRole={userRole}
-              activeConversationId={activeConversationId}
-              canBroadcast={canBroadcast}
-              broadcastTargets={broadcastTargets}
-              onSendMessage={handleSendMessage}
-              onOpenConversation={handleOpenConversation}
-              onStartConversation={handleStartConversation}
-              onBroadcast={handleBroadcast}
-            />
-          )}
+    <div className="p-4 lg:p-6 h-[calc(100vh-4rem)] lg:h-screen">
+      {loading ? (
+        <div className="flex h-full items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
+          Cargando conversaciones…
         </div>
-      </main>
+      ) : error ? (
+        <div className="flex h-full flex-col items-center justify-center gap-3 rounded-xl border border-border bg-card">
+          <p className="text-sm text-muted-foreground">
+            No se pudieron cargar las conversaciones.
+          </p>
+          <button
+            onClick={() => {
+              setLoading(true)
+              void loadData()
+            }}
+            className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-600"
+          >
+            Reintentar
+          </button>
+        </div>
+      ) : (
+        <ChatInterface
+          conversations={conversations}
+          contacts={contacts}
+          currentUserId={currentUserId}
+          userRole={userRole}
+          activeConversationId={activeConversationId}
+          canBroadcast={canBroadcast}
+          broadcastTargets={broadcastTargets}
+          onSendMessage={handleSendMessage}
+          onOpenConversation={handleOpenConversation}
+          onStartConversation={handleStartConversation}
+          onBroadcast={handleBroadcast}
+        />
+      )}
     </div>
   )
 }

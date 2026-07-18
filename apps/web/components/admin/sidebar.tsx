@@ -208,7 +208,7 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
                             className={[
                               "flex items-center gap-2 truncate rounded-md px-3 py-2 text-xs font-medium transition-colors",
                               childActive
-                                ? "bg-primary/10 text-primary font-semibold"
+                                ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
                                 : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                             ].join(" ")}
                           >

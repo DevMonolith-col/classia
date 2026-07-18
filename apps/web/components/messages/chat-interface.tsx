@@ -245,7 +245,7 @@ export function ChatInterface({
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] lg:h-[calc(100vh-2rem)] overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <div className="flex h-full w-full overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       {/* Conversation List - iOS Style */}
       <div
         className={cn(
