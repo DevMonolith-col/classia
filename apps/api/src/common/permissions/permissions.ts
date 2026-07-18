@@ -88,6 +88,11 @@ export const PERMISSIONS = {
   // Documentos y certificados
   DOCUMENTS_MANAGE: "documents:manage", // emitir, revocar, administrar plantillas
   DOCUMENTS_READ_SELF: "documents:read-self", // descargar los propios certificados emitidos
+  // Pagos
+  PAYMENTS_MANAGE: "payments:manage", // conceptos de cobro, registrar/cancelar pagos
+  PAYMENTS_READ_SELF: "payments:read-self", // ver el propio estado de cuenta (guardián/estudiante)
+  // Reportes
+  REPORTS_MANAGE: "reports:manage", // generar, previsualizar, programar reportes
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -163,6 +168,8 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.ELECTIONS_MANAGE,
     PERMISSIONS.ELECTIONS_MONITOR,
     PERMISSIONS.DOCUMENTS_MANAGE,
+    PERMISSIONS.PAYMENTS_MANAGE,
+    PERMISSIONS.REPORTS_MANAGE,
   ],
   TENANT_ADMIN: [
     PERMISSIONS.TENANTS_READ,
@@ -241,6 +248,8 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.ELECTIONS_MANAGE,
     PERMISSIONS.ELECTIONS_MONITOR,
     PERMISSIONS.DOCUMENTS_MANAGE,
+    PERMISSIONS.PAYMENTS_MANAGE,
+    PERMISSIONS.REPORTS_MANAGE,
   ],
   PRINCIPAL: [
     PERMISSIONS.TENANTS_READ,
@@ -310,6 +319,8 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.ANNOUNCEMENTS_DELETE,
     PERMISSIONS.ELECTIONS_MANAGE,
     PERMISSIONS.ELECTIONS_MONITOR,
+    PERMISSIONS.PAYMENTS_MANAGE,
+    PERMISSIONS.REPORTS_MANAGE,
   ],
   COORDINATOR: [
     PERMISSIONS.TENANTS_READ,
@@ -447,6 +458,8 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.ANNOUNCEMENTS_CREATE,
     PERMISSIONS.ANNOUNCEMENTS_DELETE,
     PERMISSIONS.DOCUMENTS_MANAGE,
+    PERMISSIONS.PAYMENTS_MANAGE,
+    PERMISSIONS.REPORTS_MANAGE,
   ],
   TEACHER: [
     PERMISSIONS.STUDENTS_LIST,
@@ -508,6 +521,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.ANNOUNCEMENTS_LIST,
     PERMISSIONS.ANNOUNCEMENTS_READ,
     PERMISSIONS.DOCUMENTS_READ_SELF,
+    PERMISSIONS.PAYMENTS_READ_SELF,
   ],
   STUDENT: [
     PERMISSIONS.HOMEWORK_LIST,
@@ -528,6 +542,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.ANNOUNCEMENTS_READ,
     PERMISSIONS.ELECTIONS_VOTE,
     PERMISSIONS.DOCUMENTS_READ_SELF,
+    PERMISSIONS.PAYMENTS_READ_SELF,
   ],
   SUPPORT_AGENT: [
     PERMISSIONS.TENANTS_LIST,
