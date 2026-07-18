@@ -9,6 +9,10 @@ export class ImpersonationAuditInterceptor implements NestInterceptor {
   constructor(private readonly audit: AuditService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    if (context.getType() !== 'http') {
+      return next.handle();
+    }
+    
     const request = context.switchToHttp().getRequest<Request>();
     
     return next.handle().pipe(

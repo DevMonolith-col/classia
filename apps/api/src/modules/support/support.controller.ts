@@ -12,6 +12,7 @@ import {
   assignTicketSchema,
   AssignTicketDto
 } from "./support.schemas"
+import { ParseUUIDPipe } from "@nestjs/common"
 
 @Controller("support")
 @UseGuards(JwtAuthGuard)
@@ -43,7 +44,7 @@ export class SupportController {
   }
 
   @Get("tickets/:id")
-  async getTicketDetails(@Req() req: any, @Param("id") ticketId: string) {
+  async getTicketDetails(@Req() req: any, @Param("id", ParseUUIDPipe) ticketId: string) {
     const isSuperAdmin = req.user.role === "SUPER_ADMIN" || req.user.role === "SUPPORT_AGENT"
     return this.supportService.getTicketDetails(ticketId, isSuperAdmin, req.user.tenantId)
   }
@@ -51,7 +52,7 @@ export class SupportController {
   @Patch("tickets/:id/status")
   async updateTicketStatus(
     @Req() req: any,
-    @Param("id") ticketId: string,
+    @Param("id", ParseUUIDPipe) ticketId: string,
     @Body(new ZodValidationPipe(updateTicketStatusSchema)) data: UpdateTicketStatusDto
   ) {
     if (req.user.role !== "SUPER_ADMIN" && req.user.role !== "SUPPORT_AGENT") {
@@ -63,7 +64,7 @@ export class SupportController {
   @Post("tickets/:id/comments")
   async addComment(
     @Req() req: any,
-    @Param("id") ticketId: string,
+    @Param("id", ParseUUIDPipe) ticketId: string,
     @Body(new ZodValidationPipe(createCommentSchema)) data: CreateCommentDto
   ) {
     const isSuperAdmin = req.user.role === "SUPER_ADMIN" || req.user.role === "SUPPORT_AGENT"
@@ -81,7 +82,7 @@ export class SupportController {
   @Patch("tickets/:id/assign")
   async assignTicket(
     @Req() req: any,
-    @Param("id") ticketId: string,
+    @Param("id", ParseUUIDPipe) ticketId: string,
     @Body(new ZodValidationPipe(assignTicketSchema)) data: AssignTicketDto
   ) {
     if (req.user.role !== "SUPER_ADMIN" && req.user.role !== "SUPPORT_AGENT") {
