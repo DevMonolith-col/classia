@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
@@ -202,33 +202,46 @@ export class ReportCardsService {
     }
 
     const overall = computed.overallAverage ?? 0;
-    const card = await this.prisma.$transaction(async (tx) => {
-      if (existing) await tx.reportCard.delete({ where: { id: existing.id } });
-      return tx.reportCard.create({
-        data: {
-          tenantId: student.tenantId,
-          studentId: input.studentId,
-          academicYearId: computed.academicYearId,
-          periodId: computed.periodId,
-          status: input.status ?? "PUBLISHED",
-          overallAverage: overall,
-          scaleName: computed.scaleName,
-          generatedById: actor.id,
-          lines: {
-            create: computed.lines
-              .filter((l) => l.final !== null)
-              .map((l) => ({
-                subjectId: l.subjectId,
-                subjectName: l.subjectName,
-                final: l.final as number,
-                label: l.label ?? "",
-                passing: l.passing ?? false,
-              })),
+    const buildCard = () =>
+      this.prisma.$transaction(async (tx) => {
+        if (existing) await tx.reportCard.delete({ where: { id: existing.id } });
+        return tx.reportCard.create({
+          data: {
+            tenantId: student.tenantId,
+            studentId: input.studentId,
+            academicYearId: computed.academicYearId,
+            periodId: computed.periodId,
+            status: input.status ?? "PUBLISHED",
+            overallAverage: overall,
+            scaleName: computed.scaleName,
+            generatedById: actor.id,
+            lines: {
+              create: computed.lines
+                .filter((l) => l.final !== null)
+                .map((l) => ({
+                  subjectId: l.subjectId,
+                  subjectName: l.subjectName,
+                  final: l.final as number,
+                  label: l.label ?? "",
+                  passing: l.passing ?? false,
+                })),
+            },
           },
-        },
-        select: this.cardSelect(),
+          select: this.cardSelect(),
+        });
       });
-    });
+
+    let card: Awaited<ReturnType<typeof buildCard>>;
+    try {
+      card = await buildCard();
+    } catch (err) {
+      // El @@unique([studentId, academicYearId, periodId]) hace que dos generate()
+      // concurrentes del mismo boletín no puedan duplicar: el segundo choca aquí.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        throw new ConflictException("El boletín se está generando en paralelo; reintenta.");
+      }
+      throw err;
+    }
 
     await this.audit.record({
       tenantId: student.tenantId,
@@ -251,18 +264,31 @@ export class ReportCardsService {
    * reportan como omitidos en vez de abortar el lote completo.
    */
   async generateBulk(
-    input: { groupId?: string; academicYearId?: string; periodId?: string; status?: "DRAFT" | "PUBLISHED" | "FINAL" },
+    input: { tenantId?: string; groupId?: string; academicYearId?: string; periodId?: string; status?: "DRAFT" | "PUBLISHED" | "FINAL" },
     actor: RequestUser,
     request: Request,
   ) {
-    if (!actor.tenantId && !this.isGlobalAdmin(actor)) {
-      throw new ForbiddenException("Tenant is required.");
+    // Tenant efectivo: un admin del colegio siempre usa el suyo; un admin global
+    // (sin tenantId propio) DEBE pasar uno explícito. Sin esto, el findMany corría
+    // sin filtro de tenant y generaba/sobrescribía boletines de TODOS los colegios.
+    let targetTenantId: string;
+    if (this.isGlobalAdmin(actor)) {
+      if (!input.tenantId) {
+        throw new ForbiddenException("Un administrador global debe indicar el colegio (tenantId).");
+      }
+      targetTenantId = input.tenantId;
+    } else {
+      if (!actor.tenantId) throw new ForbiddenException("Tenant is required.");
+      if (input.tenantId && input.tenantId !== actor.tenantId) {
+        throw new ForbiddenException("Tenant is outside of current context.");
+      }
+      targetTenantId = actor.tenantId;
     }
 
     const students = await this.prisma.student.findMany({
       where: {
         isActive: true,
-        ...(actor.tenantId ? { tenantId: actor.tenantId } : {}),
+        tenantId: targetTenantId,
         ...(input.groupId ? { groupId: input.groupId } : { groupId: { not: null } }),
       },
       select: { id: true, firstName: true, lastName: true },
