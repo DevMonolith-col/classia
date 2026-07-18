@@ -7,7 +7,7 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from "@nestjs/websockets";
-import { UseGuards } from "@nestjs/common";
+import { UseGuards, Logger } from "@nestjs/common";
 import { Server, Socket } from "socket.io";
 import { WsJwtGuard } from "../../common/guards/ws-jwt.guard";
 import { OnEvent } from "@nestjs/event-emitter";
@@ -17,7 +17,9 @@ import { SupportService } from "./support.service";
 @UseGuards(WsJwtGuard)
 export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
+
+  private logger = new Logger(SupportGateway.name);
 
   constructor(private readonly supportService: SupportService) {}
 
