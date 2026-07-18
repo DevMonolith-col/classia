@@ -45,6 +45,9 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
     try {
       await this.supportService.getTicketDetails(payload.ticketId, isSuperAdmin, user.tenantId);
       void client.join(`ticket:${payload.ticketId}`);
+      if (isSuperAdmin) {
+        void client.join(`ticket:${payload.ticketId}:internal`);
+      }
     } catch {
       // Ignore if unauthorized
     }
@@ -56,6 +59,7 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @MessageBody() payload: { ticketId: string }
   ) {
     void client.leave(`ticket:${payload.ticketId}`);
+    void client.leave(`ticket:${payload.ticketId}:internal`);
   }
 
   @SubscribeMessage("typing:start")
@@ -84,6 +88,10 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   @OnEvent("support.comment.added")
   handleCommentAdded(payload: { ticketId: string; comment: any }) {
-    this.server.to(`ticket:${payload.ticketId}`).emit("ticket:comment", payload);
+    if (payload.comment.isInternal) {
+      this.server.to(`ticket:${payload.ticketId}:internal`).emit("ticket:comment", payload);
+    } else {
+      this.server.to(`ticket:${payload.ticketId}`).emit("ticket:comment", payload);
+    }
   }
 }

@@ -39,6 +39,8 @@ export default function SuperAdminTicketDetail() {
   const [agents, setAgents] = useState<any[]>([])
   const [assigning, setAssigning] = useState(false)
   const [impersonating, setImpersonating] = useState(false)
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
+  const [socket, setSocket] = useState<Socket | null>(null)
 
   const fetchTicketAndAgents = async () => {
     try {
@@ -64,16 +66,17 @@ export default function SuperAdminTicketDetail() {
     const token = getAccessToken()
     if (!token) return
 
-    const socket: Socket = io(`${API_URL}/support`, {
+    const newSocket: Socket = io(`${API_URL}/support`, {
       auth: { token },
       transports: ["websocket"],
     })
+    setSocket(newSocket)
 
-    socket.on("connect", () => {
-      socket.emit("ticket:join", { ticketId: id })
+    newSocket.on("connect", () => {
+      newSocket.emit("ticket:join", { ticketId: id })
     })
 
-    socket.on("ticket:comment", (payload) => {
+    newSocket.on("ticket:comment", (payload) => {
       if (payload.ticketId === id) {
         setTicket((prev: any) => {
           if (!prev) return prev
@@ -84,9 +87,20 @@ export default function SuperAdminTicketDetail() {
       }
     })
 
+    newSocket.on("typing", (payload) => {
+      if (payload.ticketId === id) {
+        setTypingUsers(prev => {
+          const next = new Set(prev)
+          if (payload.isTyping) next.add(payload.userId)
+          else next.delete(payload.userId)
+          return next
+        })
+      }
+    })
+
     return () => {
-      socket.emit("ticket:leave", { ticketId: id })
-      socket.disconnect()
+      newSocket.emit("ticket:leave", { ticketId: id })
+      newSocket.disconnect()
     }
   }, [id])
 
@@ -283,6 +297,17 @@ export default function SuperAdminTicketDetail() {
             )}
           </div>
         ))}
+        
+        {typingUsers.size > 0 && (
+          <div className="text-sm text-muted-foreground italic flex items-center gap-2 px-4 py-2">
+            <span className="flex gap-1">
+              <span className="animate-bounce">.</span>
+              <span className="animate-bounce delay-75">.</span>
+              <span className="animate-bounce delay-150">.</span>
+            </span>
+            El cliente está escribiendo...
+          </div>
+        )}
       </div>
 
       <Card className="mt-8 border-primary/20 shadow-sm sticky bottom-4">
@@ -298,7 +323,16 @@ export default function SuperAdminTicketDetail() {
             placeholder={isInternal ? "Escribe una nota para tu equipo técnico..." : "Escribe tu respuesta al colegio..."}
             className={`min-h-[100px] ${isInternal ? 'bg-amber-50/50 focus-visible:ring-amber-500' : ''}`}
             value={reply}
-            onChange={e => setReply(e.target.value)}
+            onChange={e => {
+              setReply(e.target.value)
+              if (socket && !isInternal) {
+                socket.emit("typing:start", { ticketId: id })
+                clearTimeout((window as any).typingTimeout)
+                ;(window as any).typingTimeout = setTimeout(() => {
+                  socket.emit("typing:stop", { ticketId: id })
+                }, 1500)
+              }
+            }}
           />
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
