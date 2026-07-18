@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import {
   Home, BookOpen, ClipboardList, Calendar,
-  MessageSquare, FileText, Bell, Settings,
+  MessageSquare, FileText, Bell, Settings, FileCheck2,
   LogOut, Menu, X, Megaphone,
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
@@ -21,6 +21,7 @@ const navigation = [
   { name: "Tareas",          href: "/familia/tareas",        icon: FileText },
   { name: "Horario",         href: "/familia/horario",       icon: Calendar },
   { name: "Asistencia",      href: "/familia/asistencia",    icon: BookOpen },
+  { name: "Certificados",    href: "/familia/certificados",  icon: FileCheck2 },
   { name: "Mensajes",        href: "/familia/mensajes",      icon: MessageSquare },
   { name: "Comunicados",     href: "/familia/comunicados",   icon: Megaphone },
   { name: "Notificaciones",  href: "/familia/notificaciones",icon: Bell },
