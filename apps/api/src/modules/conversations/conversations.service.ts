@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { ConversationType, MembershipStatus, UserRole } from "@prisma/client";
+import { ConversationType, MembershipStatus, Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
@@ -64,7 +64,10 @@ export class ConversationsService {
       select: this.conversationSelect(actor.tenantId),
     });
 
-    return conversations.map((conversation) => this.mapConversation(conversation, actor));
+    const unread = await this.unreadCountsFor(actor.id, conversations.map((c) => c.id));
+    return conversations.map((conversation) =>
+      this.mapConversation(conversation, actor, unread.get(conversation.id) ?? 0),
+    );
   }
 
   async listContacts(actor: RequestUser): Promise<ContactUser[]> {
@@ -409,7 +412,9 @@ export class ConversationsService {
 
   private async resolveGroupGuardianUserIds(tenantId: string, groupId: string): Promise<string[]> {
     const links = await this.prisma.studentGuardian.findMany({
-      where: { student: { tenantId, groupId } },
+      // isActive: true evita que la familia de un alumno retirado (cuyo
+      // StudentGuardian sigue existiendo) reciba el hilo del broadcast.
+      where: { student: { tenantId, groupId, isActive: true } },
       select: { guardian: { select: { userId: true } } },
     });
     return links.map((link) => link.guardian.userId);
@@ -515,16 +520,34 @@ export class ConversationsService {
       where: { id: conversationId },
       select: this.conversationSelect(actor.tenantId),
     });
-    return this.mapConversation(conversation, actor);
+    const unread = await this.unreadCountsFor(actor.id, [conversationId]);
+    return this.mapConversation(conversation, actor, unread.get(conversationId) ?? 0);
+  }
+
+  // Conteo de no leídos EXACTO por conversación en una sola query. Antes se contaba
+  // sobre los mensajes ya cargados (tope MESSAGE_PAGE_SIZE=50), así que con más de
+  // 50 sin leer el contador se topaba en 50. El corte usa lastReadAt del miembro.
+  private async unreadCountsFor(actorId: string, conversationIds: string[]): Promise<Map<string, number>> {
+    if (conversationIds.length === 0) return new Map();
+    const rows = await this.prisma.$queryRaw<Array<{ conversationId: string; unread: number }>>(Prisma.sql`
+      SELECT m."conversationId" AS "conversationId", COUNT(*)::int AS unread
+      FROM conversation_messages m
+      JOIN conversation_members mem
+        ON mem."conversationId" = m."conversationId" AND mem."userId" = ${actorId}
+      WHERE m."conversationId" IN (${Prisma.join(conversationIds)})
+        AND m."deletedAt" IS NULL
+        AND m."fromId" <> ${actorId}
+        AND (mem."lastReadAt" IS NULL OR m."createdAt" > mem."lastReadAt")
+      GROUP BY m."conversationId"
+    `);
+    return new Map(rows.map((r) => [r.conversationId, Number(r.unread)]));
   }
 
   private mapConversation(
     conversation: ConversationWithRelations,
     actor: RequestUser,
+    unreadCount: number,
   ) {
-    const myMember = conversation.members.find((member) => member.userId === actor.id);
-    const lastReadAt = myMember?.lastReadAt ?? null;
-
     const participants = conversation.members.map((member) => ({
       id: member.user.id,
       firstName: member.user.firstName,
@@ -532,10 +555,6 @@ export class ConversationsService {
       role: member.user.memberships[0]?.role ?? null,
     }));
     const otherParticipants = participants.filter((participant) => participant.id !== actor.id);
-
-    const unreadCount = conversation.messages.filter(
-      (message) => message.fromId !== actor.id && (!lastReadAt || message.createdAt > lastReadAt),
-    ).length;
 
     return {
       id: conversation.id,
