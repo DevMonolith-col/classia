@@ -26,17 +26,28 @@ export const toggleScheduleSchema = z.object({
 })
 export type ToggleScheduleInput = z.infer<typeof toggleScheduleSchema>
 
-export const createScheduleSchema = z.object({
-  type: z.enum(REPORT_TYPES),
-  format: z.enum(REPORT_FORMATS),
-  filters: reportFiltersSchema.default({}),
-  frequency: z.enum(["WEEKLY", "MONTHLY"]),
-  recipients: z.array(z.string().email()).min(1).max(20),
-})
+// DAYS: se repite cada intervalValue días (7 = semanal, 15 = quincenal...).
+// MONTHLY: se repite cada intervalValue meses, el día dayOfMonth - acotado a
+// 1-28 para no toparse con meses cortos (ni todos los meses tienen día 30/31).
+const recurrenceSchema = z
+  .discriminatedUnion("frequencyType", [
+    z.object({ frequencyType: z.literal("DAYS"), intervalValue: z.coerce.number().int().min(1).max(180) }),
+    z.object({
+      frequencyType: z.literal("MONTHLY"),
+      intervalValue: z.coerce.number().int().min(1).max(12),
+      dayOfMonth: z.coerce.number().int().min(1).max(28),
+    }),
+  ])
+
+export const createScheduleSchema = z
+  .object({
+    type: z.enum(REPORT_TYPES),
+    format: z.enum(REPORT_FORMATS),
+    filters: reportFiltersSchema.default({}),
+    recipients: z.array(z.string().email()).min(1).max(20),
+  })
+  .and(recurrenceSchema)
 export type CreateScheduleInput = z.infer<typeof createScheduleSchema>
 
-export const updateScheduleSchema = z.object({
-  frequency: z.enum(["WEEKLY", "MONTHLY"]),
-  recipients: z.array(z.string().email()).min(1).max(20),
-})
+export const updateScheduleSchema = z.object({ recipients: z.array(z.string().email()).min(1).max(20) }).and(recurrenceSchema)
 export type UpdateScheduleInput = z.infer<typeof updateScheduleSchema>

@@ -56,11 +56,15 @@ type GeneratedReport = {
   createdAt: string
 }
 
+type FrequencyType = "DAYS" | "MONTHLY"
+
 type ReportSchedule = {
   id: string
   type: ReportType
   format: ReportFormat
-  frequency: "WEEKLY" | "MONTHLY"
+  frequencyType: FrequencyType
+  intervalValue: number
+  dayOfMonth: number | null
   recipients: string[]
   active: boolean
   totalRuns: number
@@ -85,8 +89,89 @@ const STATUS_BADGE: Record<ReportStatus, { label: string; className: string }> =
   FAILED: { label: "Falló", className: "bg-red-100 text-red-700 border-red-200" },
 }
 
-const FREQUENCY_LABELS = { WEEKLY: "Cada lunes", MONTHLY: "1ro de cada mes" }
+const DAYS_PRESETS = [
+  { label: "Semanal", value: 7 },
+  { label: "Quincenal", value: 15 },
+  { label: "Cada 30 días", value: 30 },
+]
 const HISTORY_PAGE_SIZE = 15
+
+function formatFrequency(schedule: Pick<ReportSchedule, "frequencyType" | "intervalValue" | "dayOfMonth">) {
+  if (schedule.frequencyType === "MONTHLY") {
+    const cadence = schedule.intervalValue === 1 ? "Cada mes" : `Cada ${schedule.intervalValue} meses`
+    return `${cadence}, día ${schedule.dayOfMonth}`
+  }
+  if (schedule.intervalValue === 7) return "Semanal (cada 7 días)"
+  if (schedule.intervalValue === 15) return "Quincenal (cada 15 días)"
+  return `Cada ${schedule.intervalValue} días`
+}
+
+type RecurrenceValue = { frequencyType: FrequencyType; intervalValue: number; dayOfMonth: number }
+
+function RecurrenceFields({ value, onChange }: { value: RecurrenceValue; onChange: (next: RecurrenceValue) => void }) {
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <Label>Recurrencia</Label>
+        <Select value={value.frequencyType} onValueChange={(v) => onChange({ ...value, frequencyType: v as FrequencyType })}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="DAYS">Cada N días</SelectItem>
+            <SelectItem value="MONTHLY">Cada N meses, en un día fijo</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {value.frequencyType === "DAYS" ? (
+        <div className="space-y-1.5">
+          <Label>Cada cuántos días</Label>
+          <Input
+            type="number"
+            min={1}
+            max={180}
+            value={value.intervalValue}
+            onChange={(e) => onChange({ ...value, intervalValue: Number(e.target.value) || 1 })}
+          />
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {DAYS_PRESETS.map((p) => (
+              <Button
+                key={p.value}
+                type="button"
+                variant={value.intervalValue === p.value ? "default" : "outline"}
+                size="sm"
+                onClick={() => onChange({ ...value, intervalValue: p.value })}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Cada cuántos meses</Label>
+            <Input
+              type="number"
+              min={1}
+              max={12}
+              value={value.intervalValue}
+              onChange={(e) => onChange({ ...value, intervalValue: Number(e.target.value) || 1 })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Día del mes</Label>
+            <Input
+              type="number"
+              min={1}
+              max={28}
+              value={value.dayOfMonth}
+              onChange={(e) => onChange({ ...value, dayOfMonth: Number(e.target.value) || 1 })}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function AdminReportesPage() {
   const [selectedType, setSelectedType] = useState<ReportType | null>(null)
@@ -107,11 +192,11 @@ export default function AdminReportesPage() {
   const [previewData, setPreviewData] = useState<PreviewTable | null>(null)
 
   const [scheduleOpen, setScheduleOpen] = useState(false)
-  const [scheduleForm, setScheduleForm] = useState({ frequency: "WEEKLY" as "WEEKLY" | "MONTHLY", recipients: "" })
+  const [scheduleForm, setScheduleForm] = useState({ frequencyType: "DAYS" as FrequencyType, intervalValue: 7, dayOfMonth: 1, recipients: "" })
   const [creatingSchedule, setCreatingSchedule] = useState(false)
   const [scheduleToDelete, setScheduleToDelete] = useState<ReportSchedule | null>(null)
   const [scheduleToEdit, setScheduleToEdit] = useState<ReportSchedule | null>(null)
-  const [scheduleEditForm, setScheduleEditForm] = useState({ frequency: "WEEKLY" as "WEEKLY" | "MONTHLY", recipients: "" })
+  const [scheduleEditForm, setScheduleEditForm] = useState({ frequencyType: "DAYS" as FrequencyType, intervalValue: 7, dayOfMonth: 1, recipients: "" })
   const [savingScheduleEdit, setSavingScheduleEdit] = useState(false)
 
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -217,14 +302,22 @@ export default function AdminReportesPage() {
     try {
       const res = await apiFetch("/report-schedules", {
         method: "POST",
-        body: JSON.stringify({ type: selectedType, format, filters: buildFilters(), frequency: scheduleForm.frequency, recipients }),
+        body: JSON.stringify({
+          type: selectedType,
+          format,
+          filters: buildFilters(),
+          frequencyType: scheduleForm.frequencyType,
+          intervalValue: scheduleForm.intervalValue,
+          ...(scheduleForm.frequencyType === "MONTHLY" ? { dayOfMonth: scheduleForm.dayOfMonth } : {}),
+          recipients,
+        }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.message || "No se pudo programar el reporte")
       }
       setScheduleOpen(false)
-      setScheduleForm({ frequency: "WEEKLY", recipients: "" })
+      setScheduleForm({ frequencyType: "DAYS", intervalValue: 7, dayOfMonth: 1, recipients: "" })
       load()
     } catch (err) {
       alert(err instanceof Error ? err.message : "Error desconocido")
@@ -274,7 +367,12 @@ export default function AdminReportesPage() {
 
   const openScheduleEdit = (schedule: ReportSchedule) => {
     setScheduleToEdit(schedule)
-    setScheduleEditForm({ frequency: schedule.frequency, recipients: schedule.recipients.join(", ") })
+    setScheduleEditForm({
+      frequencyType: schedule.frequencyType,
+      intervalValue: schedule.intervalValue,
+      dayOfMonth: schedule.dayOfMonth ?? 1,
+      recipients: schedule.recipients.join(", "),
+    })
   }
 
   const saveScheduleEdit = async () => {
@@ -288,7 +386,12 @@ export default function AdminReportesPage() {
     try {
       const res = await apiFetch(`/report-schedules/${scheduleToEdit.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ frequency: scheduleEditForm.frequency, recipients }),
+        body: JSON.stringify({
+          frequencyType: scheduleEditForm.frequencyType,
+          intervalValue: scheduleEditForm.intervalValue,
+          ...(scheduleEditForm.frequencyType === "MONTHLY" ? { dayOfMonth: scheduleEditForm.dayOfMonth } : {}),
+          recipients,
+        }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -505,7 +608,7 @@ export default function AdminReportesPage() {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-foreground">{typeLabel(schedule.type)}</p>
                       <p className="text-sm text-muted-foreground">
-                        {FREQUENCY_LABELS[schedule.frequency]} · {schedule.recipients.length} destinatario{schedule.recipients.length === 1 ? "" : "s"}
+                        {formatFrequency(schedule)} · {schedule.recipients.length} destinatario{schedule.recipients.length === 1 ? "" : "s"}
                         {schedule.lastRunAt && ` · último envío ${new Date(schedule.lastRunAt).toLocaleDateString("es-CO")}`}
                       </p>
                     </div>
@@ -646,16 +749,7 @@ export default function AdminReportesPage() {
             <DialogDescription>Se genera automáticamente y se envía por email a los destinatarios.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Frecuencia</Label>
-              <Select value={scheduleForm.frequency} onValueChange={(v) => setScheduleForm((f) => ({ ...f, frequency: v as "WEEKLY" | "MONTHLY" }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="WEEKLY">Semanal (cada lunes)</SelectItem>
-                  <SelectItem value="MONTHLY">Mensual (día 1)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <RecurrenceFields value={scheduleForm} onChange={(next) => setScheduleForm((f) => ({ ...f, ...next }))} />
             <div className="space-y-1.5">
               <Label>Destinatarios</Label>
               <Input
@@ -679,16 +773,7 @@ export default function AdminReportesPage() {
             <DialogDescription>{scheduleToEdit ? typeLabel(scheduleToEdit.type) : ""}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Frecuencia</Label>
-              <Select value={scheduleEditForm.frequency} onValueChange={(v) => setScheduleEditForm((f) => ({ ...f, frequency: v as "WEEKLY" | "MONTHLY" }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="WEEKLY">Semanal (cada lunes)</SelectItem>
-                  <SelectItem value="MONTHLY">Mensual (día 1)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <RecurrenceFields value={scheduleEditForm} onChange={(next) => setScheduleEditForm((f) => ({ ...f, ...next }))} />
             <div className="space-y-1.5">
               <Label>Destinatarios</Label>
               <Input
