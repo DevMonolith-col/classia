@@ -12,3 +12,8 @@ export const updateTemplateSchema = z.object({
   contentHtml: z.string().min(20),
 })
 export type UpdateTemplateInput = z.infer<typeof updateTemplateSchema>
+
+export const previewTemplateSchema = z.object({
+  contentHtml: z.string().min(20),
+})
+export type PreviewTemplateInput = z.infer<typeof previewTemplateSchema>

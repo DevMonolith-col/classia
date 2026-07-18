@@ -80,3 +80,23 @@ export const DEFAULT_TEMPLATE_HTML: Record<DocumentType, string> = {
   STUDY_CERTIFICATE: STUDY_CERTIFICATE_HTML,
   REPORT_CARD: REPORT_CARD_HTML,
 }
+
+// Datos de ejemplo para la vista previa del editor - nunca toca la base de
+// datos ni genera un DocumentIssuance real, así que los valores son fijos.
+export function buildSampleVars(type: DocumentType, qrDataUrl: string): Record<string, string> {
+  const vars: Record<string, string> = {
+    studentName: "Ana María Restrepo Gómez",
+    studentDocument: "1 098 765 432",
+    groupName: "9°A",
+    tenantName: "Institución Educativa de Ejemplo",
+    issuedDate: new Date().toLocaleDateString("es-CO", { year: "numeric", month: "long", day: "numeric" }),
+    verificationCode: "AB12CD34",
+    verifyUrl: "https://classia.co/verify/AB12CD34",
+    qrDataUrl,
+  }
+  if (type === "REPORT_CARD") {
+    vars.overallAverage = "4.5"
+    vars.scaleName = "0.0 - 5.0"
+  }
+  return vars
+}

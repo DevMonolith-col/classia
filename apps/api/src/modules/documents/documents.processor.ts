@@ -76,10 +76,18 @@ export class DocumentsProcessor extends WorkerHost implements OnModuleDestroy {
       })
     } catch (error) {
       this.logger.error(`Failed to generate document ${issuanceId}`, error instanceof Error ? error.stack : error)
-      await this.prisma.documentIssuance.update({
-        where: { id: issuance.id },
-        data: { status: DocumentStatus.FAILED, errorMessage: error instanceof Error ? error.message : "Error desconocido" },
-      })
+      const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade > 1
+      // Si a BullMQ le quedan reintentos, no marcamos FAILED todavía - dejamos
+      // el issuance en PENDING (el usuario sigue viendo "Generando...") y
+      // relanzamos para que el backoff exponencial haga su trabajo. Recién en
+      // el último intento persistimos el error real para mostrarlo en la UI.
+      if (!attemptsLeft) {
+        await this.prisma.documentIssuance.update({
+          where: { id: issuance.id },
+          data: { status: DocumentStatus.FAILED, errorMessage: error instanceof Error ? error.message : "Error desconocido" },
+        })
+      }
+      throw error
     }
   }
 
@@ -87,10 +95,19 @@ export class DocumentsProcessor extends WorkerHost implements OnModuleDestroy {
     const browser = await this.getBrowser()
     const page = await browser.newPage()
     try {
-      // El HTML es autocontenido (el QR ya va embebido como data URL), no hay
-      // recursos externos que cargar - "load" alcanza.
-      await page.setContent(html, { waitUntil: "load" })
-      const pdf = await page.pdf({ format: "letter", printBackground: true })
+      // Las plantillas las edita personal de confianza del tenant (no son
+      // input público), pero igual no hay ningún caso de uso legítimo para
+      // JS en un certificado estático - desactivarlo cierra de raíz que una
+      // plantilla (por error o mala intención) intente hacer fetch/XHR
+      // saliente desde el proceso del servidor.
+      await page.setJavaScriptEnabled(false)
+      // Timeout explícito: una plantilla con CSS roto o una imagen externa
+      // que nunca resuelve no debe poder colgar el worker para siempre (con
+      // un solo browser reusado entre jobs, un job colgado indefinidamente
+      // deja de ser "solo ese certificado" y empieza a acumular páginas
+      // abiertas sin cerrar).
+      await page.setContent(html, { waitUntil: "load", timeout: 15_000 })
+      const pdf = await page.pdf({ format: "letter", printBackground: true, timeout: 15_000 })
       return Buffer.from(pdf)
     } finally {
       await page.close()

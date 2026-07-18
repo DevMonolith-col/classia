@@ -138,6 +138,11 @@ export default function CertificadosPage() {
     if (body.downloadUrl) window.open(body.downloadUrl, "_blank")
   }
 
+  const retry = async (id: string) => {
+    const res = await apiFetch(`/documents/${id}/retry`, { method: "POST" })
+    if (res.ok) load()
+  }
+
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between">
@@ -233,6 +238,11 @@ export default function CertificadosPage() {
                       {!revoked && doc.status === "READY" && (
                         <Button variant="ghost" size="icon" onClick={() => setRevokeTarget(doc)} title="Revocar">
                           <Ban className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
+                      {doc.status === "FAILED" && (
+                        <Button variant="ghost" size="icon" onClick={() => retry(doc.id)} title="Reintentar">
+                          <RefreshCw className="h-4 w-4" />
                         </Button>
                       )}
                     </div>
