@@ -42,12 +42,18 @@ export class HealthService {
     let closedTickets = 0;
     if (dbStatus === "up") {
       try {
-        const counts = await Promise.all([
-          this.prisma.supportTicket.count({ where: { status: { in: ["OPEN", "IN_PROGRESS", "WAITING_ON_CUSTOMER"] } } }),
-          this.prisma.supportTicket.count({ where: { status: { in: ["RESOLVED", "CLOSED"] } } })
-        ]);
-        openTickets = counts[0];
-        closedTickets = counts[1];
+        const counts = await this.prisma.supportTicket.groupBy({
+          by: ['status'],
+          _count: { status: true }
+        });
+        
+        counts.forEach(c => {
+          if (["OPEN", "IN_PROGRESS", "WAITING_ON_CUSTOMER"].includes(c.status)) {
+            openTickets += c._count.status;
+          } else if (["RESOLVED", "CLOSED"].includes(c.status)) {
+            closedTickets += c._count.status;
+          }
+        });
       } catch (err) {
         // Ignore DB errors for stats
       }
