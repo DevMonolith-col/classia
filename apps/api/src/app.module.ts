@@ -40,6 +40,7 @@ import { TeachersModule } from "./modules/teachers/teachers.module";
 import { TenantsModule } from "./modules/tenants/tenants.module";
 import { UsersModule } from "./modules/users/users.module";
 import { SupportModule } from "./modules/support/support.module";
+import { SettingsModule } from "./modules/settings/settings.module";
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { SupportModule } from "./modules/support/support.module";
     NotificationsModule,
     AuditModule,
     SupportModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

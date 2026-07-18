@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Globe2,
   Mail,
@@ -18,13 +18,72 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
+import { apiFetch } from "@/lib/api-client"
 
 export default function SuperAdminSettingsPage() {
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
 
-  const handleSave = () => {
+  const [settings, setSettings] = useState({
+    baseDomain: "classia.com.co",
+    appName: "Classia SaaS",
+    force2FA: false,
+    strictIpLock: true,
+    smtpHost: "smtp.sendgrid.net",
+    smtpPort: "587",
+    smtpUser: "apikey",
+    smtpPass: "",
+    smtpFrom: "notificaciones@classia.com.co",
+    planBaseMaxStudents: 200,
+    planBaseMaxUsers: 20,
+    planBaseMaxStorageGb: 5,
+    planProMaxStudents: 1000,
+    planProMaxUsers: 100,
+    planProMaxStorageGb: 50,
+    backupFreq: "Diario (12:00 AM)",
+    backupRetention: "30 días",
+  })
+
+  useEffect(() => {
+    async function loadSettings() {
+      try {
+        const res = await apiFetch("/settings")
+        if (res.ok) {
+          const data = await res.json()
+          setSettings(prev => ({ ...prev, ...data }))
+        }
+      } catch (err) {
+        console.error(err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadSettings()
+  }, [])
+
+  const handleSave = async () => {
     setSaving(true)
-    setTimeout(() => setSaving(false), 1000)
+    setError("")
+    try {
+      const res = await apiFetch("/settings", {
+        method: "PUT",
+        body: JSON.stringify(settings),
+      })
+      if (!res.ok) throw new Error("Error al guardar la configuración")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateSetting = (key: keyof typeof settings, value: any) => {
+    setSettings(prev => ({ ...prev, [key]: value }))
+  }
+
+  if (loading) {
+    return <div className="p-8 text-center text-muted-foreground">Cargando configuración...</div>
   }
 
   return (
@@ -43,6 +102,12 @@ export default function SuperAdminSettingsPage() {
       </header>
 
       <div className="px-4 py-6 sm:px-6 lg:px-8 max-w-5xl mx-auto">
+        {error && (
+          <div className="mb-6 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            {error}
+          </div>
+        )}
         <Tabs defaultValue="general" className="space-y-6">
           <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 h-auto p-1 bg-secondary/50">
             <TabsTrigger value="general" className="py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm">
@@ -75,13 +140,23 @@ export default function SuperAdminSettingsPage() {
                   <Label htmlFor="base-domain">Dominio Base (Wildcard)</Label>
                   <div className="flex items-center gap-2">
                     <span className="text-muted-foreground bg-secondary px-3 py-2 rounded-md border text-sm font-mono">*.</span>
-                    <Input id="base-domain" defaultValue="classia.com.co" className="max-w-md" />
+                    <Input 
+                      id="base-domain" 
+                      value={settings.baseDomain}
+                      onChange={e => updateSetting("baseDomain", e.target.value)}
+                      className="max-w-md" 
+                    />
                   </div>
                   <p className="text-xs text-muted-foreground">Los colegios nuevos se crearán automáticamente bajo este subdominio (ej. colegio.classia.com.co)</p>
                 </div>
                 <div className="grid gap-2 pt-4">
                   <Label htmlFor="app-name">Nombre de la Aplicación Global</Label>
-                  <Input id="app-name" defaultValue="Classia SaaS" className="max-w-md" />
+                  <Input 
+                    id="app-name" 
+                    value={settings.appName} 
+                    onChange={e => updateSetting("appName", e.target.value)}
+                    className="max-w-md" 
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -97,14 +172,20 @@ export default function SuperAdminSettingsPage() {
                     <Label className="text-base">Forzar Autenticación de Dos Factores (2FA)</Label>
                     <p className="text-sm text-muted-foreground">Exigir 2FA a todos los roles administrativos de los colegios.</p>
                   </div>
-                  <Switch defaultChecked={false} />
+                  <Switch 
+                    checked={settings.force2FA} 
+                    onCheckedChange={v => updateSetting("force2FA", v)} 
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label className="text-base">Bloqueo estricto por IP</Label>
                     <p className="text-sm text-muted-foreground">Permitir a los colegios restringir el acceso a la plataforma solo desde la IP de sus sedes.</p>
                   </div>
-                  <Switch defaultChecked={true} />
+                  <Switch 
+                    checked={settings.strictIpLock} 
+                    onCheckedChange={v => updateSetting("strictIpLock", v)} 
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -122,23 +203,23 @@ export default function SuperAdminSettingsPage() {
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
                   <Label htmlFor="smtp-host">Host SMTP</Label>
-                  <Input id="smtp-host" defaultValue="smtp.sendgrid.net" />
+                  <Input id="smtp-host" value={settings.smtpHost} onChange={e => updateSetting("smtpHost", e.target.value)} />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="smtp-port">Puerto</Label>
-                  <Input id="smtp-port" defaultValue="587" />
+                  <Input id="smtp-port" value={settings.smtpPort} onChange={e => updateSetting("smtpPort", e.target.value)} />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="smtp-user">Usuario SMTP</Label>
-                  <Input id="smtp-user" defaultValue="apikey" />
+                  <Input id="smtp-user" value={settings.smtpUser} onChange={e => updateSetting("smtpUser", e.target.value)} />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="smtp-pass">Contraseña SMTP</Label>
-                  <Input id="smtp-pass" type="password" defaultValue="************************" />
+                  <Input id="smtp-pass" type="password" value={settings.smtpPass} onChange={e => updateSetting("smtpPass", e.target.value)} placeholder="Dejar en blanco para mantener" />
                 </div>
                 <div className="grid gap-2 sm:col-span-2">
                   <Label htmlFor="smtp-from">Correo remitente por defecto (From)</Label>
-                  <Input id="smtp-from" defaultValue="notificaciones@classia.com.co" />
+                  <Input id="smtp-from" value={settings.smtpFrom} onChange={e => updateSetting("smtpFrom", e.target.value)} />
                 </div>
               </CardContent>
               <CardFooter className="bg-secondary/20 justify-between">
@@ -166,15 +247,15 @@ export default function SuperAdminSettingsPage() {
                   <div className="grid sm:grid-cols-3 gap-4">
                     <div className="grid gap-2">
                       <Label>Máx. Estudiantes</Label>
-                      <Input type="number" defaultValue="200" />
+                      <Input type="number" value={settings.planBaseMaxStudents} onChange={e => updateSetting("planBaseMaxStudents", parseInt(e.target.value) || 0)} />
                     </div>
                     <div className="grid gap-2">
                       <Label>Máx. Usuarios (Staff)</Label>
-                      <Input type="number" defaultValue="20" />
+                      <Input type="number" value={settings.planBaseMaxUsers} onChange={e => updateSetting("planBaseMaxUsers", parseInt(e.target.value) || 0)} />
                     </div>
                     <div className="grid gap-2">
                       <Label>Almacenamiento (GB)</Label>
-                      <Input type="number" defaultValue="5" />
+                      <Input type="number" value={settings.planBaseMaxStorageGb} onChange={e => updateSetting("planBaseMaxStorageGb", parseInt(e.target.value) || 0)} />
                     </div>
                   </div>
                 </div>
@@ -189,15 +270,15 @@ export default function SuperAdminSettingsPage() {
                   <div className="grid sm:grid-cols-3 gap-4">
                     <div className="grid gap-2">
                       <Label>Máx. Estudiantes</Label>
-                      <Input type="number" defaultValue="1000" />
+                      <Input type="number" value={settings.planProMaxStudents} onChange={e => updateSetting("planProMaxStudents", parseInt(e.target.value) || 0)} />
                     </div>
                     <div className="grid gap-2">
                       <Label>Máx. Usuarios (Staff)</Label>
-                      <Input type="number" defaultValue="100" />
+                      <Input type="number" value={settings.planProMaxUsers} onChange={e => updateSetting("planProMaxUsers", parseInt(e.target.value) || 0)} />
                     </div>
                     <div className="grid gap-2">
                       <Label>Almacenamiento (GB)</Label>
-                      <Input type="number" defaultValue="50" />
+                      <Input type="number" value={settings.planProMaxStorageGb} onChange={e => updateSetting("planProMaxStorageGb", parseInt(e.target.value) || 0)} />
                     </div>
                   </div>
                 </div>
@@ -229,7 +310,7 @@ export default function SuperAdminSettingsPage() {
                 <div className="grid sm:grid-cols-2 gap-6 pt-2">
                   <div className="grid gap-2">
                     <Label htmlFor="backup-freq">Frecuencia de Backup Automático</Label>
-                    <select id="backup-freq" defaultValue="Diario (12:00 AM)" className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                    <select id="backup-freq" value={settings.backupFreq} onChange={e => updateSetting("backupFreq", e.target.value)} className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
                       <option>Cada 6 Horas</option>
                       <option>Diario (12:00 AM)</option>
                       <option>Semanal (Domingos)</option>
@@ -237,7 +318,7 @@ export default function SuperAdminSettingsPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="backup-retention">Retención en Storage (S3)</Label>
-                    <select id="backup-retention" defaultValue="30 días" className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                    <select id="backup-retention" value={settings.backupRetention} onChange={e => updateSetting("backupRetention", e.target.value)} className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
                       <option>7 días</option>
                       <option>30 días</option>
                       <option>90 días</option>
