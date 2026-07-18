@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { NotificationChannel, NotificationEventType } from "@prisma/client";
@@ -34,49 +35,55 @@ export class NotificationsService {
    */
   async notify(params: NotifyParams) {
     const recipients = [...new Set(params.recipientUserIds)].filter(Boolean);
+    if (recipients.length === 0) return;
 
-    for (const userId of recipients) {
-      try {
-        const notification = await this.prisma.notification.create({
-          data: {
-            tenantId: params.tenantId,
-            userId,
-            eventType: params.eventType,
-            title: params.title,
-            body: params.body,
-            entityType: params.entityType,
-            entityId: params.entityId,
-          },
-          select: { id: true },
-        });
+    // Todo en lote: antes era 1 query de preferencia + 1 create + 1 enqueue POR
+    // usuario en serie (miles de queries en un comunicado a todo el colegio).
+    // El try/catch envuelve todo: una falla al notificar nunca debe romper la
+    // acción de dominio que la disparó.
+    try {
+      // Preferencias EMAIL de todos los destinatarios en una sola query. La tabla
+      // es dispersa: sin fila = habilitado, así que solo importan los deshabilitados.
+      const prefs = await this.prisma.notificationPreference.findMany({
+        where: { userId: { in: recipients }, eventType: params.eventType, channel: NotificationChannel.EMAIL },
+        select: { userId: true, enabled: true },
+      });
+      const emailDisabled = new Set(prefs.filter((p) => !p.enabled).map((p) => p.userId));
 
-        const emailEnabled = await this.isChannelEnabled(
-          userId,
-          params.eventType,
-          NotificationChannel.EMAIL,
-        );
-        if (emailEnabled) {
-          const delivery = await this.prisma.notificationDelivery.create({
-            data: { notificationId: notification.id, channel: NotificationChannel.EMAIL },
-            select: { id: true },
-          });
-          await this.queue.add(
-            "dispatch",
-            { deliveryId: delivery.id },
-            {
-              jobId: delivery.id,
+      const notifRows = recipients.map((userId) => ({
+        id: randomUUID(),
+        tenantId: params.tenantId,
+        userId,
+        eventType: params.eventType,
+        title: params.title,
+        body: params.body,
+        entityType: params.entityType,
+        entityId: params.entityId,
+      }));
+      await this.prisma.notification.createMany({ data: notifRows });
+
+      const deliveryRows = notifRows
+        .filter((n) => !emailDisabled.has(n.userId))
+        .map((n) => ({ id: randomUUID(), notificationId: n.id, channel: NotificationChannel.EMAIL }));
+
+      if (deliveryRows.length > 0) {
+        await this.prisma.notificationDelivery.createMany({ data: deliveryRows });
+        await this.queue.addBulk(
+          deliveryRows.map((d) => ({
+            name: "dispatch",
+            data: { deliveryId: d.id },
+            opts: {
+              jobId: d.id,
               attempts: 5,
-              backoff: { type: "exponential", delay: 2000 },
+              backoff: { type: "exponential" as const, delay: 2000 },
               removeOnComplete: true,
               removeOnFail: 100,
             },
-          );
-        }
-      } catch (error) {
-        this.logger.error(
-          `No se pudo crear la notificación para ${userId}: ${(error as Error).message}`,
+          })),
         );
       }
+    } catch (error) {
+      this.logger.error(`No se pudieron crear las notificaciones: ${(error as Error).message}`);
     }
   }
 
@@ -159,15 +166,4 @@ export class NotificationsService {
     return { status: "ok" as const };
   }
 
-  private async isChannelEnabled(
-    userId: string,
-    eventType: NotificationEventType,
-    channel: NotificationChannel,
-  ): Promise<boolean> {
-    const pref = await this.prisma.notificationPreference.findUnique({
-      where: { userId_eventType_channel: { userId, eventType, channel } },
-      select: { enabled: true },
-    });
-    return pref?.enabled ?? true; // por defecto activado (tabla dispersa)
-  }
 }
