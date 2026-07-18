@@ -16,6 +16,7 @@ import Link from "next/link"
 import { io, Socket } from "socket.io-client"
 import { API_URL } from "@/lib/env"
 import { getAccessToken, decodeJwt } from "@/lib/auth"
+import { attachTokenRefresh } from "@/lib/socket"
 
 const statusConfig: Record<string, { label: string, color: string, icon: any }> = {
   OPEN: { label: "Abierto", color: "bg-blue-100 text-blue-800", icon: AlertTriangle },
@@ -65,6 +66,7 @@ export default function AdminTicketDetail() {
       transports: ["websocket"],
     })
     setSocket(newSocket)
+    attachTokenRefresh(newSocket)
 
     newSocket.on("connect", () => {
       newSocket.emit("ticket:join", { ticketId: id })

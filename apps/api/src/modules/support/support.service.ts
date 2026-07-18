@@ -1,10 +1,13 @@
 import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common"
 import { EventEmitter2 } from "@nestjs/event-emitter"
+import { MembershipStatus, Prisma, UserRole, UserStatus } from "@prisma/client"
 import { Request } from "express"
 import { RequestUser } from "../../common/types/request-context"
 import { AuditService } from "../../core/audit/audit.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
 import { CreateTicketDto, UpdateTicketStatusDto, CreateCommentDto } from "./support.schemas"
+
+const SUPPORT_STAFF_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.SUPPORT_SUPERVISOR, UserRole.SUPPORT_AGENT]
 
 @Injectable()
 export class SupportService {
@@ -22,7 +25,7 @@ export class SupportService {
         title: data.title,
         description: data.description,
         category: data.category,
-        priority: data.priority as any,
+        priority: data.priority,
         attachmentKey: data.attachmentKey,
         attachmentName: data.attachmentName,
       },
@@ -121,7 +124,7 @@ export class SupportService {
 
     const ticket = await this.prisma.supportTicket.update({
       where: { id: ticketId },
-      data: { status: data.status as any },
+      data: { status: data.status },
       include: { tenant: true }
     })
 
@@ -146,7 +149,7 @@ export class SupportService {
     // If not superadmin, force isInternal to false
     const isInternal = isSuperAdmin ? data.isInternal : false
 
-    const newComment = await this.prisma.$transaction(async (tx: any) => {
+    const newComment = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const comment = await tx.ticketComment.create({
         data: {
           ticketId,
@@ -227,9 +230,9 @@ export class SupportService {
     // en más de un tenant, así que se deduplica por userId.
     const memberships = await this.prisma.tenantMembership.findMany({
       where: {
-        role: { in: ["SUPER_ADMIN", "SUPPORT_SUPERVISOR", "SUPPORT_AGENT"] },
-        status: "ACTIVE",
-        user: { status: "ACTIVE" },
+        role: { in: SUPPORT_STAFF_ROLES },
+        status: MembershipStatus.ACTIVE,
+        user: { status: UserStatus.ACTIVE },
       },
       select: {
         role: true,

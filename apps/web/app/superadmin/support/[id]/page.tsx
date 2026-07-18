@@ -14,6 +14,7 @@ import Link from "next/link"
 import { io, Socket } from "socket.io-client"
 import { API_URL } from "@/lib/env"
 import { getAccessToken, decodeJwt, impersonateTenant } from "@/lib/auth"
+import { attachTokenRefresh } from "@/lib/socket"
 import { RemoteImage } from "@/components/shared/remote-image"
 import { AttachmentPreviewDialog } from "@/components/shared/attachment-preview-dialog"
 
@@ -85,6 +86,7 @@ export default function SuperAdminTicketDetail() {
       transports: ["websocket"],
     })
     setSocket(newSocket)
+    attachTokenRefresh(newSocket)
 
     newSocket.on("connect", () => {
       newSocket.emit("ticket:join", { ticketId: id })

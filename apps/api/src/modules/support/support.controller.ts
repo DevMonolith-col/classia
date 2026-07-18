@@ -1,7 +1,11 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards, Req, ForbiddenException, HttpException } from "@nestjs/common"
+import { Controller, Get, Post, Patch, Body, Param, UseGuards, Req, ForbiddenException } from "@nestjs/common"
+import { Request } from "express"
+import { UserRole } from "@prisma/client"
 import { SupportService } from "./support.service"
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard"
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe"
+import { CurrentUser } from "../../common/decorators/current-user.decorator"
+import { RequestUser } from "../../common/types/request-context"
 import {
   createTicketSchema,
   CreateTicketDto,
@@ -18,12 +22,12 @@ import {
 // decide quién trabaja cada ticket y puede entrar al colegio: SUPER_ADMIN
 // (dueño de la plataforma) o SUPPORT_SUPERVISOR (lidera soporte sin tener
 // el resto del poder de plataforma).
-function isSupportStaff(role: string) {
-  return role === "SUPER_ADMIN" || role === "SUPPORT_SUPERVISOR" || role === "SUPPORT_AGENT"
+function isSupportStaff(role: UserRole) {
+  return role === UserRole.SUPER_ADMIN || role === UserRole.SUPPORT_SUPERVISOR || role === UserRole.SUPPORT_AGENT
 }
 
-function isSupportSupervisor(role: string) {
-  return role === "SUPER_ADMIN" || role === "SUPPORT_SUPERVISOR"
+function isSupportSupervisor(role: UserRole) {
+  return role === UserRole.SUPER_ADMIN || role === UserRole.SUPPORT_SUPERVISOR
 }
 
 @Controller("support")
@@ -33,61 +37,59 @@ export class SupportController {
 
   @Post("tickets")
   async createTicket(
-    @Req() req: any,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
     @Body(new ZodValidationPipe(createTicketSchema)) data: CreateTicketDto
   ) {
-    if (!req.user.tenantId) {
+    if (!user.tenantId) {
       throw new ForbiddenException("Solo usuarios institucionales pueden abrir tickets de soporte")
     }
-    return this.supportService.createTicket(req.user.tenantId, req.user.id, data, req.user, req)
+    return this.supportService.createTicket(user.tenantId, user.id, data, user, request)
   }
 
   @Get("tickets")
-  async listTickets(@Req() req: any) {
-    if (isSupportStaff(req.user.role)) {
+  async listTickets(@CurrentUser() user: RequestUser) {
+    if (isSupportStaff(user.role)) {
       return this.supportService.getAllTicketsForSuperAdmin()
     }
 
-    if (req.user.tenantId) {
-      return this.supportService.getTicketsForTenant(req.user.tenantId)
+    if (user.tenantId) {
+      return this.supportService.getTicketsForTenant(user.tenantId)
     }
 
     return []
   }
 
   @Get("tickets/:id")
-  async getTicketDetails(@Req() req: any, @Param("id") ticketId: string) {
-    try {
-      return await this.supportService.getTicketDetails(ticketId, isSupportStaff(req.user.role), req.user.tenantId)
-    } catch (e: any) {
-      throw new HttpException(e?.message || "Unknown error", 501)
-    }
+  async getTicketDetails(@CurrentUser() user: RequestUser, @Param("id") ticketId: string) {
+    return this.supportService.getTicketDetails(ticketId, isSupportStaff(user.role), user.tenantId)
   }
 
   @Patch("tickets/:id/status")
   async updateTicketStatus(
-    @Req() req: any,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
     @Param("id") ticketId: string,
     @Body(new ZodValidationPipe(updateTicketStatusSchema)) data: UpdateTicketStatusDto
   ) {
-    if (!isSupportStaff(req.user.role)) {
+    if (!isSupportStaff(user.role)) {
       throw new ForbiddenException("Solo el personal de soporte puede cambiar el estado de un ticket")
     }
-    return this.supportService.updateTicketStatus(ticketId, data, req.user, req)
+    return this.supportService.updateTicketStatus(ticketId, data, user, request)
   }
 
   @Post("tickets/:id/comments")
   async addComment(
-    @Req() req: any,
+    @CurrentUser() user: RequestUser,
     @Param("id") ticketId: string,
     @Body(new ZodValidationPipe(createCommentSchema)) data: CreateCommentDto
   ) {
-    return this.supportService.addComment(ticketId, req.user.id, data, isSupportStaff(req.user.role))
+    return this.supportService.addComment(ticketId, user.id, data, isSupportStaff(user.role))
   }
 
   @Get("agents")
-  async getAgents(@Req() req: any) {
-    if (!isSupportStaff(req.user.role)) {
+  async getAgents(@CurrentUser() user: RequestUser) {
+    if (!isSupportStaff(user.role)) {
       throw new ForbiddenException("Solo el personal SaaS puede ver los agentes")
     }
     return this.supportService.getSupportAgents()
@@ -95,15 +97,16 @@ export class SupportController {
 
   @Patch("tickets/:id/assign")
   async assignTicket(
-    @Req() req: any,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
     @Param("id") ticketId: string,
     @Body(new ZodValidationPipe(assignTicketSchema)) data: AssignTicketDto
   ) {
     // Solo el supervisor decide quién trabaja cada ticket; un agente no se
     // autoasigna ni reasigna tickets.
-    if (!isSupportSupervisor(req.user.role)) {
+    if (!isSupportSupervisor(user.role)) {
       throw new ForbiddenException("Solo un supervisor puede asignar tickets")
     }
-    return this.supportService.assignTicket(ticketId, data.assigneeId, req.user, req)
+    return this.supportService.assignTicket(ticketId, data.assigneeId, user, request)
   }
 }

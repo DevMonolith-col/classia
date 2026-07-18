@@ -4,16 +4,15 @@ import { useState, useRef, useEffect } from "react"
 import {
   Search,
   Plus,
-  Phone,
-  Video,
   MoreHorizontal,
   Send,
   Image as ImageIcon,
   Paperclip,
-  Mic,
   ArrowLeft,
   Check,
   CheckCheck,
+  AlertCircle,
+  RotateCw,
   ChevronRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -26,7 +25,7 @@ export interface Message {
   content: string
   timestamp: Date
   sender: "user" | "other"
-  status: "sent" | "delivered" | "read"
+  status: "sending" | "sent" | "delivered" | "read" | "failed"
   type: "text" | "image" | "file"
 }
 
@@ -67,7 +66,7 @@ interface ChatInterfaceProps {
   activeConversationId?: string | null
   canBroadcast?: boolean
   broadcastTargets?: BroadcastTarget[]
-  onSendMessage?: (conversationId: string, message: string) => void
+  onSendMessage?: (conversationId: string, message: string) => Promise<boolean> | boolean
   onOpenConversation?: (conversationId: string) => void
   onStartConversation?: (contactId: string) => void
   onBroadcast?: (groupId: string, body: string) => Promise<void> | void
@@ -151,21 +150,48 @@ export function ChatInterface({
     return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
   }
 
+  // Actualiza un mensaje (por id) dentro de una conversación, tanto en la
+  // lista como en la conversación seleccionada, para reflejar su estado real
+  // de envío (sending / failed) en vez de asumir "sent" sin confirmación.
+  const updateMessage = (conversationId: string, messageId: string, patch: Partial<Message>) => {
+    const apply = (messages: Message[]) =>
+      messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m))
+
+    setConversations((prev) =>
+      prev.map((c) => (c.id === conversationId ? { ...c, messages: apply(c.messages) } : c))
+    )
+    setSelectedConversation((prev) =>
+      prev && prev.id === conversationId ? { ...prev, messages: apply(prev.messages) } : prev
+    )
+  }
+
+  const deliverMessage = async (conversationId: string, message: Message) => {
+    updateMessage(conversationId, message.id, { status: "sending" })
+    try {
+      const ok = await onSendMessage?.(conversationId, message.content)
+      updateMessage(conversationId, message.id, { status: ok === false ? "failed" : "sent" })
+    } catch {
+      updateMessage(conversationId, message.id, { status: "failed" })
+    }
+  }
+
   const handleSendMessage = () => {
     if (!messageInput.trim() || !selectedConversation) return
 
+    const conversationId = selectedConversation.id
+    const content = messageInput.trim()
     const newMessage: Message = {
-      id: Date.now().toString(),
-      content: messageInput.trim(),
+      id: `pending-${Date.now()}`,
+      content,
       timestamp: new Date(),
       sender: "user",
-      status: "sent",
+      status: "sending",
       type: "text",
     }
 
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === selectedConversation.id
+        c.id === conversationId
           ? {
               ...c,
               messages: [...c.messages, newMessage],
@@ -181,7 +207,12 @@ export function ChatInterface({
     )
 
     setMessageInput("")
-    onSendMessage?.(selectedConversation.id, messageInput.trim())
+    void deliverMessage(conversationId, newMessage)
+  }
+
+  const retryMessage = (message: Message) => {
+    if (!selectedConversation) return
+    void deliverMessage(selectedConversation.id, message)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -240,6 +271,10 @@ export function ChatInterface({
       return <CheckCheck className="h-4 w-4 text-blue-500" />
     } else if (status === "delivered") {
       return <CheckCheck className="h-4 w-4 text-muted-foreground" />
+    } else if (status === "sending") {
+      return <RotateCw className="h-3.5 w-3.5 animate-spin text-white/70" />
+    } else if (status === "failed") {
+      return <AlertCircle className="h-4 w-4 text-red-300" />
     }
     return <Check className="h-4 w-4 text-muted-foreground" />
   }
@@ -532,12 +567,6 @@ export function ChatInterface({
                 </p>
               </div>
               <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-blue-500">
-                  <Video className="h-5 w-5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-blue-500">
-                  <Phone className="h-5 w-5" />
-                </Button>
                 <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
                   <MoreHorizontal className="h-5 w-5" />
                 </Button>
@@ -575,24 +604,36 @@ export function ChatInterface({
                         </Avatar>
                       )}
                       {!isUser && !showAvatar && <div className="w-7" />}
-                      <div
-                        className={cn(
-                          "max-w-[70%] px-4 py-2 shadow-sm",
-                          isUser
-                            ? "rounded-[20px] rounded-br-md bg-blue-500 text-white"
-                            : "rounded-[20px] rounded-bl-md bg-secondary text-foreground",
-                          isLastInGroup && isUser && "rounded-br-[20px]",
-                          isLastInGroup && !isUser && "rounded-bl-[20px]"
-                        )}
-                      >
-                        <p className="text-[15px] leading-relaxed">{message.content}</p>
-                        <div className={cn(
-                          "mt-1 flex items-center justify-end gap-1",
-                          isUser ? "text-white/70" : "text-muted-foreground"
-                        )}>
-                          <span className="text-[11px]">{formatMessageTime(message.timestamp)}</span>
-                          {isUser && <MessageStatus status={message.status} />}
+                      <div className="flex max-w-[70%] flex-col items-end gap-1">
+                        <div
+                          className={cn(
+                            "px-4 py-2 shadow-sm",
+                            isUser
+                              ? message.status === "failed"
+                                ? "rounded-[20px] rounded-br-md bg-red-500/90 text-white"
+                                : "rounded-[20px] rounded-br-md bg-blue-500 text-white"
+                              : "rounded-[20px] rounded-bl-md bg-secondary text-foreground",
+                            isLastInGroup && isUser && "rounded-br-[20px]",
+                            isLastInGroup && !isUser && "rounded-bl-[20px]"
+                          )}
+                        >
+                          <p className="text-[15px] leading-relaxed">{message.content}</p>
+                          <div className={cn(
+                            "mt-1 flex items-center justify-end gap-1",
+                            isUser ? "text-white/70" : "text-muted-foreground"
+                          )}>
+                            <span className="text-[11px]">{formatMessageTime(message.timestamp)}</span>
+                            {isUser && <MessageStatus status={message.status} />}
+                          </div>
                         </div>
+                        {isUser && message.status === "failed" && (
+                          <button
+                            onClick={() => retryMessage(message)}
+                            className="flex items-center gap-1 text-[11px] font-medium text-red-500 hover:underline"
+                          >
+                            <RotateCw className="h-3 w-3" /> No se pudo enviar. Reintentar
+                          </button>
+                        )}
                       </div>
                     </div>
                   )
@@ -613,29 +654,17 @@ export function ChatInterface({
                     value={messageInput}
                     onChange={(e) => setMessageInput(e.target.value)}
                     onKeyDown={handleKeyPress}
-                    className="min-h-[36px] rounded-full bg-secondary/50 pr-10 text-[15px] focus-visible:ring-1"
+                    className="min-h-[36px] rounded-full bg-secondary/50 text-[15px] focus-visible:ring-1"
                   />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full text-muted-foreground"
-                  >
-                    <Mic className="h-5 w-5" />
-                  </Button>
                 </div>
-                {messageInput.trim() ? (
-                  <Button
-                    size="icon"
-                    className="h-9 w-9 shrink-0 rounded-full bg-blue-500 hover:bg-blue-600"
-                    onClick={handleSendMessage}
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                ) : (
-                  <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0 rounded-full text-blue-500">
-                    <Mic className="h-6 w-6" />
-                  </Button>
-                )}
+                <Button
+                  size="icon"
+                  className="h-9 w-9 shrink-0 rounded-full bg-blue-500 hover:bg-blue-600"
+                  disabled={!messageInput.trim()}
+                  onClick={handleSendMessage}
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </>

@@ -11,6 +11,12 @@ import {
 } from "../notifications/notifications.events";
 import { BroadcastInput, SendMessageInput } from "./conversations.schemas";
 
+// Techo de mensajes que se devuelven por conversación en el listado: evita
+// cargar el historial completo de cada hilo solo para mostrar la vista
+// previa (N+1 / carga excesiva en memoria). El detalle completo se sigue
+// obteniendo por la misma vía, solo que acotado a los más recientes.
+const MESSAGE_PAGE_SIZE = 50;
+
 const ADMIN_STAFF_ROLES: UserRole[] = [
   UserRole.TENANT_ADMIN,
   UserRole.PRINCIPAL,
@@ -37,19 +43,18 @@ export class ConversationsService {
 
   async listConversations(actor: RequestUser) {
     const isSuperAdmin = actor.role === UserRole.SUPER_ADMIN;
-    
+
     const conversations = await this.prisma.conversation.findMany({
       where: {
         tenantId: actor.tenantId,
         archivedAt: null,
         ...(isSuperAdmin ? {} : { members: { some: { userId: actor.id } } }),
       },
+      orderBy: { lastMessageAt: "desc" },
       select: this.conversationSelect(actor.tenantId),
     });
 
-    return conversations
-      .map((conversation) => this.mapConversation(conversation, actor))
-      .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime());
+    return conversations.map((conversation) => this.mapConversation(conversation, actor));
   }
 
   async listContacts(actor: RequestUser): Promise<ContactUser[]> {
@@ -166,14 +171,20 @@ export class ConversationsService {
         actor.id,
         recipientId,
       );
-      const message = await this.prisma.conversationMessage.create({
-        data: { conversationId, fromId: actor.id, body: input.body },
-        select: { id: true },
-      });
-      await this.prisma.conversationMember.update({
-        where: { conversationId_userId: { conversationId, userId: actor.id } },
-        data: { lastReadAt: now },
-      });
+      const [message] = await this.prisma.$transaction([
+        this.prisma.conversationMessage.create({
+          data: { conversationId, fromId: actor.id, body: input.body },
+          select: { id: true },
+        }),
+        this.prisma.conversation.update({
+          where: { id: conversationId },
+          data: { lastMessageAt: now },
+        }),
+        this.prisma.conversationMember.update({
+          where: { conversationId_userId: { conversationId, userId: actor.id } },
+          data: { lastReadAt: now },
+        }),
+      ]);
       this.events.emit(NOTIFICATION_EVENTS.MESSAGE_RECEIVED, {
         tenantId: actor.tenantId,
         conversationId,
@@ -205,53 +216,53 @@ export class ConversationsService {
     userIdA: string,
     userIdB: string,
   ): Promise<string> {
-    const existing = await this.prisma.conversation.findFirst({
-      where: {
-        tenantId,
-        type: ConversationType.DIRECT,
-        archivedAt: null,
-        AND: [
-          { members: { some: { userId: userIdA } } },
-          { members: { some: { userId: userIdB } } },
-        ],
-      },
-      select: { id: true },
-    });
+    // Clave determinística e independiente del orden de los IDs: delega a la
+    // BD (vía @@unique([tenantId, directKey])) resolver dos peticiones
+    // simultáneas para el mismo par de usuarios, en vez de un findFirst +
+    // create sin transacción (condición de carrera real: creaba hilos
+    // duplicados bajo concurrencia).
+    const directKey = [userIdA, userIdB].sort().join(":");
 
-    if (existing) return existing.id;
-
-    const created = await this.prisma.conversation.create({
-      data: {
+    const conversation = await this.prisma.conversation.upsert({
+      where: { tenantId_directKey: { tenantId, directKey } },
+      update: {},
+      create: {
         tenantId,
         type: ConversationType.DIRECT,
         createdById: userIdA,
+        directKey,
         members: { create: [{ userId: userIdA }, { userId: userIdB }] },
       },
       select: { id: true },
     });
 
-    return created.id;
+    return conversation.id;
   }
 
   async sendMessage(actor: RequestUser, conversationId: string, input: SendMessageInput) {
     await this.assertMember(actor, conversationId);
 
-    const message = await this.prisma.conversationMessage.create({
-      data: {
-        conversationId,
-        fromId: actor.id,
-        body: input.body,
-        attachmentKey: input.attachmentKey,
-        attachmentName: input.attachmentName,
-      },
-      select: this.messageSelect(),
-    });
-
-    // El remitente ya "leyó" todo hasta este punto.
-    await this.prisma.conversationMember.update({
-      where: { conversationId_userId: { conversationId, userId: actor.id } },
-      data: { lastReadAt: new Date() },
-    });
+    const [message] = await this.prisma.$transaction([
+      this.prisma.conversationMessage.create({
+        data: {
+          conversationId,
+          fromId: actor.id,
+          body: input.body,
+          attachmentKey: input.attachmentKey,
+          attachmentName: input.attachmentName,
+        },
+        select: this.messageSelect(),
+      }),
+      this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: new Date() },
+      }),
+      // El remitente ya "leyó" todo hasta este punto.
+      this.prisma.conversationMember.update({
+        where: { conversationId_userId: { conversationId, userId: actor.id } },
+        data: { lastReadAt: new Date() },
+      }),
+    ]);
 
     const otherMembers = await this.prisma.conversationMember.findMany({
       where: { conversationId, userId: { not: actor.id } },
@@ -499,8 +510,6 @@ export class ConversationsService {
       (message) => message.fromId !== actor.id && (!lastReadAt || message.createdAt > lastReadAt),
     ).length;
 
-    const lastMessage = conversation.messages[conversation.messages.length - 1] ?? null;
-
     return {
       id: conversation.id,
       type: conversation.type,
@@ -508,8 +517,10 @@ export class ConversationsService {
       participants,
       otherParticipants,
       unreadCount,
-      lastMessageAt: lastMessage?.createdAt ?? conversation.createdAt,
-      messages: conversation.messages,
+      lastMessageAt: conversation.lastMessageAt,
+      // Se piden en orden desc (los MESSAGE_PAGE_SIZE más recientes) y se
+      // revierten aquí para mostrarlos en orden cronológico.
+      messages: [...conversation.messages].reverse(),
     };
   }
 
@@ -519,6 +530,7 @@ export class ConversationsService {
       type: true,
       title: true,
       createdAt: true,
+      lastMessageAt: true,
       members: {
         select: {
           userId: true,
@@ -535,7 +547,8 @@ export class ConversationsService {
       },
       messages: {
         where: { deletedAt: null },
-        orderBy: { createdAt: "asc" as const },
+        orderBy: { createdAt: "desc" as const },
+        take: MESSAGE_PAGE_SIZE,
         select: this.messageSelect(),
       },
     };
@@ -558,6 +571,7 @@ type ConversationWithRelations = {
   type: ConversationType;
   title: string | null;
   createdAt: Date;
+  lastMessageAt: Date;
   members: Array<{
     userId: string;
     lastReadAt: Date | null;

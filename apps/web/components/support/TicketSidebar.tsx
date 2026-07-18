@@ -12,6 +12,7 @@ import Link from "next/link"
 import { io, Socket } from "socket.io-client"
 import { API_URL } from "@/lib/env"
 import { getAccessToken } from "@/lib/auth"
+import { attachTokenRefresh } from "@/lib/socket"
 import { TICKET_CATEGORIES, TICKET_CATEGORY_LABELS } from "@/components/support/ticket-categories"
 import {
   Select,
@@ -79,7 +80,8 @@ export function TicketSidebar({ basePath, isTenant = false }: { basePath: string
         auth: { token },
         transports: ["websocket"],
       })
-      
+      attachTokenRefresh(newSocket)
+
       newSocket.on("connect", () => {
         newSocket.emit("dashboard:join")
       })

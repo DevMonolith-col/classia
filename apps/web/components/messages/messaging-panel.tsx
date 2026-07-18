@@ -182,13 +182,17 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
   }, [loadData])
 
   const handleSendMessage = useCallback(
-    async (conversationId: string, message: string) => {
-      const res = await apiFetch(`/conversations/${conversationId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ body: message }),
-      })
-      if (res.ok) {
+    async (conversationId: string, message: string): Promise<boolean> => {
+      try {
+        const res = await apiFetch(`/conversations/${conversationId}/messages`, {
+          method: "POST",
+          body: JSON.stringify({ body: message }),
+        })
+        if (!res.ok) return false
         void loadData()
+        return true
+      } catch {
+        return false
       }
     },
     [loadData],
