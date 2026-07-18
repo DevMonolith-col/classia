@@ -4,7 +4,8 @@ const PUBLIC_PATHS = new Set(["/", "/login", "/registro", "/recuperar-password"]
 
 const ROLE_SECTION: Record<string, string> = {
   SUPER_ADMIN: "/superadmin",
-  SUPPORT_AGENT: "/admin",
+  SUPPORT_SUPERVISOR: "/superadmin",
+  SUPPORT_AGENT: "/superadmin",
   TENANT_ADMIN: "/admin",
   PRINCIPAL: "/admin",
   COORDINATOR: "/admin",
@@ -67,8 +68,11 @@ export function middleware(request: NextRequest) {
       const currentSection = PROTECTED_SECTIONS.find((s) => pathname.startsWith(s))
 
       if (correctSection && currentSection && currentSection !== correctSection) {
-        // Permitir que SUPER_ADMIN acceda a /admin (modo impersonación)
-        if (payload.role === "SUPER_ADMIN" && currentSection === "/admin") {
+        // Permitir que el personal de plataforma acceda a /admin (modo impersonación)
+        if (
+          (payload.role === "SUPER_ADMIN" || payload.role === "SUPPORT_SUPERVISOR" || payload.role === "SUPPORT_AGENT") &&
+          currentSection === "/admin"
+        ) {
           return NextResponse.next()
         }
         return NextResponse.redirect(new URL(correctSection, request.url))

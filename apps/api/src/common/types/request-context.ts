@@ -14,6 +14,7 @@ export type RequestUser = {
   membershipId: string;
   role: UserRole;
   permissions?: string[];
+  isImpersonated?: boolean;
 };
 
 declare global {

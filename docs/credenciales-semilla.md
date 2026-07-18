@@ -17,6 +17,20 @@ Para acceder al panel global SaaS y probar las nuevas funcionalidades (Paginaci�
 
 ---
 
+## 🎧 Equipo de Soporte B2B (colegio `demo`)
+
+Cuentas reales del equipo de soporte, con la misma contraseña `ClassiaDemo2026!`. Todas viven en el tenant `demo` (igual que `admin@classia.com.co`), que es la convención que ya usa este proyecto para el personal de plataforma.
+
+| Rol | Nombre | Email | Puede |
+|---|---|---|---|
+| Supervisor de Soporte | Camila Rodríguez | `supervisor.soporte@classia.com.co` | Ver todos los tickets, asignarlos, entrar al colegio de un ticket, cambiar estado — sin el resto del poder de plataforma de `SUPER_ADMIN` (no crea/borra colegios, no asigna roles globales). |
+| Agente de Soporte | Daniel Torres | `agente1.soporte@classia.com.co` | Ver todos los tickets, comentar, cambiar estado. No asigna tickets ni entra al colegio por su cuenta — eso lo hace el supervisor. |
+| Agente de Soporte | Valentina Ramírez | `agente2.soporte@classia.com.co` | Igual que arriba. |
+
+Se crean/actualizan automáticamente al correr `pnpm run db:seed` (son `upsert`, no se duplican).
+
+---
+
 ## 🏫 Instituciones Generadas
 
 Cada institución tiene su propio administrador. 

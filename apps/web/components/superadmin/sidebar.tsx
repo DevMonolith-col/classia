@@ -21,6 +21,12 @@ import {
 } from "lucide-react"
 import { getStoredUser, logout } from "@/lib/auth"
 
+const SUPERADMIN_ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: "Super Administrador",
+  SUPPORT_SUPERVISOR: "Supervisor de Soporte",
+  SUPPORT_AGENT: "Agente de Soporte",
+}
+
 const navigation = [
   { name: "Panel SaaS", href: "/superadmin", icon: Gauge, available: true },
   { name: "Colegios", href: "/superadmin/tenants", icon: Building2, available: true },
@@ -178,7 +184,9 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
-                <p className="truncate text-xs text-sidebar-foreground/50">Super Administrador</p>
+                <p className="truncate text-xs text-sidebar-foreground/50">
+                  {SUPERADMIN_ROLE_LABELS[user?.role ?? ""] ?? "Super Administrador"}
+                </p>
               </div>
             </div>
           )}

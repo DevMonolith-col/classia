@@ -159,7 +159,7 @@ export default function SuperAdminTenantsPage() {
   const handleImpersonate = async (tenantId: string) => {
     try {
       setImpersonatingId(tenantId)
-      await impersonateTenant(tenantId)
+      await impersonateTenant(tenantId, "/superadmin/tenants")
       router.push("/admin")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al iniciar sesión en el colegio")
