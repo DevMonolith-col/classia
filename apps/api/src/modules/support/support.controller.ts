@@ -84,7 +84,7 @@ export class SupportController {
     @Param("id") ticketId: string,
     @Body(new ZodValidationPipe(createCommentSchema)) data: CreateCommentDto
   ) {
-    return this.supportService.addComment(ticketId, user.id, data, isSupportStaff(user.role))
+    return this.supportService.addComment(ticketId, user.id, data, isSupportStaff(user.role), user.tenantId)
   }
 
   @Get("agents")
