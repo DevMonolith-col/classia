@@ -383,7 +383,7 @@ export default function ProfesorDashboardPage() {
               <Link href="/profesor/estudiantes">Ver Estudiantes</Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link href="/profesor/mensajes/nuevo">Enviar Mensaje</Link>
+              <Link href="/profesor/mensajes">Enviar Mensaje</Link>
             </Button>
           </div>
         </CardContent>

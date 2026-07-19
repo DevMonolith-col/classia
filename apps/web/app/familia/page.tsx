@@ -170,7 +170,7 @@ export default function FamiliaDashboardPage() {
           </div>
         </div>
         <Button asChild>
-          <Link href="/familia/mensajes/nuevo">Contactar Profesor</Link>
+          <Link href="/familia/mensajes">Contactar Profesor</Link>
         </Button>
       </div>
 

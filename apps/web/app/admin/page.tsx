@@ -163,7 +163,7 @@ export default function AdminDashboardPage() {
               </Link>
             </Button>
             <Button size="sm" variant="outline" asChild>
-              <Link href="/admin/mensajes/nuevo" className="gap-1.5">
+              <Link href="/admin/comunicados" className="gap-1.5">
                 <MessageSquare className="h-3.5 w-3.5" />
                 Comunicado
               </Link>
