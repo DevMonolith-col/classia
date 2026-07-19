@@ -11,6 +11,9 @@ import {
 import { Request } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { Permissions } from "../../common/decorators/permissions.decorator";
+import { AccessScope } from "@prisma/client";
+import { DataScope } from "../../common/decorators/data-scope.decorator";
+import { DataScopeGuard } from "../../common/guards/data-scope.guard";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { PERMISSIONS } from "../../common/permissions/permissions";
@@ -23,7 +26,8 @@ import {
 import { AnnouncementsService } from "./announcements.service";
 
 @Controller("announcements")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+@DataScope(AccessScope.OPERATIVO)
 export class AnnouncementsController {
   constructor(private readonly announcements: AnnouncementsService) {}
 

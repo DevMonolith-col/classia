@@ -11,11 +11,8 @@ import {
   Plus,
   RefreshCw,
   Search,
-  LogIn,
 } from "lucide-react"
-import { useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/api-client"
-import { impersonateTenant } from "@/lib/auth"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -102,9 +99,7 @@ export default function SuperAdminTenantsPage() {
   const [query, setQuery] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTenant, setEditingTenant] = useState<Tenant | undefined>()
-  const [impersonatingId, setImpersonatingId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
-  const router = useRouter()
 
   const loadTenants = useCallback(async () => {
     setLoading(true)
@@ -154,17 +149,6 @@ export default function SuperAdminTenantsPage() {
   const openEditDialog = (tenant: Tenant) => {
     setEditingTenant(tenant)
     setDialogOpen(true)
-  }
-
-  const handleImpersonate = async (tenantId: string) => {
-    try {
-      setImpersonatingId(tenantId)
-      await impersonateTenant(tenantId, "/superadmin/tenants")
-      router.push("/admin")
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al iniciar sesión en el colegio")
-      setImpersonatingId(null)
-    }
   }
 
   function handleSaved(saved: Tenant) {
@@ -294,16 +278,6 @@ export default function SuperAdminTenantsPage() {
                           <TableCell className="text-sm text-muted-foreground">{formatDate(tenant.updatedAt ?? tenant.createdAt)}</TableCell>
                           <TableCell className="pr-6 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="gap-1.5"
-                                disabled={impersonatingId === tenant.id}
-                                onClick={() => handleImpersonate(tenant.id)}
-                              >
-                                <LogIn className={`h-3.5 w-3.5 ${impersonatingId === tenant.id ? "animate-pulse" : ""}`} />
-                                Acceder
-                              </Button>
                               <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => openEditDialog(tenant)}>
                                 <Pencil className="h-3.5 w-3.5" />
                                 Editar
@@ -330,16 +304,6 @@ export default function SuperAdminTenantsPage() {
                       <div className="mt-3 flex items-center justify-between">
                         <p className="text-xs text-muted-foreground">Creado {formatDate(tenant.createdAt)}</p>
                         <div className="flex gap-2">
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="gap-1.5" 
-                            disabled={impersonatingId === tenant.id}
-                            onClick={() => handleImpersonate(tenant.id)}
-                          >
-                            <LogIn className={`h-3.5 w-3.5 ${impersonatingId === tenant.id ? "animate-pulse" : ""}`} />
-                            Acceder
-                          </Button>
                           <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => openEditDialog(tenant)}>
                             <Pencil className="h-3.5 w-3.5" />
                             Editar

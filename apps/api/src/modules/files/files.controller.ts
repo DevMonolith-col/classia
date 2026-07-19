@@ -16,11 +16,16 @@ import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { PERMISSIONS } from "../../common/permissions/permissions";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
+import { FilesDataScopeGuard } from "./files-data-scope.guard";
 import { FileKeyQuery, fileKeyQuerySchema } from "./files.schemas";
 import { FilesService } from "./files.service";
 
+// `files` sirve cualquier fileKey por una única ruta genérica: FilesDataScopeGuard
+// resuelve el alcance real por payload (join fileKey -> entidad dueña), ver la
+// tabla de resolución documentada ahí. `upload` no tiene key todavía (archivo
+// recién subido, sin adjuntar) así que usa el fallback DATOS_PERSONALES del guard.
 @Controller("files")
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, FilesDataScopeGuard)
 export class FilesController {
   constructor(private readonly files: FilesService) {}
 

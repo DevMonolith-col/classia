@@ -1,8 +1,11 @@
 import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
+import { AccessScope } from "@prisma/client";
 import { Request } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
+import { DataScope } from "../../common/decorators/data-scope.decorator";
 import { Permissions } from "../../common/decorators/permissions.decorator";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
+import { DataScopeGuard } from "../../common/guards/data-scope.guard";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { TenantGuard } from "../../common/guards/tenant.guard";
@@ -28,14 +31,16 @@ export class TenantsController {
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.OPERATIVO)
   @Permissions(PERMISSIONS.TENANTS_LIST)
   list() {
     return this.tenants.list();
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.OPERATIVO)
   @Permissions(PERMISSIONS.TENANTS_CREATE)
   create(
     @Body(new ZodValidationPipe(createTenantSchema)) body: CreateTenantInput,
@@ -46,14 +51,16 @@ export class TenantsController {
   }
 
   @Get(":id")
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.OPERATIVO)
   @Permissions(PERMISSIONS.TENANTS_READ)
   findOne(@Param("id") tenantId: string, @CurrentUser() user: RequestUser) {
     return this.tenants.findVisibleTenant(tenantId, user);
   }
 
   @Patch(":id")
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.OPERATIVO)
   @Permissions(PERMISSIONS.TENANTS_UPDATE)
   update(
     @Param("id") tenantId: string,

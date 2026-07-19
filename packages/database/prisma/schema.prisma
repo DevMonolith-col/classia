@@ -87,6 +87,7 @@ model Tenant {
   payments          Payment[]
   generatedReports  GeneratedReport[]
   reportSchedules   ReportSchedule[]
+  accessSessions    AccessSession[]
 
   @@map("tenants")
 }
@@ -121,6 +122,8 @@ model User {
   paymentsRecorded        Payment[]
   reportsRequested        GeneratedReport[]
   reportSchedulesCreated  ReportSchedule[]
+  accessSessionsRequested AccessSession[]          @relation("AccessSessionRequestedBy")
+  accessSessionsApproved  AccessSession[]          @relation("AccessSessionApprovedBy")
 
   @@map("users")
 }
@@ -158,9 +161,17 @@ model AuthSession {
   // revoca esta sesión en el servidor (no basta con limpiar el cliente).
   isImpersonated   Boolean   @default(false)
   impersonatedRole UserRole?
+  // Ticket que justificó esta impersonación — obligatorio en el momento de crear
+  // la sesión (auth.service#impersonate exige AccessSession por ticket), pero
+  // nullable a nivel de columna porque las sesiones normales (no impersonadas)
+  // nunca tienen uno. Se re-embebe en cada refresh (ver auth.service#refresh)
+  // para que DataScopeGuard pueda aislar el alcance por (agente, ticket, colegio)
+  // durante toda la vida de la sesión, no solo en el token inicial.
+  ticketId String?
 
-  user   User    @relation(fields: [userId], references: [id])
-  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User           @relation(fields: [userId], references: [id])
+  tenant Tenant?        @relation(fields: [tenantId], references: [id])
+  ticket SupportTicket? @relation(fields: [ticketId], references: [id])
 
   @@map("auth_sessions")
 }
@@ -760,6 +771,7 @@ enum NotificationEventType {
   ATTENDANCE_ABSENCE_RECORDED
   MESSAGE_RECEIVED
   ANNOUNCEMENT_PUBLISHED
+  SUPPORT_ACCESS_EMERGENCY
 }
 
 enum NotificationChannel {
@@ -880,9 +892,62 @@ model SupportTicket {
   author      User           @relation("SupportTicketAuthor", fields: [authorId], references: [id])
   assignee    User?          @relation("SupportTicketAssignee", fields: [assigneeId], references: [id])
   comments    TicketComment[]
+  accessSessions AccessSession[]
+  authSessions   AuthSession[]
 
   @@index([tenantId, status])
   @@map("support_tickets")
+}
+
+// ─── Acceso de soporte con consentimiento (just-in-time, con alcance y expiración) ──
+
+enum AccessScope {
+  OPERATIVO
+  DATOS_PERSONALES
+}
+
+enum AccessSessionStatus {
+  SOLICITADO
+  CONCEDIDO
+  EXPIRADO
+  REVOCADO
+  EMERGENCIA
+}
+
+// Gobierna qué puede leer un agente/supervisor de soporte mientras impersona un
+// tenant. Es aditivo a la impersonación (auth.service#impersonate): no reemplaza
+// el JWT efímero existente, solo condiciona si DataScopeGuard deja pasar un
+// request a un endpoint DATOS_PERSONALES. El JWT sigue siendo stateless, así que
+// la revocación real depende de que DataScopeGuard consulte esta tabla en cada
+// request marcado isImpersonated (ver data-scope.guard.ts).
+model AccessSession {
+  id            String               @id @default(uuid())
+  ticketId      String
+  tenantId      String
+  requestedById String
+  approvedById  String?
+  scope         AccessScope
+  status        AccessSessionStatus @default(SOLICITADO)
+  reason        String
+  denialReason  String?
+  revokedReason String?
+  // Duración pedida al solicitar; se aplica tal cual al aprobar (grantedAt + esto).
+  // Si el supervisor quiere otra duración, niega y pide que se re-solicite.
+  requestedDurationMinutes Int @default(240)
+
+  requestedAt DateTime  @default(now())
+  grantedAt   DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id])
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  requestedBy User          @relation("AccessSessionRequestedBy", fields: [requestedById], references: [id])
+  approvedBy  User?         @relation("AccessSessionApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([tenantId, requestedById, status])
+  @@index([ticketId])
+  @@map("access_sessions")
 }
 
 model TicketComment {

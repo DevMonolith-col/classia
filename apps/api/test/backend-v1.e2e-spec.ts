@@ -1025,15 +1025,33 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
     },
   });
 
+  // Homework/marks list-for-GUARDIAN se filtra por el año académico activo del
+  // tenant (ver homework.service.ts#list / marks.service.ts#list): un fixture
+  // creado sin academicYearId deja de aparecer en cuanto el tenant "demo" tiene
+  // un año activo (seed.ts lo activa en cada corrida). Se resuelve una vez aquí
+  // y se fuerza en create/update para que el fixture sea estable sin importar
+  // el orden en que se corran seed y estos tests.
+  const activeYear = await prisma.academicYear.findFirst({
+    where: { tenantId: tenant.id, isActive: true },
+  });
+  const activeYearId = activeYear?.id;
+
   let ownChildHomework = await prisma.homework.findFirst({
     where: { tenantId: tenant.id, groupId: sharedGroup.id, title: "Tarea Guardian E2E Propia" },
   });
+  if (ownChildHomework && ownChildHomework.academicYearId !== activeYearId) {
+    ownChildHomework = await prisma.homework.update({
+      where: { id: ownChildHomework.id },
+      data: { academicYearId: activeYearId },
+    });
+  }
   ownChildHomework ??= await prisma.homework.create({
     data: {
       tenantId: tenant.id,
       teacherId: teacher.id,
       subjectId: subject.id,
       groupId: sharedGroup.id,
+      academicYearId: activeYearId,
       title: "Tarea Guardian E2E Propia",
       dueDate: new Date("2026-08-01T00:00:00.000Z"),
     },
@@ -1042,12 +1060,19 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
   let otherGroupHomework = await prisma.homework.findFirst({
     where: { tenantId: tenant.id, groupId: otherGroup.id, title: "Tarea Guardian E2E Ajena" },
   });
+  if (otherGroupHomework && otherGroupHomework.academicYearId !== activeYearId) {
+    otherGroupHomework = await prisma.homework.update({
+      where: { id: otherGroupHomework.id },
+      data: { academicYearId: activeYearId },
+    });
+  }
   otherGroupHomework ??= await prisma.homework.create({
     data: {
       tenantId: tenant.id,
       teacherId: teacher.id,
       subjectId: subject.id,
       groupId: otherGroup.id,
+      academicYearId: activeYearId,
       title: "Tarea Guardian E2E Ajena",
       dueDate: new Date("2026-08-01T00:00:00.000Z"),
     },
@@ -1056,12 +1081,19 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
   let ownChildMark = await prisma.mark.findFirst({
     where: { tenantId: tenant.id, studentId: ownChild.id, title: "Nota Guardian E2E Propia" },
   });
+  if (ownChildMark && ownChildMark.academicYearId !== activeYearId) {
+    ownChildMark = await prisma.mark.update({
+      where: { id: ownChildMark.id },
+      data: { academicYearId: activeYearId },
+    });
+  }
   ownChildMark ??= await prisma.mark.create({
     data: {
       tenantId: tenant.id,
       studentId: ownChild.id,
       subjectId: subject.id,
       teacherId: teacher.id,
+      academicYearId: activeYearId,
       title: "Nota Guardian E2E Propia",
       value: 4.5,
       maxValue: 5,
@@ -1071,12 +1103,19 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
   let classmateMark = await prisma.mark.findFirst({
     where: { tenantId: tenant.id, studentId: classmate.id, title: "Nota Guardian E2E Companero" },
   });
+  if (classmateMark && classmateMark.academicYearId !== activeYearId) {
+    classmateMark = await prisma.mark.update({
+      where: { id: classmateMark.id },
+      data: { academicYearId: activeYearId },
+    });
+  }
   classmateMark ??= await prisma.mark.create({
     data: {
       tenantId: tenant.id,
       studentId: classmate.id,
       subjectId: subject.id,
       teacherId: teacher.id,
+      academicYearId: activeYearId,
       title: "Nota Guardian E2E Companero",
       value: 4.0,
       maxValue: 5,
@@ -1086,12 +1125,19 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
   let otherChildMark = await prisma.mark.findFirst({
     where: { tenantId: tenant.id, studentId: otherChild.id, title: "Nota Guardian E2E Ajena" },
   });
+  if (otherChildMark && otherChildMark.academicYearId !== activeYearId) {
+    otherChildMark = await prisma.mark.update({
+      where: { id: otherChildMark.id },
+      data: { academicYearId: activeYearId },
+    });
+  }
   otherChildMark ??= await prisma.mark.create({
     data: {
       tenantId: tenant.id,
       studentId: otherChild.id,
       subjectId: subject.id,
       teacherId: teacher.id,
+      academicYearId: activeYearId,
       title: "Nota Guardian E2E Ajena",
       value: 3.5,
       maxValue: 5,

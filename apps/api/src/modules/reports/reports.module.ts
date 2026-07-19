@@ -7,13 +7,14 @@ import { NotificationsModule } from "../notifications/notifications.module"
 import { PaymentsModule } from "../payments/payments.module"
 import { ReportCardsModule } from "../report-cards/report-cards.module"
 import { ReportsController } from "./reports.controller"
+import { ReportsDataScopeGuard } from "./reports-data-scope.guard"
 import { ReportsProcessor } from "./reports.processor"
 import { REPORTS_QUEUE, ReportsService } from "./reports.service"
 
 @Module({
   imports: [BullModule.registerQueue({ name: REPORTS_QUEUE }), AuditCoreModule, PaymentsModule, ReportCardsModule, NotificationsModule],
   controllers: [ReportsController],
-  providers: [JwtAuthGuard, PermissionsGuard, ReportsService, ReportsProcessor],
+  providers: [JwtAuthGuard, PermissionsGuard, ReportsService, ReportsProcessor, ReportsDataScopeGuard],
 })
 export class ReportsModule implements OnModuleInit {
   constructor(private readonly reports: ReportsService) {}

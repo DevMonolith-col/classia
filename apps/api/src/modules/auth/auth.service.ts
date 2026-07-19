@@ -1,13 +1,14 @@
 import { randomBytes, createHash } from "node:crypto";
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
-import { MembershipStatus, UserRole, UserStatus } from "@prisma/client";
+import { AccessScope, MembershipStatus, UserRole, UserStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { Request } from "express";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
 import { TenantContextService } from "../../core/tenant-context/tenant-context.service";
+import { AccessControlService } from "../access-control/access-control.service";
 import { LoginInput, RefreshTokenInput, ImpersonateInput } from "./auth.schemas";
 import { AuthTokenPayload } from "./auth.types";
 import { RequestUser } from "../../common/types/request-context";
@@ -24,6 +25,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
+    private readonly accessControl: AccessControlService,
   ) {}
 
   async login(input: LoginInput, request: Request) {
@@ -121,10 +123,11 @@ export class AuthService {
       throw new UnauthorizedException("Invalid refresh token.");
     }
 
-    // Sesión de impersonación: se re-emite conservando el rol efectivo y el flag,
-    // sin depender de ninguna membership (el supervisor no la tiene en el tenant).
-    // Sin esto, tras 15 min el token perdía isImpersonated y la auditoría dejaba
-    // de registrar las mutaciones de la sesión impersonada.
+    // Sesión de impersonación: se re-emite conservando el rol efectivo, el flag
+    // y el ticket que la justificó, sin depender de ninguna membership (el
+    // supervisor no la tiene en el tenant). Sin el ticketId, tras el primer
+    // refresh DataScopeGuard perdería con qué AccessSession aislar el alcance —
+    // el aislamiento por ticket no sobreviviría más de 15 minutos.
     if (session.isImpersonated) {
       await this.prisma.authSession.update({
         where: { id: session.id },
@@ -140,6 +143,7 @@ export class AuthService {
         membershipId: "",
         role: impersonatedRole,
         isImpersonated: true,
+        ticketId: session.ticketId ?? undefined,
         request,
       });
 
@@ -237,12 +241,15 @@ export class AuthService {
   }
 
   async impersonate(input: ImpersonateInput, currentUser: RequestUser, request: Request) {
-    // Solo un supervisor (SUPER_ADMIN o SUPPORT_SUPERVISOR) puede entrar al
-    // colegio de un tenant. Un agente de soporte (worker) nunca se
-    // auto-otorga acceso, aunque tenga un ticket activo asignado: si hace
-    // falta acceso, lo hace el supervisor.
-    if (currentUser.role !== "SUPER_ADMIN" && currentUser.role !== "SUPPORT_SUPERVISOR") {
-      throw new UnauthorizedException("Solo un supervisor puede acceder al colegio de un tenant.");
+    // Antes solo un supervisor podía impersonar (chequeo de rol fijo). Ahora la
+    // AccessSession aprobada es el gate real: solo un supervisor puede aprobar
+    // una (ver access-control.service#approve/breakGlass), así que esto ya
+    // subsume la restricción anterior sin bloquear al agente al que el
+    // supervisor sí le aprobó el acceso. Se mantiene un filtro de rol amplio
+    // como defensa en profundidad (roles no-soporte nunca tienen sesiones).
+    const staffRoles: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.SUPPORT_SUPERVISOR, UserRole.SUPPORT_AGENT];
+    if (!staffRoles.includes(currentUser.role)) {
+      throw new UnauthorizedException("Solo el personal de soporte puede acceder al colegio de un tenant.");
     }
 
     const targetTenant = await this.prisma.tenant.findUnique({
@@ -251,6 +258,36 @@ export class AuthService {
 
     if (!targetTenant) {
       throw new UnauthorizedException("Target tenant not found.");
+    }
+
+    // El ticket debe existir y pertenecer al mismo colegio que se quiere entrar
+    // — defensa en profundidad: sin esto alguien podría citar un ticket válido
+    // de OTRO colegio para intentar colar el check de más abajo.
+    const ticket = await this.prisma.supportTicket.findUnique({
+      where: { id: input.ticketId },
+      select: { id: true, tenantId: true },
+    });
+    if (!ticket || ticket.tenantId !== targetTenant.id) {
+      throw new ForbiddenException("El ticket no corresponde a este colegio.");
+    }
+
+    // La impersonación en sí ya no es autoservicio: exige una AccessSession
+    // CONCEDIDO/EMERGENCIA vigente para ESTE ticket y este tenant (ver
+    // access-control). Aislado por ticket a propósito: otra sesión activa del
+    // mismo agente sobre el mismo colegio, aprobada para un ticket distinto, no
+    // habilita entrar citando este. OPERATIVO es el mínimo: cualquier sesión
+    // activa con ese alcance alcanza (el detalle de qué datos puede leer ya lo
+    // decide DataScopeGuard endpoint por endpoint).
+    const hasAccess = await this.accessControl.hasActiveScopeForTicket(
+      currentUser.id,
+      input.ticketId,
+      targetTenant.id,
+      AccessScope.OPERATIVO,
+    );
+    if (!hasAccess) {
+      throw new ForbiddenException(
+        "No tienes una sesión de acceso aprobada para este ticket. Solicítala antes de entrar.",
+      );
     }
 
     // Sesión efímera: impersonar NO crea ni modifica ninguna TenantMembership.
@@ -270,6 +307,7 @@ export class AuthService {
       membershipId: "",
       role: sessionRole,
       isImpersonated: true,
+      ticketId: input.ticketId,
       request,
     });
 
@@ -280,6 +318,7 @@ export class AuthService {
       action: "auth.impersonate",
       entityType: "Tenant",
       entityId: targetTenant.id,
+      newValues: { ticketId: input.ticketId },
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
@@ -352,6 +391,9 @@ export class AuthService {
         // El rol efectivo de la impersonación se guarda para poder re-emitir el
         // token en cada refresh sin leer ninguna membership.
         impersonatedRole: input.isImpersonated ? input.role : null,
+        // Igual que impersonatedRole: se persiste para que el refresh (más abajo
+        // en este archivo) pueda re-embeber el mismo ticketId en el nuevo token.
+        ticketId: input.isImpersonated ? (input.ticketId ?? null) : null,
       },
     });
 
@@ -363,6 +405,7 @@ export class AuthService {
       membershipId: input.membershipId,
       role: input.role,
       isImpersonated: input.isImpersonated,
+      ticketId: input.isImpersonated ? input.ticketId : undefined,
     });
 
     return {

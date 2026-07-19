@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Clock, CheckCircle2, XCircle, AlertTriangle, User, LogIn, Building2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Clock, CheckCircle2, XCircle, AlertTriangle, User, Building2 } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api-client"
-import { getAccessToken, decodeJwt, impersonateTenant } from "@/lib/auth"
+import { getAccessToken, decodeJwt } from "@/lib/auth"
 import { SupportChatThread, type StatusBadgeInfo } from "@/components/support/SupportChatThread"
+import { AccessSessionPanel } from "@/components/support/AccessSessionPanel"
 
 const statusConfig: Record<string, StatusBadgeInfo> = {
   OPEN: { label: "Abierto", colorClass: "bg-blue-100 text-blue-800", icon: AlertTriangle },
@@ -39,7 +39,6 @@ export default function SuperAdminTicketDetail() {
 
   const [agents, setAgents] = useState<any[]>([])
   const [assigning, setAssigning] = useState(false)
-  const [impersonating, setImpersonating] = useState(false)
 
   const fetchTicketAndAgents = useCallback(async () => {
     try {
@@ -84,18 +83,6 @@ export default function SuperAdminTicketDetail() {
       alert("Error al asignar ticket")
     } finally {
       setAssigning(false)
-    }
-  }
-
-  const handleImpersonate = async () => {
-    if (!ticket?.tenantId) return
-    setImpersonating(true)
-    try {
-      await impersonateTenant(ticket.tenantId, `/superadmin/support/${id}`)
-      router.push("/admin")
-    } catch (e: any) {
-      alert(e.message || "Error de impersonation")
-      setImpersonating(false)
     }
   }
 
@@ -182,24 +169,14 @@ export default function SuperAdminTicketDetail() {
         )}
       </div>
 
-      {isSupervisor && (
-        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
-          <p className="text-xs font-semibold text-primary">Acceso al colegio</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {isTicketActive
-              ? "Entra directamente al colegio para diagnosticar o corregir el problema."
-              : "El ticket ya está cerrado; el acceso solo aplica a tickets activos."}
-          </p>
-          <Button
-            size="sm"
-            className="mt-2 w-full gap-2"
-            onClick={handleImpersonate}
-            disabled={impersonating || !isTicketActive}
-          >
-            <LogIn className="h-3.5 w-3.5" /> Entrar al sistema
-          </Button>
-        </div>
-      )}
+      <AccessSessionPanel
+        ticketId={id}
+        tenantId={ticket.tenantId}
+        currentUserId={currentUser}
+        isSupervisor={isSupervisor}
+        isTicketActive={isTicketActive}
+        onEnterTenant={() => router.push("/admin")}
+      />
     </div>
   )
 
