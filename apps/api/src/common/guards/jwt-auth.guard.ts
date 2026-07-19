@@ -34,7 +34,5 @@ export class JwtAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException("Invalid access token.");
     }
-
-    return true;
   }
 }
