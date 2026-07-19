@@ -195,6 +195,44 @@ por tarea** es el autoritativo.
 
 ---
 
+## RESUMEN FINAL ✅ Auditoría completa (2026-07-18 → 2026-07-19)
+
+Las 6 fases del plan están hechas, verificadas (typecheck + jest + verificación en vivo
+contra la API real y/o el navegador para cada una) y comiteadas en `feature/reportes-reales`
+en 30 commits atómicos (Conventional Commits, sin auto-atribución). Resumen por fase:
+
+| Fase | Qué | Verificación |
+|---|---|---|
+| 1 | IDOR de soporte, impersonación efímera, XSS email, SSRF PDF, secreto del voto, `categoryId` | e2e 11/12 (1 preexistente) + flujo de impersonación en vivo |
+| 2 | Pagos transaccionales, `generateBulk` con tenant, unique de boletín, filtros `isActive` | e2e 11/12 + sobrepago/resumen en vivo |
+| 3 | N+1 de boletines, `notify()` en lote, `listBroadcastTargets` | e2e 12/12 |
+| 4 | Scheduler de reportes: reprogramación dinámica, zona horaria | 6 unit + e2e 12/12 + schedule real en Redis |
+| 5 | Resend 4xx, soft-delete comunicados, rate-limit, roles plataforma | 18/18 jest + rate-limit/soft-delete en vivo |
+| 6 | Alineación notas frontend/backend (peso por tarea) | 18/18 jest + preview en vivo (3.6 vs 4.0) |
+
+**Verificación adicional del propósito de la rama (2026-07-19)**: más allá de la auditoría
+de seguridad, se confirmó en navegador real que el módulo `reports` (razón de ser de
+`feature/reportes-reales`) está funcionalmente completo: los 6 tipos de reporte devuelven
+datos reales, la generación PDF/CSV asíncrona funciona (Puppeteer real, no el stub de
+tests), la descarga por URL firmada funciona, el historial y los contadores se actualizan
+correctamente, y el ciclo completo de programación recurrente (crear → verificar en
+Redis/BD → eliminar) funciona de punta a punta. Ver `estado-del-proyecto.md` (corrección
+2026-07-19) para el detalle actualizado de qué está conectado. **No queda pendiente nada
+del alcance original de reportes** — lo que sí queda pendiente son mejoras de producto
+fuera de ese alcance (transcript multi-año, estadísticas agregadas, UI de categorías
+ponderadas), ya documentadas en otros archivos de `docs/planning/`.
+
+### Cambios de infraestructura que quien haga pull debe saber
+- **Dependencias nuevas**: `@nestjs/throttler`, `@nest-lab/throttler-storage-redis`,
+  `ioredis` (Fase 5) → correr `pnpm install`.
+- **Migraciones nuevas** (Fases 1, 2, 4, 5): impersonación/voto (`20260720130000`), unique
+  de boletín (`20260720140000`), `nextRunAt` de reportes (`20260720150000`), soft-delete de
+  comunicados (`20260720160000`) → correr `prisma migrate deploy`.
+- **`docker compose up -d`** debe estar arriba (Postgres/Redis/MinIO) antes de correr
+  migraciones o levantar la API.
+
+---
+
 ## Notas de ejecución
 
 - E2e comparten la BD de dev y acumulan datos → usar `toBeGreaterThanOrEqual`/IDs
