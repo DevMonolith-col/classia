@@ -38,6 +38,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "auth.login": "inició sesión",
   "auth.logout": "cerró sesión",
   "auth.refresh": "renovó sesión",
+  "auth.refresh_denied": "intentó renovar una sesión de soporte sin acceso activo",
   "auth.impersonate": "accedió como colegio",
   "auth.register": "se registró",
   "support.access.requested": "solicitó acceso de soporte",

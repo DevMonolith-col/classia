@@ -6,10 +6,12 @@ import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe"
 import { RequestUser } from "../../common/types/request-context"
 import { AccessControlService } from "./access-control.service"
 import {
+  ApproveAccessInput,
   BreakGlassInput,
   DenyAccessInput,
   RequestAccessInput,
   RevokeAccessInput,
+  approveAccessSchema,
   breakGlassSchema,
   denyAccessSchema,
   requestAccessSchema,
@@ -31,8 +33,13 @@ export class AccessControlController {
   }
 
   @Patch(":id/approve")
-  approve(@Param("id") id: string, @CurrentUser() user: RequestUser, @Req() request: Request) {
-    return this.accessControl.approve(id, user, request)
+  approve(
+    @Param("id") id: string,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+    @Body(new ZodValidationPipe(approveAccessSchema)) data: ApproveAccessInput,
+  ) {
+    return this.accessControl.approve(id, data, user, request)
   }
 
   @Patch(":id/deny")

@@ -4,11 +4,17 @@ import { useCallback, useEffect, useState } from "react"
 import { AlertTriangle, Clock, Loader2, LogIn, ShieldCheck, ShieldOff, ShieldQuestion } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { apiFetch } from "@/lib/api-client"
 import { impersonateTenant } from "@/lib/auth"
+
+// Debe reflejar MAX_ACCESS_DURATION_MINUTES en access-control.schemas.ts (API):
+// el backend es quien valida y corta de verdad, esto solo evita un round-trip
+// inútil cuando el supervisor ya escribió algo fuera de rango.
+const MAX_ACCESS_DURATION_MINUTES = 480
 
 type AccessScope = "OPERATIVO" | "DATOS_PERSONALES"
 type AccessSessionStatus = "SOLICITADO" | "CONCEDIDO" | "EXPIRADO" | "REVOCADO" | "EMERGENCIA"
@@ -21,6 +27,7 @@ type AccessSession = {
   requestedAt: string
   grantedAt: string | null
   expiresAt: string | null
+  requestedDurationMinutes: number
   requestedBy: { id: string; firstName: string; lastName: string }
   approvedBy: { id: string; firstName: string; lastName: string } | null
 }
@@ -56,6 +63,7 @@ export function AccessSessionPanel({ ticketId, tenantId, currentUserId, isSuperv
   const [scope, setScope] = useState<AccessScope>("OPERATIVO")
   const [reason, setReason] = useState("")
   const [enteringTenant, setEnteringTenant] = useState(false)
+  const [approveDuration, setApproveDuration] = useState("")
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -73,6 +81,13 @@ export function AccessSessionPanel({ ticketId, tenantId, currentUserId, isSuperv
   const activeSession = sessions.find((s) => s.status === "CONCEDIDO" || s.status === "EMERGENCIA")
   const pendingSession = sessions.find((s) => s.status === "SOLICITADO")
   const isActiveMine = activeSession?.requestedBy.id === currentUserId
+
+  // Precarga el input de duración con lo solicitado cada vez que cambia (o
+  // aparece) la solicitud pendiente, para que el supervisor vea el punto de
+  // partida y solo lo toque si de verdad quiere ajustarlo.
+  useEffect(() => {
+    if (pendingSession) setApproveDuration(String(pendingSession.requestedDurationMinutes))
+  }, [pendingSession])
 
   async function submitRequest() {
     if (reason.trim().length < 10) {
@@ -98,13 +113,38 @@ export function AccessSessionPanel({ ticketId, tenantId, currentUserId, isSuperv
     }
   }
 
-  async function respondTo(sessionId: string, action: "approve" | "deny") {
+  async function approve(sessionId: string, requestedDurationMinutes: number) {
+    const parsed = Number(approveDuration)
+    if (!Number.isInteger(parsed) || parsed < 15 || parsed > MAX_ACCESS_DURATION_MINUTES) {
+      alert(`La duración debe ser un número entero entre 15 y ${MAX_ACCESS_DURATION_MINUTES} minutos`)
+      return
+    }
     setBusy(true)
     try {
-      const path = `/access-sessions/${sessionId}/${action}`
-      const res = await apiFetch(path, {
+      // Solo se manda durationMinutes si el supervisor de verdad la cambió; si
+      // no, se omite del body y el backend respeta la solicitada (approve() en
+      // access-control.service.ts trata el campo ausente como "sin ajuste").
+      const body = parsed === requestedDurationMinutes ? {} : { durationMinutes: parsed }
+      const res = await apiFetch(`/access-sessions/${sessionId}/approve`, {
         method: "PATCH",
-        body: action === "deny" ? JSON.stringify({ reason: "Denegado por el supervisor" }) : undefined,
+        body: JSON.stringify(body),
+      })
+      if (res.ok) fetchSessions()
+      else {
+        const errBody = await res.json().catch(() => ({}))
+        alert(errBody.message || "No se pudo aprobar la solicitud")
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deny(sessionId: string) {
+    setBusy(true)
+    try {
+      const res = await apiFetch(`/access-sessions/${sessionId}/deny`, {
+        method: "PATCH",
+        body: JSON.stringify({ reason: "Denegado por el supervisor" }),
       })
       if (res.ok) fetchSessions()
       else alert("No se pudo procesar la solicitud")
@@ -211,17 +251,34 @@ export function AccessSessionPanel({ ticketId, tenantId, currentUserId, isSuperv
           </div>
           <p className="mt-2 text-xs text-foreground">{pendingSession.reason}</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            {pendingSession.requestedBy.firstName} {pendingSession.requestedBy.lastName} · {SCOPE_LABELS[pendingSession.scope]}
+            {pendingSession.requestedBy.firstName} {pendingSession.requestedBy.lastName} · {SCOPE_LABELS[pendingSession.scope]} · pidió{" "}
+            {pendingSession.requestedDurationMinutes} min
           </p>
           {isSupervisor && pendingSession.requestedBy.id !== currentUserId && (
-            <div className="mt-3 flex gap-2">
-              <Button size="sm" className="flex-1" onClick={() => respondTo(pendingSession.id, "approve")} disabled={busy}>
-                Aprobar
-              </Button>
-              <Button size="sm" variant="outline" className="flex-1" onClick={() => respondTo(pendingSession.id, "deny")} disabled={busy}>
-                Negar
-              </Button>
-            </div>
+            <>
+              <div className="mt-3">
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Duración a conceder (minutos)
+                </Label>
+                <Input
+                  type="number"
+                  min={15}
+                  max={MAX_ACCESS_DURATION_MINUTES}
+                  step={15}
+                  className="mt-1 h-8"
+                  value={approveDuration}
+                  onChange={(e) => setApproveDuration(e.target.value)}
+                />
+              </div>
+              <div className="mt-2 flex gap-2">
+                <Button size="sm" className="flex-1" onClick={() => approve(pendingSession.id, pendingSession.requestedDurationMinutes)} disabled={busy}>
+                  Aprobar
+                </Button>
+                <Button size="sm" variant="outline" className="flex-1" onClick={() => deny(pendingSession.id)} disabled={busy}>
+                  Negar
+                </Button>
+              </div>
+            </>
           )}
         </div>
       )}

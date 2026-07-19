@@ -129,6 +129,43 @@ export class AuthService {
     // refresh DataScopeGuard perdería con qué AccessSession aislar el alcance —
     // el aislamiento por ticket no sobreviviría más de 15 minutos.
     if (session.isImpersonated) {
+      // Antes de re-emitir, se vuelve a exigir una AccessSession activa para
+      // ESTE ticket — igual que en impersonate(). Sin esto, revocar el acceso
+      // no impedía que el refresh (válido hasta 30 días) siguiera reemitiendo
+      // JWTs de impersonación indefinidamente; los datos seguían protegidos por
+      // los guards de alcance, pero la sesión revivía en vez de morir en el
+      // punto de reemisión. Si no hay ticketId (no debería pasar: impersonate()
+      // lo exige desde la emisión) se trata igual que "sin acceso activo".
+      const hasAccess =
+        session.ticketId &&
+        (await this.accessControl.hasActiveScopeForTicket(
+          session.user.id,
+          session.ticketId,
+          session.tenant.id,
+          AccessScope.OPERATIVO,
+        ));
+
+      if (!hasAccess) {
+        await this.prisma.authSession.update({
+          where: { id: session.id },
+          data: { revokedAt: new Date() },
+        });
+
+        await this.audit.record({
+          tenantId: session.tenant.id,
+          userId: session.user.id,
+          actorRole: session.impersonatedRole ?? undefined,
+          action: "auth.refresh_denied",
+          entityType: "AuthSession",
+          entityId: session.id,
+          newValues: { reason: "access_session_inactive", ticketId: session.ticketId ?? undefined },
+          ipAddress: request.ip,
+          userAgent: request.headers["user-agent"],
+        });
+
+        throw new UnauthorizedException("La sesión de acceso para este ticket ya no está activa.");
+      }
+
       await this.prisma.authSession.update({
         where: { id: session.id },
         data: { revokedAt: new Date() },
