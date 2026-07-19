@@ -2,8 +2,6 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { Request } from "express";
-import { getPermissionsForRole } from "../permissions/permissions";
-import { AuthTokenPayload } from "../../modules/auth/auth.types";
 import { verifyAndDecodeToken } from "./ws-jwt.guard";
 
 @Injectable()

@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common"
-import { ElectionStatus, Prisma, UserRole } from "@prisma/client"
+import { ElectionStatus, Prisma } from "@prisma/client"
 import { Request } from "express"
 import { RequestUser } from "../../common/types/request-context"
 import { PERMISSIONS } from "../../common/permissions/permissions"

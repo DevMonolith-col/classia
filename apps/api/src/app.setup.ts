@@ -11,7 +11,7 @@ export function buildCorsOptions(config: ConfigService) {
   const explicitOrigins = config.get<string[]>("app.corsOrigins") ?? [webUrl];
 
   const domain = config.get<string>("app.domain", "classia.com.co");
-  const escapedDomain = domain.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const escapedDomain = domain.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
   const tenantOriginRegex = new RegExp(
     `^https?:\\/\\/([a-zA-Z0-9-]+\\.)*${escapedDomain}(:\\d+)?$`,
   );

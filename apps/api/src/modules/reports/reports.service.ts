@@ -159,7 +159,7 @@ export class ReportsService {
   }
 
   async toggleSchedule(scheduleId: string, actor: RequestUser, active: boolean) {
-    const schedule = await this.findScheduleOrThrow(scheduleId, actor.tenantId)
+    await this.findScheduleOrThrow(scheduleId, actor.tenantId)
     const updated = await this.prisma.reportSchedule.update({ where: { id: scheduleId }, data: { active } })
     if (active) {
       await this.scheduleNextRun(updated, new Date())
