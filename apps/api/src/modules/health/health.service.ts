@@ -54,7 +54,7 @@ export class HealthService {
             closedTickets += c._count.status;
           }
         });
-      } catch (err) {
+      } catch {
         // Ignore DB errors for stats
       }
     }

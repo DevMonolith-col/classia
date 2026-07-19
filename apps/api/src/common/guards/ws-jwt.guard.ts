@@ -27,7 +27,7 @@ export async function verifyAndDecodeToken(
       isImpersonated: payload.isImpersonated,
     };
   } catch (error) {
-    throw new Error("Invalid token");
+    throw new Error("Invalid token", { cause: error });
   }
 }
 
