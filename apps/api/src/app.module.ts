@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
+import { ConfigModule, ConfigService } from "@nestjs/config";
 import { EventEmitterModule } from "@nestjs/event-emitter";
+import { ThrottlerModule } from "@nestjs/throttler";
+import { ThrottlerStorageRedisService } from "@nest-lab/throttler-storage-redis";
 import appConfig from "./config/app.config";
 import databaseConfig from "./config/database.config";
 import emailConfig from "./config/email.config";
@@ -58,6 +60,16 @@ import { ReportsModule } from "./modules/reports/reports.module";
       load: [appConfig, databaseConfig, redisConfig, storageConfig, emailConfig],
     }),
     EventEmitterModule.forRoot(),
+    // Rate limiting con almacén en Redis (compartido entre instancias). No se
+    // registra un ThrottlerGuard global: se aplica selectivamente donde importa
+    // (hoy el endpoint público de verificación de documentos; login queda listo).
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [{ ttl: 60_000, limit: 30 }],
+        storage: new ThrottlerStorageRedisService(config.get<string>("redis.url") ?? "redis://localhost:6379"),
+      }),
+    }),
     PrismaModule,
     RedisModule,
     QueueModule,
