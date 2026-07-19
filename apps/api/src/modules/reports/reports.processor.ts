@@ -10,7 +10,7 @@ import { REPORTS_QUEUE, ReportsService } from "./reports.service"
 import { toCsv, toReportHtml } from "./reports.templates"
 
 type GenerateJobData = { reportId: string }
-type ScheduledRunJobData = { scheduleId: string }
+type ScheduledRunJobData = { scheduleId: string; scheduledFor?: string }
 
 @Processor(REPORTS_QUEUE)
 export class ReportsProcessor extends WorkerHost {
@@ -50,9 +50,18 @@ export class ReportsProcessor extends WorkerHost {
   }
 
   private async processScheduledRun(job: Job<ScheduledRunJobData>) {
-    const { scheduleId } = job.data
+    const { scheduleId, scheduledFor } = job.data
     const schedule = await this.prisma.reportSchedule.findUnique({ where: { id: scheduleId } })
     if (!schedule || !schedule.active) return
+
+    // Programa la siguiente ocurrencia de una vez, anclada a la ocurrencia actual
+    // (scheduledFor) para que sea determinista ante reintentos y para que un fallo
+    // puntual de esta corrida no rompa la recurrencia. Los jobs del scheduler viejo
+    // no traen scheduledFor: en ese caso no se reprograma aquí (reconcile ya creó
+    // el job dinámico al arrancar).
+    if (scheduledFor) {
+      await this.reports.rescheduleAfterRun(scheduleId, new Date(scheduledFor))
+    }
 
     const report = await this.prisma.generatedReport.create({
       data: {

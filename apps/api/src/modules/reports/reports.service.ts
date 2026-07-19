@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common"
 import { InjectQueue } from "@nestjs/bullmq"
 import { Queue } from "bullmq"
-import { AttendanceStatus, ReportType, UserRole } from "@prisma/client"
+import { AttendanceStatus, ReportFrequencyType, ReportType, UserRole } from "@prisma/client"
 import { Request } from "express"
 import { RequestUser } from "../../common/types/request-context"
 import { AuditService } from "../../core/audit/audit.service"
@@ -10,6 +10,7 @@ import { StorageService } from "../../core/storage/storage.service"
 import { ReportCardsService } from "../report-cards/report-cards.service"
 import { PaymentsService } from "../payments/payments.service"
 import { CreateScheduleInput, GenerateReportInput, ReportFilters, UpdateScheduleInput } from "./reports.schemas"
+import { computeNextRun } from "./reports.recurrence"
 
 export const REPORTS_QUEUE = "reports"
 
@@ -25,6 +26,29 @@ export type ReportTable = {
   columns: { key: string; label: string }[]
   rows: Record<string, string | number>[]
 }
+
+// Campos mínimos para (re)programar una corrida. El registro completo de
+// ReportSchedule es un superconjunto de esto, así que los llamadores pasan el
+// registro tal cual.
+type SchedulableRecord = {
+  id: string
+  tenantId: string
+  frequencyType: ReportFrequencyType
+  intervalValue: number
+  dayOfMonth: number | null
+  createdAt: Date
+  nextRunAt: Date | null
+}
+
+const SCHEDULABLE_SELECT = {
+  id: true,
+  tenantId: true,
+  frequencyType: true,
+  intervalValue: true,
+  dayOfMonth: true,
+  createdAt: true,
+  nextRunAt: true,
+} as const
 
 const REPORT_TYPE_LABELS: Record<ReportType, string> = {
   ATTENDANCE: "Reporte de Asistencia",
@@ -108,7 +132,7 @@ export class ReportsService {
       },
     })
 
-    await this.upsertScheduler(schedule.id, schedule)
+    await this.scheduleNextRun(schedule, new Date())
 
     await this.audit.record({
       tenantId: actor.tenantId,
@@ -138,9 +162,9 @@ export class ReportsService {
     const schedule = await this.findScheduleOrThrow(scheduleId, actor.tenantId)
     const updated = await this.prisma.reportSchedule.update({ where: { id: scheduleId }, data: { active } })
     if (active) {
-      await this.upsertScheduler(schedule.id, schedule)
+      await this.scheduleNextRun(updated, new Date())
     } else {
-      await this.removeScheduler(schedule.id)
+      await this.removeScheduler(updated)
     }
     return updated
   }
@@ -156,10 +180,10 @@ export class ReportsService {
         recipients: data.recipients,
       },
     })
-    // La recurrencia depende de estos campos: si cambiaron, hay que re-registrar
-    // el scheduler en Redis (el anterior no se actualiza solo).
+    // La recurrencia depende de estos campos: si cambiaron, hay que recalcular la
+    // próxima corrida (el job diferido anterior se elimina dentro de scheduleNextRun).
     if (updated.active) {
-      await this.upsertScheduler(scheduleId, updated)
+      await this.scheduleNextRun(updated, new Date())
     }
 
     await this.audit.record({
@@ -180,7 +204,7 @@ export class ReportsService {
 
   async deleteSchedule(scheduleId: string, actor: RequestUser, request: Request) {
     const schedule = await this.findScheduleOrThrow(scheduleId, actor.tenantId)
-    await this.removeScheduler(scheduleId)
+    await this.removeScheduler(schedule)
     await this.prisma.reportSchedule.delete({ where: { id: scheduleId } })
 
     await this.audit.record({
@@ -203,34 +227,73 @@ export class ReportsService {
   async reconcileSchedulers() {
     const schedules = await this.prisma.reportSchedule.findMany({
       where: { active: true },
-      select: { id: true, frequencyType: true, intervalValue: true, dayOfMonth: true },
+      select: SCHEDULABLE_SELECT,
     })
     for (const s of schedules) {
-      await this.upsertScheduler(s.id, s)
+      await this.scheduleNextRun(s, new Date())
     }
   }
 
-  private async upsertScheduler(
-    scheduleId: string,
-    recurrence: { frequencyType: "DAYS" | "MONTHLY"; intervalValue: number; dayOfMonth: number | null },
-  ) {
-    // DAYS: intervalo puro (bullmq "every") - la primera corrida arranca al
-    // registrarse y las siguientes van cada N días desde ahí, sin hora fija.
-    // MONTHLY: cron real a las 7am del día elegido, cada N meses.
-    const schedulerOpts =
-      recurrence.frequencyType === "DAYS"
-        ? { every: recurrence.intervalValue * 24 * 60 * 60 * 1000 }
-        : { pattern: `0 7 ${recurrence.dayOfMonth} */${recurrence.intervalValue} *` }
-
-    await this.queue.upsertJobScheduler(`schedule:${scheduleId}`, schedulerOpts, {
-      name: "scheduled-run",
-      data: { scheduleId },
-      opts: REPORT_JOB_OPTIONS,
+  // Reprograma la próxima corrida tras ejecutarse una (lo llama el processor).
+  // `after` es el instante de la ocurrencia que acaba de correr, para que el
+  // cálculo sea determinista ante reintentos de BullMQ.
+  async rescheduleAfterRun(scheduleId: string, after: Date) {
+    const schedule = await this.prisma.reportSchedule.findUnique({
+      where: { id: scheduleId },
+      select: { ...SCHEDULABLE_SELECT, active: true },
     })
+    if (!schedule || !schedule.active) return
+    await this.scheduleNextRun(schedule, after)
   }
 
-  private async removeScheduler(scheduleId: string) {
-    await this.queue.removeJobScheduler(`schedule:${scheduleId}`)
+  // Calcula la próxima corrida (anclada a createdAt y a la zona horaria del
+  // colegio) y encola un job diferido one-off con jobId por-ocurrencia. Antes se
+  // usaba un scheduler repetible de BullMQ con cron `*/N` en el campo mes, que
+  // significaba "meses divisibles por N desde enero" (mal para N que no divide 12)
+  // y corría en UTC en vez de la hora local.
+  private async scheduleNextRun(schedule: SchedulableRecord, after: Date) {
+    // Limpia cualquier job pendiente anterior (y el scheduler repetible del diseño
+    // viejo, si quedó en Redis).
+    await this.removeScheduler(schedule)
+
+    const tz = await this.tenantTimezone(schedule.tenantId)
+    const nextRunAt = computeNextRun(
+      {
+        frequencyType: schedule.frequencyType,
+        intervalValue: schedule.intervalValue,
+        dayOfMonth: schedule.dayOfMonth,
+        createdAt: schedule.createdAt,
+      },
+      tz,
+      after,
+    )
+
+    const delay = Math.max(0, nextRunAt.getTime() - Date.now())
+    await this.queue.add(
+      "scheduled-run",
+      { scheduleId: schedule.id, scheduledFor: nextRunAt.toISOString() },
+      { jobId: this.schedulerJobId(schedule.id, nextRunAt), delay, ...REPORT_JOB_OPTIONS },
+    )
+
+    await this.prisma.reportSchedule.update({ where: { id: schedule.id }, data: { nextRunAt } })
+  }
+
+  private async removeScheduler(schedule: SchedulableRecord) {
+    // Scheduler repetible del diseño anterior (por si quedó registrado en Redis).
+    await this.queue.removeJobScheduler(`schedule:${schedule.id}`).catch(() => {})
+    // Job diferido pendiente de la ocurrencia actual.
+    if (schedule.nextRunAt) {
+      await this.queue.remove(this.schedulerJobId(schedule.id, schedule.nextRunAt)).catch(() => {})
+    }
+  }
+
+  private schedulerJobId(scheduleId: string, runAt: Date) {
+    return `schedule:${scheduleId}:${runAt.getTime()}`
+  }
+
+  private async tenantTimezone(tenantId: string): Promise<string> {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { timezone: true } })
+    return tenant?.timezone || "America/Bogota"
   }
 
   // ─── Builders por tipo (usados por preview() y por el worker) ────────────────

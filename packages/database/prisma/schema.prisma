@@ -1202,6 +1202,7 @@ model ReportSchedule {
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
   lastRunAt     DateTime?
+  nextRunAt     DateTime? // próxima corrida programada (reprogramación dinámica)
 
   tenant    Tenant @relation(fields: [tenantId], references: [id])
   createdBy User   @relation(fields: [createdById], references: [id])
