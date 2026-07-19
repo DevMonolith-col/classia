@@ -126,13 +126,24 @@ lote y el broadcast).
   de esperar al worker (determinista, sin depender del timing de la cola en el harness).
   Suite ahora 12/12, estable en corridas repetidas.
 
-## FASE 4 — Scheduler de reportes (backend)
+## FASE 4 — Scheduler de reportes (backend) ✅ HECHO (2026-07-18)
 
-- Recurrencia mensual `intervalValue > 1`: `*/N` en el campo mes del cron es incorrecto;
-  calcular el próximo run con date-math anclado a `createdAt`/`lastRunAt`
-  (`reports.service.ts:223`).
-- Zona horaria del colegio en las opciones del scheduler (hoy corre en UTC).
-- Revisar re-registro de schedulers DAYS en cada arranque (`reconcileSchedulers`).
+Estado: implementada y verificada. Decisión del usuario: **reprogramación dinámica**
+(soporta cualquier intervalo 1–12, no solo divisores de 12). Typecheck limpio; 18/18 jest
+(6 unit de recurrencia + 12 e2e). Verificado en vivo: schedule MONTHLY cada 5 meses creado
+en julio → `nextRunAt = 2026-12-15 07:00 Bogotá` (12:00 UTC), job diferido encolado en
+Redis con jobId por-ocurrencia; al borrarlo, el job se elimina.
+
+- Se reemplazó el scheduler repetible de BullMQ (cron `*/N` en el campo mes, que significaba
+  "meses divisibles por N desde enero" y corría en UTC) por **jobs diferidos one-off
+  reprogramados dinámicamente**. La próxima corrida se calcula con date-math anclado a
+  `createdAt` y a la zona horaria del colegio (`Tenant.timezone`, default America/Bogota),
+  a las 07:00 locales, en `reports.recurrence.ts` (con test unitario).
+- El processor reprograma la siguiente ocurrencia al inicio del job, anclada a la ocurrencia
+  actual (`scheduledFor`) → determinista ante reintentos y un fallo puntual no rompe la
+  recurrencia. Nuevo campo `ReportSchedule.nextRunAt` (migración
+  `20260720150000_add_report_schedule_next_run`). `reconcile` al boot limpia el scheduler
+  repetible viejo y recalcula el próximo job diferido.
 
 ## FASE 5 — Bajos / limpieza
 
