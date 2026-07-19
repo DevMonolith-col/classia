@@ -1,6 +1,9 @@
 import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { AccessScope } from "@prisma/client";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
+import { DataScope } from "../../common/decorators/data-scope.decorator";
 import { Permissions } from "../../common/decorators/permissions.decorator";
+import { DataScopeGuard } from "../../common/guards/data-scope.guard";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { PERMISSIONS } from "../../common/permissions/permissions";
@@ -21,7 +24,8 @@ export class AuditController {
   }
 
   @Get("logs")
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.OPERATIVO)
   @Permissions(PERMISSIONS.AUDIT_READ)
   listLogs(
     @Query(new ZodValidationPipe(listAuditLogsSchema))

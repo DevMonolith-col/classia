@@ -25,6 +25,7 @@ export async function verifyAndDecodeToken(
       role: payload.role,
       permissions: getPermissionsForRole(payload.role),
       isImpersonated: payload.isImpersonated,
+      ticketId: payload.ticketId,
     };
   } catch (error) {
     throw new Error("Invalid token", { cause: error });

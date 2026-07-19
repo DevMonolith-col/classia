@@ -148,22 +148,25 @@ export async function login(email: string, password: string): Promise<LoginResul
   return data
 }
 
-export async function impersonateTenant(tenantId: string, returnTo?: string): Promise<LoginResult> {
+// ticketId es obligatorio: la impersonación queda aislada al ticket que la
+// justificó (ver auth.service#impersonate en la API — exige una AccessSession
+// CONCEDIDO/EMERGENCIA para ese ticket específico, no solo para el colegio).
+export async function impersonateTenant(tenantId: string, ticketId: string, returnTo?: string): Promise<LoginResult> {
   const currentAt = getAccessToken()
   const currentRt = getRefreshToken()
-  
+
   if (!currentAt || !currentRt) {
     throw new Error("No hay sesión activa para impersonar")
   }
 
   const res = await fetch(`${API_URL}/auth/impersonate`, {
     method: "POST",
-    headers: { 
+    headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${currentAt}`,
       "X-Tenant-Slug": TENANT_SLUG
     },
-    body: JSON.stringify({ tenantId }),
+    body: JSON.stringify({ tenantId, ticketId }),
     credentials: "include",
   })
 

@@ -7,6 +7,7 @@ import { PermissionsGuard } from "../../common/guards/permissions.guard"
 import { PERMISSIONS } from "../../common/permissions/permissions"
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe"
 import { RequestUser } from "../../common/types/request-context"
+import { ReportsDataScopeGuard } from "./reports-data-scope.guard"
 import { ReportsService } from "./reports.service"
 import {
   CreateScheduleInput,
@@ -28,11 +29,13 @@ export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
   @Post("reports")
+  @UseGuards(ReportsDataScopeGuard)
   generate(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(generateReportSchema)) data: GenerateReportInput) {
     return this.reports.generate(user, data)
   }
 
   @Post("reports/preview")
+  @UseGuards(ReportsDataScopeGuard)
   preview(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(previewReportSchema)) data: PreviewReportInput) {
     return this.reports.preview(user, data)
   }
@@ -48,6 +51,7 @@ export class ReportsController {
   }
 
   @Post("report-schedules")
+  @UseGuards(ReportsDataScopeGuard)
   createSchedule(
     @CurrentUser() user: RequestUser,
     @Req() request: Request,

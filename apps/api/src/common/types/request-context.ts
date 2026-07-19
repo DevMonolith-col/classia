@@ -15,6 +15,9 @@ export type RequestUser = {
   role: UserRole;
   permissions?: string[];
   isImpersonated?: boolean;
+  // Ticket que justificó esta impersonación (ver DataScopeGuard): presente
+  // siempre que isImpersonated es true, ausente en sesiones normales.
+  ticketId?: string;
 };
 
 declare global {

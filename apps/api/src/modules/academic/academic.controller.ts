@@ -2,6 +2,9 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from
 import { Request } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { Permissions } from "../../common/decorators/permissions.decorator";
+import { AccessScope } from "@prisma/client";
+import { DataScope } from "../../common/decorators/data-scope.decorator";
+import { DataScopeGuard } from "../../common/guards/data-scope.guard";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { PERMISSIONS } from "../../common/permissions/permissions";
@@ -20,7 +23,8 @@ import {
 // Gating por permisos existentes (audiencia correcta, sin tocar el permissions.ts
 // compartido): SUBJECTS_CREATE = admin institucional; SUBJECTS_READ = admin + profesor.
 @Controller()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+@DataScope(AccessScope.OPERATIVO)
 export class AcademicController {
   constructor(private readonly academic: AcademicService) {}
 

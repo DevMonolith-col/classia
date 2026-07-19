@@ -41,6 +41,10 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "auth.impersonate": "accedió como colegio",
   "auth.register": "se registró",
   "support.access.requested": "solicitó acceso de soporte",
+  "support.access.approved": "aprobó una solicitud de acceso de soporte",
+  "support.access.denied": "negó una solicitud de acceso de soporte",
+  "support.access.revoked": "revocó un acceso de soporte",
+  "support.access.emergency_granted": "usó acceso de emergencia (break-glass)",
 }
 
 /** Session/auth events are noise for an activity feed — they don't represent institutional work. */

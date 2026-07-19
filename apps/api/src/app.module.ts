@@ -50,6 +50,7 @@ import { ElectionsModule } from "./modules/elections/elections.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { PaymentsModule } from "./modules/payments/payments.module";
 import { ReportsModule } from "./modules/reports/reports.module";
+import { AccessControlModule } from "./modules/access-control/access-control.module";
 
 @Module({
   imports: [
@@ -104,6 +105,7 @@ import { ReportsModule } from "./modules/reports/reports.module";
     NotificationsModule,
     AuditModule,
     SupportModule,
+    AccessControlModule,
     SettingsModule,
     ElectionsModule,
     DocumentsModule,

@@ -1,8 +1,10 @@
 import { Body, Controller, Get, Param, Patch, Post, Put, UseGuards } from "@nestjs/common"
 import { Throttle, ThrottlerGuard } from "@nestjs/throttler"
-import { DocumentType } from "@prisma/client"
+import { AccessScope, DocumentType } from "@prisma/client"
 import { CurrentUser } from "../../common/decorators/current-user.decorator"
+import { DataScope } from "../../common/decorators/data-scope.decorator"
 import { Permissions } from "../../common/decorators/permissions.decorator"
+import { DataScopeGuard } from "../../common/guards/data-scope.guard"
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard"
 import { PermissionsGuard } from "../../common/guards/permissions.guard"
 import { PERMISSIONS } from "../../common/permissions/permissions"
@@ -26,28 +28,32 @@ export class DocumentsController {
   constructor(private readonly documents: DocumentsService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.DATOS_PERSONALES)
   @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
   issue(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(issueDocumentSchema)) data: IssueDocumentInput) {
     return this.documents.issue(user, data)
   }
 
   @Get("mine")
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.DATOS_PERSONALES)
   @Permissions(PERMISSIONS.DOCUMENTS_READ_SELF)
   listMine(@CurrentUser() user: RequestUser) {
     return this.documents.listMine(user)
   }
 
   @Get("templates/:type")
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.DATOS_PERSONALES)
   @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
   getTemplate(@Param("type") type: DocumentType, @CurrentUser() user: RequestUser) {
     return this.documents.getTemplate(user, type)
   }
 
   @Put("templates/:type")
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.DATOS_PERSONALES)
   @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
   updateTemplate(
     @Param("type") type: DocumentType,
@@ -58,7 +64,8 @@ export class DocumentsController {
   }
 
   @Post("templates/:type/preview")
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.DATOS_PERSONALES)
   @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
   previewTemplate(
     @Param("type") type: DocumentType,
@@ -78,28 +85,32 @@ export class DocumentsController {
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.DATOS_PERSONALES)
   @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
   list(@CurrentUser() user: RequestUser) {
     return this.documents.listForTenant(user)
   }
 
   @Get(":id/status")
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.DATOS_PERSONALES)
   @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
   getStatus(@Param("id") id: string, @CurrentUser() user: RequestUser) {
     return this.documents.getStatus(id, user)
   }
 
   @Patch(":id/revoke")
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.DATOS_PERSONALES)
   @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
   revoke(@Param("id") id: string, @CurrentUser() user: RequestUser) {
     return this.documents.revoke(id, user)
   }
 
   @Post(":id/retry")
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
+  @DataScope(AccessScope.DATOS_PERSONALES)
   @Permissions(PERMISSIONS.DOCUMENTS_MANAGE)
   retry(@Param("id") id: string, @CurrentUser() user: RequestUser) {
     return this.documents.retry(id, user)

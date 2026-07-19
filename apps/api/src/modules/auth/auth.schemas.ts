@@ -21,6 +21,10 @@ export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 
 export const impersonateSchema = z.object({
   tenantId: z.string().uuid(),
+  // Obligatorio: toda impersonación queda aislada al ticket que la justificó
+  // (ver auth.service#impersonate). Sin esto, DataScopeGuard no podría resolver
+  // el alcance por (agente, ticket, colegio) y caería a un alcance más amplio.
+  ticketId: z.string().uuid(),
 });
 
 export type ImpersonateInput = z.infer<typeof impersonateSchema>;
