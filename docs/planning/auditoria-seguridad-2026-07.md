@@ -145,17 +145,29 @@ Redis con jobId por-ocurrencia; al borrarlo, el job se elimina.
   `20260720150000_add_report_schedule_next_run`). `reconcile` al boot limpia el scheduler
   repetible viejo y recalcula el próximo job diferido.
 
-## FASE 5 — Bajos / limpieza
+## FASE 5 — Bajos / limpieza ✅ HECHO (2026-07-18)
 
-- Resend: tratar 4xx (salvo 429) como fallo permanente sin reintentar 5 veces.
-- Rechazar mensajes a conversaciones archivadas (`sendMessage`).
-- Decidir soft-delete vs hard-delete de comunicados (retención Ley 1620/527).
-- Rate-limit en `GET /documents/verify/:code` (endpoint público con PII).
-- Alinear middleware `SUPPORT_AGENT`/`/admin` con el backend; quitar código muerto en
-  `jwt-auth.guard.ts`.
-- Unificar el set de roles "plataforma" (`isGlobalAdmin` incluye `SUPPORT_AGENT` pero no
-  `SUPPORT_SUPERVISOR`).
-- `getResults` (elecciones) gatear por permiso `ELECTIONS_MANAGE`, no por rol fijo.
+Estado: implementada y verificada. Typecheck limpio (api + web); 18/18 jest. Decisiones del
+usuario: comunicados → **soft-delete**; rate-limit → **instalar @nestjs/throttler con Redis**.
+Verificado en vivo: `verify/:code` corta en el 11º request (429); borrar un comunicado lo
+saca de la lista pero conserva la fila con `deletedAt`.
+
+- **Resend 4xx permanente**: `EmailResult.permanent` marca 4xx (salvo 429) como fallo no
+  reintentable; el processor no relanza en ese caso (no quema los 5 intentos). Transitorios
+  (5xx/429/red) sí reintentan.
+- **Conversaciones archivadas**: `sendMessage` rechaza escribir en un hilo con `archivedAt`.
+- **Soft-delete de comunicados**: nuevo `Announcement.deletedAt` (migración
+  `20260720160000`); `delete()` marca `deletedAt`; las lecturas filtran `deletedAt: null`.
+- **Rate-limit**: `@nestjs/throttler` + `@nest-lab/throttler-storage-redis` (almacén Redis
+  compartido), sin guard global; aplicado a `GET /documents/verify/:code` (10 req/min por IP).
+  Queda listo para `/auth/login`.
+- **Roles plataforma unificados**: `PLATFORM_ROLES` como fuente única en `users.service`
+  (SUPER_ADMIN + SUPPORT_SUPERVISOR + SUPPORT_AGENT), usado en `isGlobalAdmin` y
+  `assertCanAssignRole`. Corrige que el supervisor no fuera global-admin de scoping (lo es
+  ≤ su poder de impersonación) y elimina la fragilidad.
+- **`getResults`** (elecciones) gatea por `ELECTIONS_MANAGE`, no por roles fijos.
+- **Limpieza**: se quitó el `return true` inalcanzable en `jwt-auth.guard`; el middleware web
+  alinea el acceso a `/admin` con el backend (solo SUPER_ADMIN + SUPPORT_SUPERVISOR).
 
 ## FASE 6 — Track visual (sesión aparte)
 
