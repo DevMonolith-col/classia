@@ -169,14 +169,29 @@ saca de la lista pero conserva la fila con `deletedAt`.
 - **Limpieza**: se quitó el `return true` inalcanzable en `jwt-auth.guard`; el middleware web
   alinea el acceso a `/admin` con el backend (solo SUPER_ADMIN + SUPPORT_SUPERVISOR).
 
-## FASE 6 — Track visual (sesión aparte)
+## FASE 6 — Alineación del cálculo de notas ✅ HECHO (2026-07-18)
 
-- **`lib/grading.ts:16`** — alinear el motor del frontend (hoy pondera por nota individual)
-  al modelo de categorías del backend (agrupar por categoría → promediar → ponderar), para
-  que la vista previa coincida con el boletín oficial. Requiere levantar la app y verificar
-  en navegador que preview == boletín.
-- Cualquier UI derivada de las notas (badge de campanita con `unread-count`, toggle de
-  silenciado `mutedAt`) se trata en este track.
+Estado: implementada y verificada. Al analizarla resultó NO ser un ajuste visual sino una
+decisión de modelo de calificación. Había tres criterios distintos: preview del frontend
+(ponderado por peso de tarea), boletín oficial hoy (promedio simple, por el fallback sin
+categorías), y el modelo por categorías (diseñado, sin UI). Decisión del usuario: **peso
+por tarea** es el autoritativo.
+
+- El motor backend (`report-cards.subjectPeriodFraction`) ahora, en el camino sin categorías
+  (el activo hoy), pondera por `homework.weight` (peso 1 si la nota es manual), el MISMO
+  criterio que `lib/grading.ts` del frontend → el preview coincide con el boletín oficial.
+  Se precarga `homework.weight` en la query de notas.
+- Se corrigió el comentario engañoso en `lib/grading.ts` (antes afirmaba que compartían
+  criterio cuando no era cierto).
+- Verificado en vivo: escenario con 2 tareas (peso 30/70) y notas 5/5 y 3/5 → preview del
+  boletín = **3.6** (ponderado), no 4.0 (promedio simple). Typecheck limpio; 18/18 jest.
+- Las categorías ponderadas del backend quedan como feature futura (necesitan UI para
+  configurarse + cablear el preview); cuando se construyan habrá que re-alinear.
+
+> Nota: no hubo cambios de UI nuevos que "ver" en navegador — la alineación es que el
+> preview existente ahora coincide con el boletín. La UI derivada mencionada antes
+> (badge de campanita con `unread-count`, toggle `mutedAt`) NO se abordó aquí; queda como
+> mejora de producto pendiente (ver estado-del-proyecto.md).
 
 ---
 
