@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
+import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import { Request } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
@@ -18,7 +19,13 @@ import { AuthService } from "./auth.service";
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  // Rate-limit por IP contra fuerza bruta de contraseñas. 20/min (no 10, como
+  // en verify) porque un IP compartido (red del colegio) puede tener varios
+  // usuarios legítimos iniciando sesión en la misma ventana; un ataque real
+  // intenta miles de contraseñas por minuto, así que sigue siendo efectivo.
   @Post("login")
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   login(
     @Body(new ZodValidationPipe(loginSchema)) body: LoginInput,
     @Req() request: Request,
