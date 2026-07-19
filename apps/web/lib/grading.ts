@@ -1,8 +1,11 @@
 // Fuente única de la definitiva en el frontend. Antes había dos fórmulas
 // divergentes (profesor/calificaciones y student-grades-table). Esta superficie
 // de edición en vivo calcula el promedio ponderado normalizado; el boletín
-// oficial e inmutable lo calcula el backend (report-cards). Ambos comparten el
-// mismo criterio: promedio de (value/maxValue) ponderado por peso.
+// oficial e inmutable lo calcula el backend (report-cards). Ambos usan el MISMO
+// criterio: promedio de (value/maxValue) ponderado por el peso de cada tarea
+// (homework.weight; sin peso => peso equitativo 1), así el preview coincide con
+// el boletín oficial. (Las categorías ponderadas del backend son una feature
+// futura sin UI todavía; cuando se habiliten habrá que alinear también aquí.)
 
 export type GradeEntry = { value: number; maxValue: number; weight: number };
 
