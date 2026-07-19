@@ -152,6 +152,7 @@ export class TenantsService {
       status: true,
       logoUrl: true,
       brandColor: true,
+      maxAccessDurationMinutes: true,
       createdAt: true,
       updatedAt: true,
     };
