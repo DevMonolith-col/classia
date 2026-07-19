@@ -33,11 +33,10 @@ interface Props {
   homework: Homework
   editHref?: string
   onAttachmentClick?: (key: string, name?: string | null) => void
-  showTeacher?: boolean
-  showGroup?: boolean
+  actionButton?: React.ReactNode
 }
 
-export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeacher, showGroup }: Props) {
+export function AssignmentCard({ homework, editHref, onAttachmentClick, actionButton }: Props) {
   const Icon = TYPE_ICONS[homework.type]
   const totalStudents = homework.group._count?.students ?? 0
   const submitted = homework._count?.submissions ?? 0
@@ -47,9 +46,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
   const isOverdue = homework.status === "ACTIVE" && new Date(homework.dueDate) < new Date()
 
   const subtitleParts = [
-    showGroup ? homework.group.name : null,
     homework.subject.name,
-    showTeacher && homework.teacher ? `Prof. ${homework.teacher.user.firstName} ${homework.teacher.user.lastName}` : null,
   ].filter(Boolean)
 
   return (
@@ -83,7 +80,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
             <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
-                <span>Creada: {new Date(homework.createdAt).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                <span>Creada: {formatDueDate(homework.createdAt)}</span>
               </div>
               <div className="flex items-center gap-1">
                 <Clock className="h-4 w-4" />
@@ -94,14 +91,14 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
             </div>
           </div>
 
-          <div className="border-t border-border bg-secondary/30 p-4 sm:p-6 lg:w-72 lg:border-l lg:border-t-0">
+          <div className="border-t border-border bg-muted p-4 sm:p-6 lg:w-72 lg:border-l lg:border-t-0">
             <div className="space-y-4">
               <div>
                 <div className="mb-2 flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Entregas</span>
                   <span className="font-medium text-foreground">{submitted}/{totalStudents}</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-secondary">
+                <div className="h-2 overflow-hidden rounded-full bg-background shadow-inner">
                   <div className="h-full bg-blue-500 transition-all" style={{ width: `${submittedPct}%` }} />
                 </div>
               </div>
@@ -111,7 +108,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
                   <span className="text-muted-foreground">Calificadas</span>
                   <span className="font-medium text-foreground">{graded}/{totalStudents}</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-secondary">
+                <div className="h-2 overflow-hidden rounded-full bg-background shadow-inner">
                   <div className="h-full bg-green-500 transition-all" style={{ width: `${gradedPct}%` }} />
                 </div>
               </div>
@@ -136,6 +133,7 @@ export function AssignmentCard({ homework, editHref, onAttachmentClick, showTeac
                     </Link>
                   </Button>
                 )}
+                {actionButton}
               </div>
             </div>
           </div>

@@ -1,7 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, BookOpen, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { AlertTriangle, BookOpen, ChevronLeft, ChevronRight, Pencil, Plus, RefreshCw, Search, Users } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,13 +18,17 @@ import {
 import { GroupFormDialog } from "@/components/admin/group-form-dialog"
 import type { Group } from "@/components/admin/academic-types"
 
-export default function AdminCursosPage() {
+const PAGE_SIZE = 10
+
+function AdminCursosPageContent() {
+  const searchParams = useSearchParams()
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [query, setQuery] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
+  const [page, setPage] = useState(1)
 
   const loadGroups = useCallback(async () => {
     setLoading(true)
@@ -55,6 +60,14 @@ export default function AdminCursosPage() {
     )
   }, [query, groups])
 
+  const pageCount = Math.max(1, Math.ceil(filteredGroups.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedGroups = filteredGroups.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [query])
+
   const stats = useMemo(
     () => ({
       total: groups.length,
@@ -68,6 +81,11 @@ export default function AdminCursosPage() {
     setEditingGroup(null)
     setDialogOpen(true)
   }
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") openCreateDialog()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   function openEditDialog(group: Group) {
     setEditingGroup(group)
@@ -194,6 +212,7 @@ export default function AdminCursosPage() {
               )}
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -206,7 +225,7 @@ export default function AdminCursosPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredGroups.map((group) => (
+                {paginatedGroups.map((group) => (
                   <TableRow key={group.id}>
                     <TableCell className="pl-6">
                       <div className="flex items-center gap-3">
@@ -230,11 +249,51 @@ export default function AdminCursosPage() {
                 ))}
               </TableBody>
             </Table>
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between border-t border-border p-4">
+                <p className="text-sm text-muted-foreground">
+                  Página {currentPage} de {pageCount}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    disabled={currentPage >= pageCount}
+                  >
+                    Siguiente
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>
 
       <GroupFormDialog open={dialogOpen} onOpenChange={setDialogOpen} group={editingGroup} onSaved={handleSaved} />
     </div>
+  )
+}
+
+export default function AdminCursosPage() {
+  return (
+    <Suspense fallback={<div className="p-4 sm:p-6 lg:p-8"><div className="h-64 animate-pulse rounded-lg bg-secondary" /></div>}>
+      <AdminCursosPageContent />
+    </Suspense>
   )
 }

@@ -22,6 +22,10 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import type { Homework } from "@/components/profesor/homework-types"
 import { DAY_LABELS, type Mark, type Student, type TeacherSchedule } from "@/components/profesor/marks-types"
+import { computeWeightedFinal } from "@/lib/grading"
+import { ReportCardDialog } from "@/components/shared/report-card-view"
+
+type AcademicYear = { id: string; name: string; isActive: boolean }
 
 function cellKey(studentId: string, homeworkId: string) {
   return `${studentId}:${homeworkId}`
@@ -37,6 +41,9 @@ function CalificacionesProfesorPageContent() {
   const [setupError, setSetupError] = useState("")
 
   const [selectedScheduleId, setSelectedScheduleId] = useState(scheduleIdParam ?? "")
+  const [periodFilter, setPeriodFilter] = useState<string>("all")
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
+  const [selectedYearId, setSelectedYearId] = useState<string>("")
   const [homeworkList, setHomeworkList] = useState<Homework[]>([])
   const [roster, setRoster] = useState<Student[]>([])
   const [marksByCell, setMarksByCell] = useState<Record<string, Mark>>({})
@@ -63,10 +70,22 @@ function CalificacionesProfesorPageContent() {
       }
       setTeacherId(id)
 
-      const schedulesRes = await apiFetch(`/schedules?teacherId=${id}`, { silent: true })
+      const [schedulesRes, yearsRes] = await Promise.all([
+        apiFetch(`/schedules?teacherId=${id}`, { silent: true }),
+        apiFetch("/academic-years", { silent: true }),
+      ])
+      
       const schedulesData = schedulesRes.ok ? ((await schedulesRes.json()) as TeacherSchedule[]) : []
       setSchedules(schedulesData)
       if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
+
+      if (yearsRes.ok) {
+        const years = (await yearsRes.json()) as AcademicYear[]
+        setAcademicYears(years)
+        const activeYear = years.find((y) => y.isActive)
+        if (activeYear) setSelectedYearId(activeYear.id)
+        else if (years.length > 0) setSelectedYearId(years[0].id)
+      }
     } catch (err) {
       setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
     } finally {
@@ -80,14 +99,15 @@ function CalificacionesProfesorPageContent() {
 
   const selectedSchedule = schedules.find((s) => s.id === selectedScheduleId) ?? null
 
-  const loadGrid = useCallback(async (schedule: TeacherSchedule) => {
+  const loadGrid = useCallback(async (schedule: TeacherSchedule, yearId: string) => {
     setLoadingGrid(true)
     setGridError("")
     try {
+      const yearQuery = yearId ? `&academicYearId=${yearId}` : ""
       const [homeworkRes, rosterRes, marksRes] = await Promise.all([
-        apiFetch(`/homework?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}`, { silent: true }),
+        apiFetch(`/homework?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}${yearQuery}`, { silent: true }),
         apiFetch(`/students?groupId=${schedule.group.id}`, { silent: true }),
-        apiFetch(`/marks?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}`, { silent: true }),
+        apiFetch(`/marks?groupId=${schedule.group.id}&subjectId=${schedule.subject.id}${yearQuery}`, { silent: true }),
       ])
 
       if (!rosterRes.ok) throw new Error("No se pudo cargar la lista de estudiantes.")
@@ -122,8 +142,21 @@ function CalificacionesProfesorPageContent() {
   }, [])
 
   useEffect(() => {
-    if (selectedSchedule) loadGrid(selectedSchedule)
-  }, [selectedSchedule, loadGrid])
+    if (selectedSchedule && selectedYearId) {
+      loadGrid(selectedSchedule, selectedYearId)
+    }
+  }, [selectedSchedule, selectedYearId, loadGrid])
+
+  const filteredHomeworkList = useMemo(() => {
+    if (periodFilter === "all") return homeworkList
+    // Antes escondía las tareas SIN nota al filtrar por periodo — justo las que
+    // hay que calificar. Ahora una tarea aparece si su nota es de ese periodo o
+    // si todavía no tiene nota (sigue disponible para calificar).
+    return homeworkList.filter((h) => {
+      const anyMark = Object.values(marksByCell).find((m) => m.homework?.id === h.id || m.homeworkId === h.id)
+      return !anyMark || String(anyMark.period) === periodFilter
+    })
+  }, [homeworkList, periodFilter, marksByCell])
 
   function setCellDraft(studentId: string, homeworkId: string, value: string) {
     setDraft((current) => ({ ...current, [cellKey(studentId, homeworkId)]: value }))
@@ -166,6 +199,9 @@ function CalificacionesProfesorPageContent() {
               title: homework.title,
               value,
               maxValue: 100,
+              // Guarda la nota en el periodo seleccionado (si hay uno), para que
+              // el filtro de periodo sea real y no todo caiga en el periodo 1.
+              ...(periodFilter !== "all" ? { period: Number(periodFilter) } : {}),
             }),
             silent: true,
           })
@@ -217,19 +253,16 @@ function CalificacionesProfesorPageContent() {
     }
   }
 
-  const totalWeight = useMemo(() => homeworkList.reduce((sum, h) => sum + h.weight, 0), [homeworkList])
-
+  // Definitiva de la superficie de edición: fuente única compartida, y respeta
+  // el filtro de periodo (antes iteraba la lista sin filtrar).
   function computeFinalGrade(studentId: string) {
-    let total = 0
-    let gradedCount = 0
-    for (const homework of homeworkList) {
-      const mark = marksByCell[cellKey(studentId, homework.id)]
-      if (mark) {
-        total += (mark.value / mark.maxValue) * homework.weight
-        gradedCount++
-      }
-    }
-    return { total, gradedCount }
+    const entries = filteredHomeworkList
+      .map((homework) => {
+        const mark = marksByCell[cellKey(studentId, homework.id)]
+        return mark ? { value: mark.value, maxValue: mark.maxValue, weight: homework.weight } : null
+      })
+      .filter((e): e is { value: number; maxValue: number; weight: number } => e !== null)
+    return computeWeightedFinal(entries)
   }
 
   return (
@@ -260,29 +293,62 @@ function CalificacionesProfesorPageContent() {
       {!loadingSetup && schedules.length > 0 && (
         <>
           <Card className="mb-6">
-            <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
-              <div className="flex-1">
-                <Label>Clase</Label>
-                <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId}>
-                  <SelectTrigger className="mt-2 w-full">
+            <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end flex-wrap">
+              <div className="w-full space-y-2 sm:w-48">
+                <Label>Año Lectivo</Label>
+                <Select value={selectedYearId} onValueChange={setSelectedYearId} disabled={loadingSetup}>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {schedules.map((schedule) => (
-                      <SelectItem key={schedule.id} value={schedule.id}>
-                        {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} ·{" "}
-                        {schedule.group.name} · {schedule.subject.name}
+                    {academicYears.map((y) => (
+                      <SelectItem key={y.id} value={y.id}>
+                        {y.name} {y.isActive ? "(Activo)" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <Button variant="outline" size="sm" className="gap-2" asChild>
-                <Link href="/profesor/asignaciones">
-                  <FileText className="h-4 w-4" />
-                  Gestionar asignaciones
-                </Link>
-              </Button>
+              <div className="w-full space-y-2 sm:w-64">
+                <Label>Clase</Label>
+                <Select value={selectedScheduleId} onValueChange={setSelectedScheduleId} disabled={loadingSetup}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={loadingSetup ? "Cargando..." : "Selecciona una clase"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {schedules.map((schedule) => (
+                      <SelectItem key={schedule.id} value={schedule.id}>
+                        {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime} · {schedule.group.name} ·{" "}
+                        {schedule.subject.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full space-y-2 sm:w-48">
+                <Label>Periodo / Nota Final</Label>
+                <Select value={periodFilter} onValueChange={setPeriodFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Nota Final (Todos)</SelectItem>
+                    {[1, 2, 3, 4].map((p) => (
+                      <SelectItem key={p} value={String(p)}>
+                        Periodo {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full sm:w-auto ml-auto">
+                <Button variant="outline" asChild className="w-full">
+                  <Link href={`/profesor/asignaciones${selectedScheduleId ? `?scheduleId=${selectedScheduleId}` : ""}`}>
+                    <FileText className="mr-2 h-4 w-4" />
+                    Gestionar asignaciones
+                  </Link>
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -299,9 +365,10 @@ function CalificacionesProfesorPageContent() {
                 {selectedSchedule ? `${selectedSchedule.group.name} · ${selectedSchedule.subject.name}` : "Notas"}
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                {homeworkList.length} tarea{homeworkList.length === 1 ? "" : "s"} · peso total {totalWeight}%
-                {totalWeight !== 100 && homeworkList.length > 0 && (
-                  <span className="ml-1 text-amber-600">(debería sumar 100%)</span>
+                {filteredHomeworkList.length} tarea{filteredHomeworkList.length !== 1 && "s"} · peso total{" "}
+                {filteredHomeworkList.reduce((acc, h) => acc + h.weight, 0)}%{" "}
+                {filteredHomeworkList.reduce((acc, h) => acc + h.weight, 0) !== 100 && (
+                  <span className="text-amber-600">(debería sumar 100%)</span>
                 )}
               </p>
             </CardHeader>
@@ -312,7 +379,7 @@ function CalificacionesProfesorPageContent() {
                     <div key={index} className="h-10 animate-pulse rounded-lg bg-secondary" />
                   ))}
                 </div>
-              ) : homeworkList.length === 0 ? (
+              ) : filteredHomeworkList.length === 0 ? (
                 <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
                   <FileText className="h-10 w-10 text-muted-foreground" />
                   <h2 className="mt-3 text-base font-semibold text-foreground">Aún no hay asignaciones para esta clase</h2>
@@ -320,7 +387,7 @@ function CalificacionesProfesorPageContent() {
                     Crea asignaciones primero para poder calificar por columna.
                   </p>
                   <Button className="mt-4 gap-2" asChild>
-                    <Link href="/profesor/asignaciones">
+                    <Link href={`/profesor/asignaciones${selectedScheduleId ? `?scheduleId=${selectedScheduleId}` : ""}`}>
                       <FileText className="h-4 w-4" />
                       Ir a Asignaciones
                     </Link>
@@ -335,10 +402,10 @@ function CalificacionesProfesorPageContent() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="sticky left-0 bg-background px-4 py-3 text-left font-medium text-muted-foreground">
+                        <th className="sticky left-0 bg-background px-4 py-3 text-left font-medium text-muted-foreground z-10 border-r border-border min-w-[200px]">
                           Estudiante
                         </th>
-                        {homeworkList.map((homework) => (
+                        {filteredHomeworkList.map((homework) => (
                           <th key={homework.id} className="min-w-[140px] px-3 py-3 text-center font-medium text-muted-foreground">
                             <p className="truncate" title={homework.title}>
                               {homework.title}
@@ -355,18 +422,22 @@ function CalificacionesProfesorPageContent() {
                     </thead>
                     <tbody>
                       {roster.map((student) => {
-                        const { total, gradedCount } = computeFinalGrade(student.id)
+                        const finalGrade = computeFinalGrade(student.id)
                         return (
                           <tr key={student.id} className="border-b border-border">
-                            <td className="sticky left-0 bg-background px-4 py-2">
+                            <td className="sticky left-0 bg-background px-4 py-4 border-r border-border min-w-[200px]">
                               <p className="font-medium text-foreground">
                                 {student.firstName} {student.lastName}
                               </p>
-                              {student.documentId && (
+                              <div className="mt-0.5 flex items-center justify-between gap-2">
                                 <p className="text-xs text-muted-foreground">{student.documentId}</p>
-                              )}
+                                <ReportCardDialog
+                                  studentId={student.id}
+                                  studentName={`${student.firstName} ${student.lastName}`}
+                                />
+                              </div>
                             </td>
-                            {homeworkList.map((homework) => {
+                            {filteredHomeworkList.map((homework) => {
                               const key = cellKey(student.id, homework.id)
                               const existingMark = marksByCell[key]
                               return (
@@ -436,9 +507,9 @@ function CalificacionesProfesorPageContent() {
                               )
                             })}
                             <td className="px-4 py-2 text-center">
-                              {gradedCount > 0 ? (
-                                <Badge variant={gradedCount === homeworkList.length ? "default" : "outline"}>
-                                  {total.toFixed(1)}
+                              {finalGrade.percent !== null ? (
+                                <Badge variant={finalGrade.gradedCount === filteredHomeworkList.length ? "default" : "outline"}>
+                                  {finalGrade.percent.toFixed(1)}
                                 </Badge>
                               ) : (
                                 <span className="text-xs text-muted-foreground">—</span>

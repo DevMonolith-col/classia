@@ -62,7 +62,7 @@ export class AuditQueryService {
 
   private resolveTenantScope(tenantId: string | undefined, user: RequestUser) {
     if (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.SUPPORT_AGENT) {
-      return tenantId;
+      return tenantId ?? user.tenantId;
     }
 
     if (tenantId && tenantId !== user.tenantId) {

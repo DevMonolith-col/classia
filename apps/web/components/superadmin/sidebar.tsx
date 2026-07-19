@@ -21,14 +21,20 @@ import {
 } from "lucide-react"
 import { getStoredUser, logout } from "@/lib/auth"
 
+const SUPERADMIN_ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: "Super Administrador",
+  SUPPORT_SUPERVISOR: "Supervisor de Soporte",
+  SUPPORT_AGENT: "Agente de Soporte",
+}
+
 const navigation = [
   { name: "Panel SaaS", href: "/superadmin", icon: Gauge, available: true },
   { name: "Colegios", href: "/superadmin/tenants", icon: Building2, available: true },
   { name: "Usuarios globales", href: "/superadmin/users", icon: Users, available: true },
   { name: "Auditoria", href: "/superadmin/audit", icon: ClipboardList, available: true },
-  { name: "Soporte", href: "/superadmin/support", icon: LifeBuoy, available: false },
+  { name: "Soporte", href: "/superadmin/support", icon: LifeBuoy, available: true },
   { name: "Seguridad", href: "/superadmin/security", icon: ShieldCheck, available: false },
-  { name: "Configuracion", href: "/superadmin/settings", icon: Settings, available: false },
+  { name: "Configuracion", href: "/superadmin/settings", icon: Settings, available: true },
 ]
 
 interface Props {
@@ -46,8 +52,8 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
     setUser(getStoredUser())
   }, [])
 
-  const displayName = user ? `${user.firstName} ${user.lastName}` : "Super Admin"
-  const initials = user ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase() : "SA"
+  const displayName = user?.firstName ? `${user.firstName} ${user.lastName}` : (user?.email ?? "Super Admin")
+  const initials = user?.firstName ? `${user.firstName[0]}${user.lastName?.[0] ?? ""}`.toUpperCase() : "SA"
 
   const handleLogout = async () => {
     await logout()
@@ -111,14 +117,7 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
           </button>
         </div>
 
-        {!isCollapsed && (
-          <div className="border-b border-sidebar-border p-3">
-            <div className="flex items-center gap-2 rounded-lg bg-sidebar-accent px-3 py-2 text-sm text-sidebar-foreground/70">
-              <Search className="h-4 w-4" />
-              <span>Buscar colegio, usuario o dominio</span>
-            </div>
-          </div>
-        )}
+
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
           {navigation.map((item) => {
@@ -185,7 +184,9 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
-                <p className="truncate text-xs text-sidebar-foreground/50">Super Administrador</p>
+                <p className="truncate text-xs text-sidebar-foreground/50">
+                  {SUPERADMIN_ROLE_LABELS[user?.role ?? ""] ?? "Super Administrador"}
+                </p>
               </div>
             </div>
           )}

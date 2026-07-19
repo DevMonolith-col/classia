@@ -10,7 +10,20 @@ import {
   CreateUserInput,
   UpdateMembershipInput,
   UpdateUserInput,
+  ListUsersInput,
 } from "./users.schemas";
+
+// Roles de plataforma (no pertenecen a un colegio): operan a nivel global. Fuente
+// única de verdad para (a) quién puede leer datos cross-tenant (isGlobalAdmin) y
+// (b) qué roles solo el SUPER_ADMIN puede asignar (assertCanAssignRole). Antes
+// isGlobalAdmin incluía SUPPORT_AGENT pero no SUPPORT_SUPERVISOR, una
+// inconsistencia frágil: cualquier permiso de usuarios que se otorgara a un rol
+// de soporte podía dar acceso cross-tenant sin querer.
+const PLATFORM_ROLES: UserRole[] = [
+  UserRole.SUPER_ADMIN,
+  UserRole.SUPPORT_SUPERVISOR,
+  UserRole.SUPPORT_AGENT,
+];
 
 @Injectable()
 export class UsersService {
@@ -67,24 +80,57 @@ export class UsersService {
     });
   }
 
-  listVisibleUsers(user: RequestUser, tenantId?: string) {
-    const targetTenantId = this.resolveTenantScope(user, tenantId);
+  async listVisibleUsers(user: RequestUser, input: ListUsersInput) {
+    const targetTenantId = this.resolveTenantScope(user, input.tenantId);
 
-    return this.prisma.user.findMany({
-      where: targetTenantId
+    const membershipCondition: Prisma.TenantMembershipWhereInput = {};
+    if (targetTenantId) membershipCondition.tenantId = targetTenantId;
+    if (input.role) membershipCondition.role = input.role;
+
+    const hasMembershipCondition = Object.keys(membershipCondition).length > 0;
+
+    const where: Prisma.UserWhereInput = {
+      ...(hasMembershipCondition
+        ? { memberships: { some: membershipCondition } }
+        : {}),
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.search
         ? {
-            memberships: {
-              some: {
-                tenantId: targetTenantId,
-              },
-            },
+            OR: [
+              { firstName: { contains: input.search, mode: "insensitive" } },
+              { lastName: { contains: input.search, mode: "insensitive" } },
+              { email: { contains: input.search, mode: "insensitive" } },
+            ],
           }
-        : undefined,
+        : {}),
+    };
+
+    const users = await this.prisma.user.findMany({
+      where,
       select: this.userSelect(),
       orderBy: {
         createdAt: "asc",
       },
+      take: input.limit + 1,
+      ...(input.cursor
+        ? {
+            cursor: { id: input.cursor },
+            skip: 1,
+          }
+        : {}),
     });
+
+    const hasNextPage = users.length > input.limit;
+    const items = hasNextPage ? users.slice(0, input.limit) : users;
+    const nextCursor = hasNextPage ? items.at(-1)?.id : undefined;
+
+    return {
+      items,
+      pageInfo: {
+        hasNextPage,
+        nextCursor,
+      },
+    };
   }
 
   async findVisibleUser(userId: string, user: RequestUser) {
@@ -289,19 +335,19 @@ export class UsersService {
     }
   }
 
+  // Otorgar un rol de plataforma (SUPER_ADMIN, SUPPORT_SUPERVISOR,
+  // SUPPORT_AGENT) es exclusivo del SUPER_ADMIN real: un agente o supervisor
+  // de soporte nunca puede ascenderse a sí mismo ni a nadie más, aunque pasen
+  // el check general de "admin global" para otras acciones.
   private assertCanAssignRole(actor: RequestUser, role: UserRole) {
-    if (this.isGlobalAdmin(actor)) {
-      return;
-    }
-
-    if (role === UserRole.SUPER_ADMIN || role === UserRole.SUPPORT_AGENT) {
+    if (PLATFORM_ROLES.includes(role) && actor.role !== UserRole.SUPER_ADMIN) {
       throw new ForbiddenException("Only super admins can assign global roles.");
     }
   }
 
   private resolveTenantScope(actor: RequestUser, tenantId?: string) {
     if (this.isGlobalAdmin(actor)) {
-      return tenantId;
+      return tenantId ?? actor.tenantId;
     }
 
     if (tenantId && tenantId !== actor.tenantId) {
@@ -312,7 +358,7 @@ export class UsersService {
   }
 
   private isGlobalAdmin(user: RequestUser) {
-    return user.role === UserRole.SUPER_ADMIN || user.role === UserRole.SUPPORT_AGENT;
+    return PLATFORM_ROLES.includes(user.role);
   }
 
   private userSelect() {

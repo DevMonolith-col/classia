@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { UserRole } from "@prisma/client";
+import { MembershipStatus, UserRole } from "@prisma/client";
 import { getPermissionsForRole } from "../../common/permissions/permissions";
 import { RequestUser } from "../../common/types/request-context";
 import { PrismaService } from "../../core/prisma/prisma.service";
@@ -9,7 +9,7 @@ export class BootstrapService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getBootstrap(user: RequestUser) {
-    const [currentUser, tenant, membership] = await Promise.all([
+    const [currentUser, tenant] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: user.id },
         select: {
@@ -33,15 +33,21 @@ export class BootstrapService {
           timezone: true,
         },
       }),
-      this.prisma.tenantMembership.findUniqueOrThrow({
-        where: { id: user.membershipId },
-        select: {
-          id: true,
-          role: true,
-          status: true,
-        },
-      }),
     ]);
+
+    // En una sesión de impersonación no existe una TenantMembership real: se
+    // sintetiza a partir del rol efectivo de la sesión (el mismo del que ya
+    // derivan los permisos en el guard).
+    const membership = user.isImpersonated
+      ? { id: "", role: user.role, status: MembershipStatus.ACTIVE }
+      : await this.prisma.tenantMembership.findUniqueOrThrow({
+          where: { id: user.membershipId },
+          select: {
+            id: true,
+            role: true,
+            status: true,
+          },
+        });
 
     return {
       user: currentUser,

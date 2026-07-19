@@ -26,6 +26,7 @@ enum UserStatus {
 
 enum UserRole {
   SUPER_ADMIN
+  SUPPORT_SUPERVISOR
   SUPPORT_AGENT
   TENANT_ADMIN
   PRINCIPAL
@@ -61,15 +62,31 @@ model Tenant {
   logoUrl       String?
   brandColor    String?
   timezone      String       @default("America/Bogota")
+  currency      String       @default("COP")
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  memberships   TenantMembership[]
-  sessions      AuthSession[]
-  students      Student[]
-  groups        Group[]
-  subjects      Subject[]
-  announcements Announcement[]
+  memberships       TenantMembership[]
+  sessions          AuthSession[]
+  students          Student[]
+  groups            Group[]
+  subjects          Subject[]
+  announcements     Announcement[]
+  events            Event[]
+  academicYears     AcademicYear[]
+  academicPeriods   AcademicPeriod[]
+  gradingScales     GradingScale[]
+  gradingCategories GradingCategory[]
+  reportCards       ReportCard[]
+  supportTickets    SupportTicket[]
+  elections         Election[]
+  documentTemplates DocumentTemplate[]
+  documentIssuances DocumentIssuance[]
+  feeConcepts       FeeConcept[]
+  invoices          Invoice[]
+  payments          Payment[]
+  generatedReports  GeneratedReport[]
+  reportSchedules   ReportSchedule[]
 
   @@map("tenants")
 }
@@ -84,13 +101,26 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  memberships      TenantMembership[]
-  sessions         AuthSession[]
-  teacher          Teacher?
-  guardian         Guardian?
-  student          Student?
-  sentMessages     Message[]          @relation("SentMessages")
-  receivedMessages Message[]          @relation("ReceivedMessages")
+  memberships             TenantMembership[]
+  sessions                AuthSession[]
+  teacher                 Teacher?
+  guardian                Guardian?
+  student                 Student?
+  conversationMemberships ConversationMember[]
+  conversationMessages    ConversationMessage[]
+  announcementsAuthored   Announcement[]           @relation("AnnouncementAuthor")
+  announcementReads       AnnouncementRead[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  assignedSupportTickets  SupportTicket[]           @relation("SupportTicketAssignee")
+  authoredSupportTickets  SupportTicket[]           @relation("SupportTicketAuthor")
+  authoredTicketComments  TicketComment[]           @relation("TicketCommentAuthor")
+  electionsCreated        Election[]
+  documentsIssued         DocumentIssuance[]        @relation("DocumentIssuedBy")
+  feeConceptsCreated      FeeConcept[]
+  paymentsRecorded        Payment[]
+  reportsRequested        GeneratedReport[]
+  reportSchedulesCreated  ReportSchedule[]
 
   @@map("users")
 }
@@ -122,6 +152,13 @@ model AuthSession {
   userAgent        String?
   createdAt        DateTime  @default(now())
 
+  // Impersonación: una sesión de soporte que "entra" a un tenant no crea ninguna
+  // TenantMembership; el rol efectivo vive solo aquí para poder re-emitir el token
+  // en cada refresh sin depender de una fila persistida. Salir de la impersonación
+  // revoca esta sesión en el servidor (no basta con limpiar el cliente).
+  isImpersonated   Boolean   @default(false)
+  impersonatedRole UserRole?
+
   user   User    @relation(fields: [userId], references: [id])
   tenant Tenant? @relation(fields: [tenantId], references: [id])
 
@@ -142,6 +179,9 @@ model Group {
   schedules          Schedule[]
   attendanceSessions AttendanceSession[]
   homework           Homework[]
+  announcements      Announcement[]
+  gradingCategories  GradingCategory[]
+  feeConcepts        FeeConcept[]
 
   @@map("groups")
 }
@@ -152,10 +192,12 @@ model Subject {
   name     String
   code     String?
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id])
-  schedules Schedule[]
-  marks     Mark[]
-  homework  Homework[]
+  tenant            Tenant            @relation(fields: [tenantId], references: [id])
+  schedules         Schedule[]
+  marks             Mark[]
+  homework          Homework[]
+  gradingCategories GradingCategory[]
+  reportCardLines   ReportCardLine[]
 
   @@map("subjects")
 }
@@ -183,6 +225,11 @@ model Student {
   marks               Mark[]
   homeworkSubmissions HomeworkSubmission[]
   quizAttempts        QuizAttempt[]
+  reportCards         ReportCard[]
+  electionCandidacies ElectionCandidate[]
+  electionVotes       ElectionVoter[]
+  documentIssuances   DocumentIssuance[]
+  invoices            Invoice[]
 
   @@unique([tenantId, documentId])
   @@map("students")
@@ -222,6 +269,7 @@ model Teacher {
   attendanceSessions AttendanceSession[]
   marks              Mark[]
   homework           Homework[]
+  gradingCategories  GradingCategory[]
 
   @@map("teachers")
 }
@@ -257,7 +305,7 @@ model AttendanceSession {
   isOpen     Boolean  @default(true)
   createdAt  DateTime @default(now())
 
-  schedule Schedule?         @relation(fields: [scheduleId], references: [id])
+  schedule Schedule?          @relation(fields: [scheduleId], references: [id])
   group    Group              @relation(fields: [groupId], references: [id])
   teacher  Teacher            @relation(fields: [teacherId], references: [id])
   records  AttendanceRecord[]
@@ -280,55 +328,230 @@ model AttendanceRecord {
 }
 
 model Mark {
-  id          String   @id @default(uuid())
-  tenantId    String
-  studentId   String
-  subjectId   String
-  teacherId   String
-  homeworkId  String?
-  title       String
-  value       Float
-  maxValue    Float    @default(100)
-  comment     String?
-  period      Int      @default(1)
-  date        DateTime @default(now())
-  isPublished Boolean  @default(true)
+  id             String   @id @default(uuid())
+  tenantId       String
+  studentId      String
+  subjectId      String
+  teacherId      String
+  homeworkId     String?
+  categoryId     String?
+  academicYearId String?
+  title          String
+  value          Float
+  maxValue       Float    @default(100)
+  comment        String?
+  period         Int      @default(1)
+  date           DateTime @default(now())
+  isPublished    Boolean  @default(true)
 
-  student  Student   @relation(fields: [studentId], references: [id])
-  subject  Subject   @relation(fields: [subjectId], references: [id])
-  teacher  Teacher   @relation(fields: [teacherId], references: [id])
-  homework Homework? @relation(fields: [homeworkId], references: [id])
+  student      Student          @relation(fields: [studentId], references: [id])
+  subject      Subject          @relation(fields: [subjectId], references: [id])
+  teacher      Teacher          @relation(fields: [teacherId], references: [id])
+  homework     Homework?        @relation(fields: [homeworkId], references: [id])
+  category     GradingCategory? @relation(fields: [categoryId], references: [id])
+  academicYear AcademicYear?    @relation(fields: [academicYearId], references: [id])
 
+  // Una sola nota por (estudiante, tarea). Postgres trata NULL como distinto,
+  // así que las notas manuales sueltas (homeworkId = null) no se ven afectadas,
+  // pero la carrera de los tres writers sobre la misma tarea queda imposibilitada.
+  @@unique([studentId, homeworkId])
+  @@index([tenantId, period])
+  @@index([academicYearId])
   @@map("marks")
 }
 
-model Homework {
-  id             String   @id @default(uuid())
-  tenantId       String
-  teacherId      String
-  subjectId      String
-  groupId        String
-  title          String
-  description    String?
-  availableFrom  DateTime?
-  dueDate        DateTime
-  cutOffDate     DateTime?
-  weight         Float    @default(0)
-  type           String   @default("TAREA")
-  allowNavigation Boolean @default(true)
-  attachmentKey  String?
-  attachmentName String?
-  status         String   @default("ACTIVE")
-  createdAt      DateTime @default(now())
+// ─── Configuración académica (Notas y Reportes) ──────────────────────────────
 
-  teacher     Teacher              @relation(fields: [teacherId], references: [id])
-  subject     Subject              @relation(fields: [subjectId], references: [id])
-  group       Group                @relation(fields: [groupId], references: [id])
-  submissions HomeworkSubmission[]
+enum AcademicYearStatus {
+  OPEN
+  ARCHIVED
+}
+
+model AcademicYear {
+  id        String             @id @default(uuid())
+  tenantId  String
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  status    AcademicYearStatus @default(OPEN)
+  isActive  Boolean            @default(false)
+  createdAt DateTime           @default(now())
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id])
+  periods     AcademicPeriod[]
+  reportCards ReportCard[]
   marks       Mark[]
-  questions   Question[]
-  attempts    QuizAttempt[]
+  homework    Homework[]
+  feeConcepts FeeConcept[]
+  invoices    Invoice[]
 
+  @@unique([tenantId, name])
+  @@index([tenantId, isActive])
+  @@map("academic_years")
+}
+
+model AcademicPeriod {
+  id             String    @id @default(uuid())
+  tenantId       String
+  academicYearId String
+  name           String
+  sequence       Int
+  weight         Float
+  startDate      DateTime?
+  endDate        DateTime?
+  lockedAt       DateTime?
+  createdAt      DateTime  @default(now())
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  academicYear AcademicYear      @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  categories   GradingCategory[]
+  reportCards  ReportCard[]
+
+  @@unique([academicYearId, sequence])
+  @@index([tenantId])
+  @@map("academic_periods")
+}
+
+model GradingScale {
+  id           String   @id @default(uuid())
+  tenantId     String
+  name         String
+  minValue     Float
+  maxValue     Float
+  passingValue Float
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  tenant Tenant             @relation(fields: [tenantId], references: [id])
+  bands  GradingScaleBand[]
+
+  @@index([tenantId, isDefault])
+  @@map("grading_scales")
+}
+
+model GradingScaleBand {
+  id       String @id @default(uuid())
+  scaleId  String
+  label    String
+  minValue Float
+  maxValue Float
+  order    Int
+
+  scale GradingScale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+
+  @@index([scaleId])
+  @@map("grading_scale_bands")
+}
+
+// Definida por el profesor para su clase (grupo + materia + periodo). Agrupa
+// varias notas que se promedian; su weight es el % que aporta al periodo.
+model GradingCategory {
+  id        String   @id @default(uuid())
+  tenantId  String
+  groupId   String
+  subjectId String
+  teacherId String
+  periodId  String
+  name      String
+  weight    Float
+  createdAt DateTime @default(now())
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id])
+  group   Group          @relation(fields: [groupId], references: [id])
+  subject Subject        @relation(fields: [subjectId], references: [id])
+  teacher Teacher        @relation(fields: [teacherId], references: [id])
+  period  AcademicPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  marks   Mark[]
+
+  @@index([tenantId, groupId, subjectId, periodId])
+  @@map("grading_categories")
+}
+
+enum ReportCardStatus {
+  DRAFT
+  PUBLISHED
+  FINAL
+}
+
+// Boletín inmutable: un snapshot congelado de las definitivas de un estudiante en
+// un periodo (periodId) o en el año (periodId = null). Guarda el valor y la
+// etiqueta de escala vigentes al generarlo; recalcular notas históricas nunca lo
+// cambia. Esa es la garantía de inmutabilidad.
+model ReportCard {
+  id             String           @id @default(uuid())
+  tenantId       String
+  studentId      String
+  academicYearId String
+  periodId       String?
+  status         ReportCardStatus @default(PUBLISHED)
+  overallAverage Float
+  scaleName      String
+  generatedById  String
+  generatedAt    DateTime         @default(now())
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id])
+  student      Student          @relation(fields: [studentId], references: [id])
+  academicYear AcademicYear     @relation(fields: [academicYearId], references: [id])
+  period       AcademicPeriod?  @relation(fields: [periodId], references: [id])
+  lines        ReportCardLine[]
+  documentIssuances DocumentIssuance[]
+
+  // Un boletín por estudiante/año/periodo. Evita duplicados cuando dos generate()
+  // concurrentes hacen findFirst→miss→create a la vez. El caso anual (periodId
+  // NULL) se cubre con un índice parcial adicional en la migración, porque Postgres
+  // trata cada NULL como distinto y no lo bloquea con este unique.
+  @@unique([studentId, academicYearId, periodId])
+  @@index([tenantId, studentId, academicYearId])
+  @@map("report_cards")
+}
+
+model ReportCardLine {
+  id           String  @id @default(uuid())
+  reportCardId String
+  subjectId    String
+  subjectName  String
+  final        Float
+  label        String
+  passing      Boolean
+
+  reportCard ReportCard @relation(fields: [reportCardId], references: [id], onDelete: Cascade)
+  subject    Subject    @relation(fields: [subjectId], references: [id])
+
+  @@index([reportCardId])
+  @@map("report_card_lines")
+}
+
+model Homework {
+  id              String    @id @default(uuid())
+  tenantId        String
+  teacherId       String
+  subjectId       String
+  groupId         String
+  academicYearId  String?
+  title           String
+  description     String?
+  availableFrom   DateTime?
+  dueDate         DateTime
+  cutOffDate      DateTime?
+  weight          Float     @default(0)
+  type            String    @default("TAREA")
+  allowNavigation Boolean   @default(true)
+  attachmentKey   String?
+  attachmentName  String?
+  status          String    @default("ACTIVE")
+  createdAt       DateTime  @default(now())
+
+  teacher      Teacher              @relation(fields: [teacherId], references: [id])
+  subject      Subject              @relation(fields: [subjectId], references: [id])
+  group        Group                @relation(fields: [groupId], references: [id])
+  academicYear AcademicYear?        @relation(fields: [academicYearId], references: [id])
+  submissions  HomeworkSubmission[]
+  marks        Mark[]
+  questions    Question[]
+  attempts     QuizAttempt[]
+
+  @@index([tenantId, groupId, subjectId])
+  @@index([academicYearId])
   @@map("homework")
 }
 
@@ -422,33 +645,182 @@ model HomeworkSubmission {
 
 // ─── Comunicaciones ──────────────────────────────────────────────────────────
 
-model Message {
-  id        String   @id @default(uuid())
-  tenantId  String
-  fromId    String
-  toId      String
-  subject   String?
-  body      String
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  from User @relation("SentMessages", fields: [fromId], references: [id])
-  to   User @relation("ReceivedMessages", fields: [toId], references: [id])
-
-  @@map("messages")
+enum ConversationType {
+  DIRECT // 1:1 (acudiente <-> profesor, etc.)
+  GROUP // difusión de un profesor a varios acudientes (reservado para Fase 2)
 }
 
-model Announcement {
-  id         String   @id @default(uuid())
-  tenantId   String
-  title      String
-  body       String
-  targetRole String?
-  createdAt  DateTime @default(now())
+model Conversation {
+  id            String           @id @default(uuid())
+  tenantId      String
+  type          ConversationType @default(DIRECT)
+  title         String? // requerido para type = GROUP
+  groupId       String? // curso de origen, si el hilo se derivó de un curso
+  subjectId     String? // materia de origen, si aplica
+  createdById   String
+  createdAt     DateTime         @default(now())
+  archivedAt    DateTime?
+  lastMessageAt DateTime         @default(now()) // evita traer todos los mensajes solo para ordenar/previsualizar la lista
+  directKey     String?          // clave determinística "userIdMenor:userIdMayor" solo para type = DIRECT; delega el control de concurrencia de "crear si no existe" a la BD
+
+  members  ConversationMember[]
+  messages ConversationMessage[]
+
+  @@unique([tenantId, directKey])
+  @@index([tenantId, type])
+  @@index([tenantId, lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationMember {
+  id             String    @id @default(uuid())
+  conversationId String
+  userId         String
+  joinedAt       DateTime  @default(now())
+  lastReadAt     DateTime?
+  mutedAt        DateTime? // "quiet hours" estilo ClassDojo, a nivel de miembro
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_members")
+}
+
+model ConversationMessage {
+  id             String    @id @default(uuid())
+  conversationId String
+  fromId         String
+  body           String
+  attachmentKey  String?
+  attachmentName String?
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime? // soft-delete: oculta al usuario pero NUNCA se borra de la BD (Ley 1620 / Ley 527)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  from         User         @relation(fields: [fromId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@map("conversation_messages")
+}
+
+model Event {
+  id        String   @id @default(uuid())
+  tenantId  String
+  title     String
+  date      DateTime
+  location  String?
+  createdAt DateTime @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
+  @@index([tenantId, date])
+  @@map("events")
+}
+
+model Announcement {
+  id         String    @id @default(uuid())
+  tenantId   String
+  authorId   String
+  title      String
+  body       String
+  targetRole UserRole? // null = todos los roles; si no, solo ese rol
+  groupId    String? // null = todo el colegio; si no, solo ese curso/grupo
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime? // soft-delete: se oculta pero NUNCA se borra (Ley 1620 / Ley 527), como mensajería
+
+  tenant Tenant             @relation(fields: [tenantId], references: [id])
+  author User               @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+  group  Group?             @relation(fields: [groupId], references: [id])
+  reads  AnnouncementRead[]
+
+  @@index([tenantId, groupId])
   @@map("announcements")
+}
+
+model AnnouncementRead {
+  id             String   @id @default(uuid())
+  announcementId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([announcementId, userId])
+  @@map("announcement_reads")
+}
+
+// ─── Notificaciones ──────────────────────────────────────────────────────────
+
+enum NotificationEventType {
+  MARK_PUBLISHED
+  HOMEWORK_ASSIGNED
+  ATTENDANCE_ABSENCE_RECORDED
+  MESSAGE_RECEIVED
+  ANNOUNCEMENT_PUBLISHED
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model Notification {
+  id         String                @id @default(uuid())
+  tenantId   String
+  userId     String
+  eventType  NotificationEventType
+  title      String
+  body       String
+  entityType String? // deep-link polimórfico (mismo patrón que AuditLog)
+  entityId   String?
+  isRead     Boolean               @default(false)
+  readAt     DateTime?
+  createdAt  DateTime              @default(now())
+
+  user       User                   @relation(fields: [userId], references: [id])
+  deliveries NotificationDelivery[]
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model NotificationDelivery {
+  id             String                     @id @default(uuid())
+  notificationId String
+  channel        NotificationChannel
+  status         NotificationDeliveryStatus @default(PENDING)
+  attempts       Int                        @default(0)
+  error          String?
+  sentAt         DateTime?
+  createdAt      DateTime                   @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("notification_deliveries")
+}
+
+model NotificationPreference {
+  id        String                @id @default(uuid())
+  userId    String
+  eventType NotificationEventType
+  channel   NotificationChannel
+  enabled   Boolean               @default(true)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, eventType, channel])
+  @@map("notification_preferences")
 }
 
 // ─── Audit ───────────────────────────────────────────────────────────────────
@@ -468,4 +840,374 @@ model AuditLog {
   createdAt  DateTime @default(now())
 
   @@map("audit_logs")
+}
+
+// ─── Soporte (Tickets) ───────────────────────────────────────────────────────
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model SupportTicket {
+  id          String         @id @default(uuid())
+  tenantId    String
+  authorId    String         // Usuario del colegio que lo reporta
+  assigneeId  String?        // SuperAdmin encargado de resolverlo
+  
+  title       String
+  description String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+  category    String         
+  
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  attachmentKey  String?
+  attachmentName String?
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  author      User           @relation("SupportTicketAuthor", fields: [authorId], references: [id])
+  assignee    User?          @relation("SupportTicketAssignee", fields: [assigneeId], references: [id])
+  comments    TicketComment[]
+
+  @@index([tenantId, status])
+  @@map("support_tickets")
+}
+
+model TicketComment {
+  id          String        @id @default(uuid())
+  ticketId    String
+  authorId    String        // Puede ser SuperAdmin o el cliente
+  content        String
+  isInternal     Boolean       @default(false)
+  attachmentKey  String?
+  attachmentName String?
+  
+  createdAt      DateTime      @default(now())
+
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author      User          @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+  
+  @@index([ticketId])
+  @@map("ticket_comments")
+}
+
+// ─── SaaS System Settings ────────────────────────────────────────────────────
+
+model SystemSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// ─── Gobierno Escolar (Votaciones) ──────────────────────────────────────────
+
+enum ElectionStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+  PUBLISHED // Resultados publicados a toda la comunidad
+}
+
+model Election {
+  id          String         @id @default(uuid())
+  tenantId    String
+  title       String // Ej: "Elección Personero 2026"
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+  status      ElectionStatus @default(DRAFT)
+  allowBlank  Boolean        @default(true) // Voto en blanco
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tenant     Tenant              @relation(fields: [tenantId], references: [id])
+  createdBy  User                @relation(fields: [createdById], references: [id])
+  candidates ElectionCandidate[]
+  votes      ElectionVote[]
+  voters     ElectionVoter[]
+
+  @@index([tenantId, status])
+  @@map("elections")
+}
+
+model ElectionCandidate {
+  id              String  @id @default(uuid())
+  electionId      String
+  studentId       String? // null = representa el voto en blanco
+  candidateNumber Int // número en el tarjetón (ej. 01, 02)
+  slogan          String?
+  photoUrl        String?
+
+  election Election       @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  student  Student?       @relation(fields: [studentId], references: [id])
+  votes    ElectionVote[]
+
+  @@unique([electionId, candidateNumber])
+  @@map("election_candidates")
+}
+
+// Urna de votos: liga el voto al candidato, JAMÁS al votante (voto secreto).
+model ElectionVote {
+  id          String @id @default(uuid())
+  electionId  String
+  candidateId String
+  // Sin timestamp a propósito: el voto es anónimo. Si guardáramos createdAt, al
+  // insertarse en la misma transacción que ElectionVoter.votedAt ambos quedarían
+  // con el MISMO valor (now() es constante dentro de una transacción en Postgres)
+  // y únicos entre votantes, permitiendo un JOIN por timestamp que revela por
+  // quién votó cada estudiante. Sin createdAt, esa correlación es imposible.
+
+  election  Election          @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  candidate ElectionCandidate @relation(fields: [candidateId], references: [id])
+
+  @@map("election_votes")
+}
+
+// Control de sufragantes: liga al estudiante con la elección solo para saber
+// "ya votó" (participación) — nunca por quién votó. Separado a propósito de
+// ElectionVote: ver participación (Veedor, Rector) nunca implica poder ver
+// el escrutinio mientras la elección sigue ACTIVE.
+model ElectionVoter {
+  id         String   @id @default(uuid())
+  electionId String
+  studentId  String
+  votedAt    DateTime @default(now())
+  ipAddress  String?
+
+  election Election @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  student  Student  @relation(fields: [studentId], references: [id])
+
+  @@unique([electionId, studentId])
+  @@map("election_voters")
+}
+
+// ─── Documentos y Certificados ──────────────────────────────────────────────
+
+enum DocumentType {
+  STUDY_CERTIFICATE // Constancia de estudio
+  REPORT_CARD // Boletín
+}
+
+enum DocumentStatus {
+  PENDING // en cola / generándose (PDF vía worker async)
+  READY
+  FAILED
+}
+
+model DocumentTemplate {
+  id          String       @id @default(uuid())
+  tenantId    String
+  type        DocumentType
+  name        String
+  contentHtml String // Plantilla HTML con variables
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, type])
+  @@map("document_templates")
+}
+
+model DocumentIssuance {
+  id               String         @id @default(uuid())
+  tenantId         String
+  studentId        String
+  reportCardId     String? // si type = REPORT_CARD, reusa los datos ya calculados por el motor de boletines en vez de duplicarlos
+  type             DocumentType
+  status           DocumentStatus @default(PENDING)
+  verificationCode String         @unique // código corto para la URL del QR (ej. X9F2K1)
+  issuedById       String // secretaría/coordinador que lo generó
+  pdfKey           String? // ruta en el storage del PDF ya generado
+  errorMessage     String? // detalle si status = FAILED
+  issuedAt         DateTime       @default(now())
+  readyAt          DateTime?
+  revokedAt        DateTime? // invalida el código QR
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  student    Student     @relation(fields: [studentId], references: [id])
+  reportCard ReportCard? @relation(fields: [reportCardId], references: [id])
+  issuedBy   User        @relation("DocumentIssuedBy", fields: [issuedById], references: [id])
+
+  @@index([tenantId, studentId])
+  @@index([verificationCode])
+  @@map("document_issuances")
+}
+
+// ─── Pagos ───────────────────────────────────────────────────────────────────
+
+enum InvoiceStatus {
+  PENDING
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  CARD
+  OTHER
+}
+
+model FeeConcept {
+  id             String   @id @default(uuid())
+  tenantId       String
+  academicYearId String
+  groupId        String? // null = aplica a todo el colegio
+  name           String // Ej: "Matrícula 2026", "Pensión Enero"
+  description    String?
+  amount         Decimal  @db.Decimal(12, 2)
+  dueDate        DateTime
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+  group        Group?       @relation(fields: [groupId], references: [id])
+  createdBy    User         @relation(fields: [createdById], references: [id])
+  invoices     Invoice[]
+
+  @@index([tenantId, academicYearId])
+  @@map("fee_concepts")
+}
+
+model Invoice {
+  id             String        @id @default(uuid())
+  tenantId       String
+  studentId      String
+  feeConceptId   String?
+  academicYearId String
+  concept        String // denormalizado: sobrevive si se borra el FeeConcept que lo originó
+  amount         Decimal       @db.Decimal(12, 2)
+  dueDate        DateTime
+  status         InvoiceStatus @default(PENDING)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  cancelledAt    DateTime?
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id])
+  feeConcept   FeeConcept?  @relation(fields: [feeConceptId], references: [id])
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+  payments     Payment[]
+
+  @@index([tenantId, studentId])
+  @@index([tenantId, status])
+  @@map("invoices")
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  tenantId     String
+  invoiceId    String
+  amount       Decimal       @db.Decimal(12, 2)
+  method       PaymentMethod
+  paidAt       DateTime      @default(now())
+  reference    String?
+  recordedById String
+  createdAt    DateTime      @default(now())
+
+  tenant     Tenant  @relation(fields: [tenantId], references: [id])
+  invoice    Invoice @relation(fields: [invoiceId], references: [id])
+  recordedBy User    @relation(fields: [recordedById], references: [id])
+
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+// ─── Reportes ────────────────────────────────────────────────────────────────
+
+enum ReportType {
+  ATTENDANCE
+  GRADES
+  STUDENTS
+  TEACHERS
+  COURSES
+  FINANCIAL
+}
+
+enum ReportFormat {
+  PDF
+  CSV
+}
+
+enum ReportStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+// DAYS: se repite cada intervalValue días (7 = semanal, 15 = quincenal, etc).
+// MONTHLY: se repite cada intervalValue meses, el día dayOfMonth (acotado a
+// 1-28 para no toparse con meses cortos).
+enum ReportFrequencyType {
+  DAYS
+  MONTHLY
+}
+
+model GeneratedReport {
+  id            String       @id @default(uuid())
+  tenantId      String
+  type          ReportType
+  format        ReportFormat
+  status        ReportStatus @default(PENDING)
+  filters       Json // rango de fechas, curso, año académico — lo que se usó para generarlo
+  fileKey       String?
+  errorMessage  String?
+  downloadCount Int          @default(0)
+  requestedById String
+  createdAt     DateTime     @default(now())
+  readyAt       DateTime?
+
+  tenant      Tenant @relation(fields: [tenantId], references: [id])
+  requestedBy User   @relation(fields: [requestedById], references: [id])
+
+  @@index([tenantId, type])
+  @@index([tenantId, createdAt])
+  @@map("generated_reports")
+}
+
+model ReportSchedule {
+  id            String              @id @default(uuid())
+  tenantId      String
+  type          ReportType
+  format        ReportFormat
+  filters       Json
+  frequencyType ReportFrequencyType
+  intervalValue Int // DAYS: cantidad de días entre corridas. MONTHLY: cantidad de meses.
+  dayOfMonth    Int? // solo si frequencyType = MONTHLY (1-28)
+  recipients    String[]
+  active        Boolean             @default(true)
+  totalRuns     Int                 @default(0)
+  emailsSent    Int                 @default(0)
+  createdById   String
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  lastRunAt     DateTime?
+  nextRunAt     DateTime? // próxima corrida programada (reprogramación dinámica)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+  createdBy User   @relation(fields: [createdById], references: [id])
+
+  @@index([tenantId, active])
+  @@map("report_schedules")
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const listMarksQuerySchema = z.object({
+  academicYearId: z.string().min(1).optional(),
   tenantId: z.string().min(1).optional(),
   studentId: z.string().min(1).optional(),
   subjectId: z.string().min(1).optional(),
@@ -19,6 +20,7 @@ export const createMarkSchema = z
     subjectId: z.string().min(1),
     teacherId: z.string().min(1).optional(),
     homeworkId: z.string().min(1).optional(),
+    categoryId: z.string().min(1).optional(),
     title: z.string().min(1).max(120),
     value: z.number().min(0),
     maxValue: z.number().min(1).max(1000).optional(),
@@ -40,6 +42,7 @@ export const updateMarkSchema = z
     value: z.number().min(0).optional(),
     maxValue: z.number().min(1).max(1000).optional(),
     comment: z.string().max(2000).optional().nullable(),
+    categoryId: z.string().min(1).optional().nullable(),
     period: z.number().int().min(1).max(12).optional(),
     date: z.coerce.date().optional(),
     isPublished: z.boolean().optional(),
@@ -60,6 +63,7 @@ export const bulkCreateMarksSchema = z.object({
   subjectId: z.string().min(1),
   teacherId: z.string().min(1).optional(),
   homeworkId: z.string().min(1).optional(),
+  categoryId: z.string().min(1).optional(),
   title: z.string().min(1).max(120),
   maxValue: z.number().min(1).max(1000).optional(),
   period: z.number().int().min(1).max(12).optional(),

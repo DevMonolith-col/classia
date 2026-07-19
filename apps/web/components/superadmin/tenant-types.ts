@@ -10,8 +10,11 @@ export type Tenant = {
   brandColor?: string | null
   createdAt?: string
   updatedAt?: string
+  // No hay un campo de plan/billing en el backend todavía; el frontend lo
+  // trata como siempre "BASE" hasta que exista.
+  plan?: string
   _count?: {
-    users?: number
     memberships?: number
+    students?: number
   }
 }

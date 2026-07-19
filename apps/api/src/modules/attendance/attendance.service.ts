@@ -1,9 +1,14 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, UserRole } from "@prisma/client";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import { AttendanceStatus, Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import {
+  AttendanceAbsenceEvent,
+  NOTIFICATION_EVENTS,
+} from "../notifications/notifications.events";
 import {
   CreateSessionInput,
   ListSessionsQuery,
@@ -16,6 +21,7 @@ export class AttendanceService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async listSessions(actor: RequestUser, query: ListSessionsQuery) {
@@ -47,6 +53,22 @@ export class AttendanceService {
       });
     }
 
+    if (actor.role === UserRole.GUARDIAN) {
+      const childIds = await this.resolveOwnChildIds(actor);
+      if (childIds.length === 0) return [];
+
+      const childGroupIds = await this.resolveOwnChildGroupIds(childIds);
+      if (childGroupIds.length === 0) return [];
+
+      const sessions = await this.prisma.attendanceSession.findMany({
+        where: { ...commonFilter, groupId: { in: childGroupIds } },
+        select: this.sessionSelect(),
+        orderBy: [{ date: "desc" }],
+      });
+
+      return sessions.map((session) => this.scopeRecordsToChildren(session, childIds));
+    }
+
     const scopedTenantId = this.resolveTenantScope(actor, query.tenantId);
 
     return this.prisma.attendanceSession.findMany({
@@ -66,7 +88,12 @@ export class AttendanceService {
       select: this.sessionSelect(),
     });
 
-    await this.assertCanAccessSession(session.tenantId, session.teacher.id, actor);
+    await this.assertCanAccessSession(session.tenantId, session.teacher.id, session.group.id, actor);
+
+    if (actor.role === UserRole.GUARDIAN) {
+      const childIds = await this.resolveOwnChildIds(actor);
+      return this.scopeRecordsToChildren(session, childIds);
+    }
 
     return session;
   }
@@ -147,7 +174,7 @@ export class AttendanceService {
       select: this.sessionSelect(),
     });
 
-    await this.assertCanAccessSession(previous.tenantId, previous.teacher.id, actor);
+    await this.assertCanAccessSession(previous.tenantId, previous.teacher.id, previous.group.id, actor);
 
     const session = await this.prisma.attendanceSession.update({
       where: { id: sessionId },
@@ -182,7 +209,7 @@ export class AttendanceService {
       select: this.sessionSelect(),
     });
 
-    await this.assertCanAccessSession(session.tenantId, session.teacher.id, actor);
+    await this.assertCanAccessSession(session.tenantId, session.teacher.id, session.group.id, actor);
 
     if (!session.isOpen) {
       throw new ForbiddenException("Attendance session is closed.");
@@ -230,6 +257,17 @@ export class AttendanceService {
       userAgent: request.headers["user-agent"],
     });
 
+    for (const record of input.records) {
+      if (record.status === AttendanceStatus.ABSENT) {
+        this.events.emit(NOTIFICATION_EVENTS.ATTENDANCE_ABSENCE, {
+          tenantId: session.tenantId,
+          sessionId,
+          studentId: record.studentId,
+          date: session.date,
+        } satisfies AttendanceAbsenceEvent);
+      }
+    }
+
     return updated;
   }
 
@@ -261,16 +299,48 @@ export class AttendanceService {
     }
   }
 
-  private async assertCanAccessSession(tenantId: string, teacherId: string, actor: RequestUser) {
+  private async assertCanAccessSession(tenantId: string, teacherId: string, groupId: string, actor: RequestUser) {
     if (!this.isGlobalAdmin(actor) && actor.tenantId !== tenantId) {
       throw new ForbiddenException("Tenant is outside of current context.");
     }
     await this.assertCanActForTeacher(teacherId, actor);
+
+    if (actor.role === UserRole.GUARDIAN) {
+      const childGroupIds = await this.resolveOwnChildGroupIds(await this.resolveOwnChildIds(actor));
+      if (!childGroupIds.includes(groupId)) {
+        throw new ForbiddenException("You can only view attendance for your own children's group.");
+      }
+    }
+  }
+
+  private async resolveOwnChildIds(actor: RequestUser): Promise<string[]> {
+    const guardian = await this.prisma.guardian.findFirst({
+      where: { userId: actor.id, tenantId: actor.tenantId },
+      select: { students: { select: { studentId: true } } },
+    });
+    return guardian?.students.map((s) => s.studentId) ?? [];
+  }
+
+  private async resolveOwnChildGroupIds(childIds: string[]): Promise<string[]> {
+    if (childIds.length === 0) return [];
+
+    const children = await this.prisma.student.findMany({
+      where: { id: { in: childIds } },
+      select: { groupId: true },
+    });
+    return [...new Set(children.map((c) => c.groupId).filter((groupId): groupId is string => Boolean(groupId)))];
+  }
+
+  private scopeRecordsToChildren<T extends { records: Array<{ studentId: string }> }>(
+    session: T,
+    childIds: string[],
+  ): T {
+    return { ...session, records: session.records.filter((record) => childIds.includes(record.studentId)) };
   }
 
   private resolveTenantScope(actor: RequestUser, tenantId?: string) {
     if (this.isGlobalAdmin(actor)) {
-      return tenantId;
+      return tenantId ?? actor.tenantId;
     }
 
     if (tenantId && tenantId !== actor.tenantId) {

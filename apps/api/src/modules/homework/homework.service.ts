@@ -1,9 +1,14 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import {
+  HomeworkAssignedEvent,
+  NOTIFICATION_EVENTS,
+} from "../notifications/notifications.events";
 import { CreateHomeworkInput, ListHomeworkQuery, UpdateHomeworkInput } from "./homework.schemas";
 
 @Injectable()
@@ -11,10 +16,20 @@ export class HomeworkService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async list(actor: RequestUser, query: ListHomeworkQuery) {
+    let targetYearId = query.academicYearId;
+    if (!targetYearId) {
+      const activeYear = await this.prisma.academicYear.findFirst({
+        where: { tenantId: this.resolveTenantScope(actor, query.tenantId) ?? actor.tenantId, isActive: true },
+      });
+      targetYearId = activeYear?.id;
+    }
+
     const commonFilter = {
+      ...(targetYearId ? { academicYearId: targetYearId } : {}),
       ...(query.groupId ? { groupId: query.groupId } : {}),
       ...(query.subjectId ? { subjectId: query.subjectId } : {}),
     };
@@ -36,6 +51,17 @@ export class HomeworkService {
 
       return this.prisma.homework.findMany({
         where: { ...commonFilter, groupId: ownGroupId },
+        select: this.homeworkSelect(),
+        orderBy: [{ dueDate: "desc" }],
+      });
+    }
+
+    if (actor.role === UserRole.GUARDIAN) {
+      const childGroupIds = await this.resolveOwnChildGroupIds(actor);
+      if (childGroupIds.length === 0) return [];
+
+      return this.prisma.homework.findMany({
+        where: { ...commonFilter, groupId: { in: childGroupIds } },
         select: this.homeworkSelect(),
         orderBy: [{ dueDate: "desc" }],
       });
@@ -77,12 +103,20 @@ export class HomeworkService {
     await this.assertGroupBelongsToTenant(input.groupId, tenantId);
     await this.assertSubjectBelongsToTenant(input.subjectId, tenantId);
 
+    const activeYear = await this.prisma.academicYear.findFirst({
+      where: { tenantId, isActive: true },
+    });
+    if (!activeYear) {
+      throw new ForbiddenException("No hay un año académico activo para este colegio.");
+    }
+
     const homework = await this.prisma.homework.create({
       data: {
         tenantId,
         groupId: input.groupId,
         subjectId: input.subjectId,
         teacherId,
+        academicYearId: activeYear.id,
         title: input.title,
         description: input.description,
         availableFrom: input.availableFrom,
@@ -108,6 +142,13 @@ export class HomeworkService {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
+
+    this.events.emit(NOTIFICATION_EVENTS.HOMEWORK_ASSIGNED, {
+      tenantId: homework.tenantId,
+      homeworkId: homework.id,
+      groupId: homework.group.id,
+      title: homework.title,
+    } satisfies HomeworkAssignedEvent);
 
     return homework;
   }
@@ -224,6 +265,13 @@ export class HomeworkService {
         throw new ForbiddenException("You can only view assignments for your own group.");
       }
     }
+
+    if (actor.role === UserRole.GUARDIAN) {
+      const childGroupIds = await this.resolveOwnChildGroupIds(actor);
+      if (!childGroupIds.includes(groupId)) {
+        throw new ForbiddenException("You can only view assignments for your own children's group.");
+      }
+    }
   }
 
   private async resolveOwnStudentGroupId(actor: RequestUser) {
@@ -234,9 +282,28 @@ export class HomeworkService {
     return student?.groupId ?? undefined;
   }
 
+  private async resolveOwnChildIds(actor: RequestUser): Promise<string[]> {
+    const guardian = await this.prisma.guardian.findFirst({
+      where: { userId: actor.id, tenantId: actor.tenantId },
+      select: { students: { select: { studentId: true } } },
+    });
+    return guardian?.students.map((s) => s.studentId) ?? [];
+  }
+
+  private async resolveOwnChildGroupIds(actor: RequestUser): Promise<string[]> {
+    const childIds = await this.resolveOwnChildIds(actor);
+    if (childIds.length === 0) return [];
+
+    const children = await this.prisma.student.findMany({
+      where: { id: { in: childIds } },
+      select: { groupId: true },
+    });
+    return [...new Set(children.map((c) => c.groupId).filter((groupId): groupId is string => Boolean(groupId)))];
+  }
+
   private resolveTenantScope(actor: RequestUser, tenantId?: string) {
     if (this.isGlobalAdmin(actor)) {
-      return tenantId;
+      return tenantId ?? actor.tenantId;
     }
 
     if (tenantId && tenantId !== actor.tenantId) {

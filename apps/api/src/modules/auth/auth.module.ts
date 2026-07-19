@@ -7,9 +7,9 @@ import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 
 @Module({
-  imports: [AuditCoreModule, JwtModule.register({}), TenantContextModule],
+  imports: [AuditCoreModule, JwtModule.register({ global: true }), TenantContextModule],
   controllers: [AuthController],
   providers: [AuthService, JwtAuthGuard],
-  exports: [AuthService],
+  exports: [AuthService, JwtAuthGuard, JwtModule],
 })
 export class AuthModule {}

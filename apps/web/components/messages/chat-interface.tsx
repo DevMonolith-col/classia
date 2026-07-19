@@ -4,16 +4,15 @@ import { useState, useRef, useEffect } from "react"
 import {
   Search,
   Plus,
-  Phone,
-  Video,
   MoreHorizontal,
   Send,
   Image as ImageIcon,
   Paperclip,
-  Mic,
   ArrowLeft,
   Check,
   CheckCheck,
+  AlertCircle,
+  RotateCw,
   ChevronRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -26,7 +25,7 @@ export interface Message {
   content: string
   timestamp: Date
   sender: "user" | "other"
-  status: "sent" | "delivered" | "read"
+  status: "sending" | "sent" | "delivered" | "read" | "failed"
   type: "text" | "image" | "file"
 }
 
@@ -44,25 +43,79 @@ export interface Conversation {
   role?: string
 }
 
+export interface Contact {
+  id: string
+  name: string
+  initials: string
+  role?: string
+}
+
+export interface BroadcastTarget {
+  groupId: string
+  groupName: string
+  grade?: string
+  section?: string
+  recipientCount: number
+}
+
 interface ChatInterfaceProps {
   conversations: Conversation[]
   currentUserId: string
   userRole: "admin" | "profesor" | "familia"
-  onSendMessage?: (conversationId: string, message: string) => void
+  contacts?: Contact[]
+  activeConversationId?: string | null
+  canBroadcast?: boolean
+  broadcastTargets?: BroadcastTarget[]
+  onSendMessage?: (conversationId: string, message: string) => Promise<boolean> | boolean
+  onOpenConversation?: (conversationId: string) => void
+  onStartConversation?: (contactId: string) => void
+  onBroadcast?: (groupId: string, body: string) => Promise<void> | void
 }
 
 export function ChatInterface({
   conversations: initialConversations,
   currentUserId,
   userRole,
+  contacts = [],
+  activeConversationId,
+  canBroadcast = false,
+  broadcastTargets = [],
   onSendMessage,
+  onOpenConversation,
+  onStartConversation,
+  onBroadcast,
 }: ChatInterfaceProps) {
   const [conversations, setConversations] = useState(initialConversations)
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [messageInput, setMessageInput] = useState("")
   const [showMobileChat, setShowMobileChat] = useState(false)
+  const [showNewConversation, setShowNewConversation] = useState(false)
+  const [contactQuery, setContactQuery] = useState("")
+  const [newMode, setNewMode] = useState<"persona" | "grupo">("persona")
+  const [selectedTarget, setSelectedTarget] = useState<BroadcastTarget | null>(null)
+  const [broadcastBody, setBroadcastBody] = useState("")
+  const [broadcasting, setBroadcasting] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Sincroniza con datos recargados desde el backend, preservando la selección actual.
+  useEffect(() => {
+    setConversations(initialConversations)
+    setSelectedConversation((prev) =>
+      prev ? initialConversations.find((c) => c.id === prev.id) ?? prev : null,
+    )
+  }, [initialConversations])
+
+  // Permite que el contenedor seleccione una conversación (p. ej. al crearla).
+  useEffect(() => {
+    if (!activeConversationId) return
+    const match = conversations.find((c) => c.id === activeConversationId)
+    if (match) {
+      setSelectedConversation(match)
+      setShowMobileChat(true)
+      setShowNewConversation(false)
+    }
+  }, [activeConversationId, conversations])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -79,9 +132,12 @@ export function ChatInterface({
   )
 
   const formatTime = (date: Date) => {
-    const now = new Date()
-    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
-    
+    // Comparar por día de calendario (medianoche a medianoche), no por
+    // bloques de 24h desde "ahora": un mensaje de anoche 23:59 visto de
+    // madrugada quedaba a menos de 24h y se mostraba como si fuera "hoy".
+    const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+    const diffDays = Math.round((startOfDay(new Date()) - startOfDay(date)) / (1000 * 60 * 60 * 24))
+
     if (diffDays === 0) {
       return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
     } else if (diffDays === 1) {
@@ -97,21 +153,48 @@ export function ChatInterface({
     return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
   }
 
+  // Actualiza un mensaje (por id) dentro de una conversación, tanto en la
+  // lista como en la conversación seleccionada, para reflejar su estado real
+  // de envío (sending / failed) en vez de asumir "sent" sin confirmación.
+  const updateMessage = (conversationId: string, messageId: string, patch: Partial<Message>) => {
+    const apply = (messages: Message[]) =>
+      messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m))
+
+    setConversations((prev) =>
+      prev.map((c) => (c.id === conversationId ? { ...c, messages: apply(c.messages) } : c))
+    )
+    setSelectedConversation((prev) =>
+      prev && prev.id === conversationId ? { ...prev, messages: apply(prev.messages) } : prev
+    )
+  }
+
+  const deliverMessage = async (conversationId: string, message: Message) => {
+    updateMessage(conversationId, message.id, { status: "sending" })
+    try {
+      const ok = await onSendMessage?.(conversationId, message.content)
+      updateMessage(conversationId, message.id, { status: ok === false ? "failed" : "sent" })
+    } catch {
+      updateMessage(conversationId, message.id, { status: "failed" })
+    }
+  }
+
   const handleSendMessage = () => {
     if (!messageInput.trim() || !selectedConversation) return
 
+    const conversationId = selectedConversation.id
+    const content = messageInput.trim()
     const newMessage: Message = {
-      id: Date.now().toString(),
-      content: messageInput.trim(),
+      id: `pending-${Date.now()}`,
+      content,
       timestamp: new Date(),
       sender: "user",
-      status: "sent",
+      status: "sending",
       type: "text",
     }
 
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === selectedConversation.id
+        c.id === conversationId
           ? {
               ...c,
               messages: [...c.messages, newMessage],
@@ -127,7 +210,12 @@ export function ChatInterface({
     )
 
     setMessageInput("")
-    onSendMessage?.(selectedConversation.id, messageInput.trim())
+    void deliverMessage(conversationId, newMessage)
+  }
+
+  const retryMessage = (message: Message) => {
+    if (!selectedConversation) return
+    void deliverMessage(selectedConversation.id, message)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -140,12 +228,45 @@ export function ChatInterface({
   const selectConversation = (conversation: Conversation) => {
     setSelectedConversation(conversation)
     setShowMobileChat(true)
-    // Mark as read
+    setShowNewConversation(false)
+    // Marca como leído localmente y notifica al backend.
     setConversations((prev) =>
       prev.map((c) =>
         c.id === conversation.id ? { ...c, unreadCount: 0 } : c
       )
     )
+    if (conversation.unreadCount > 0) {
+      onOpenConversation?.(conversation.id)
+    }
+  }
+
+  const filteredContacts = contacts.filter((c) =>
+    c.name.toLowerCase().includes(contactQuery.toLowerCase())
+  )
+
+  const startConversation = (contactId: string) => {
+    setContactQuery("")
+    setShowNewConversation(false)
+    onStartConversation?.(contactId)
+  }
+
+  const closeNewConversation = () => {
+    setShowNewConversation(false)
+    setNewMode("persona")
+    setSelectedTarget(null)
+    setBroadcastBody("")
+    setContactQuery("")
+  }
+
+  const sendBroadcast = async () => {
+    if (!selectedTarget || !broadcastBody.trim() || broadcasting) return
+    setBroadcasting(true)
+    try {
+      await onBroadcast?.(selectedTarget.groupId, broadcastBody.trim())
+      closeNewConversation()
+    } finally {
+      setBroadcasting(false)
+    }
   }
 
   const MessageStatus = ({ status }: { status: Message["status"] }) => {
@@ -153,12 +274,16 @@ export function ChatInterface({
       return <CheckCheck className="h-4 w-4 text-blue-500" />
     } else if (status === "delivered") {
       return <CheckCheck className="h-4 w-4 text-muted-foreground" />
+    } else if (status === "sending") {
+      return <RotateCw className="h-3.5 w-3.5 animate-spin text-white/70" />
+    } else if (status === "failed") {
+      return <AlertCircle className="h-4 w-4 text-red-300" />
     }
     return <Check className="h-4 w-4 text-muted-foreground" />
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] lg:h-[calc(100vh-2rem)] overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <div className="flex h-full w-full overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       {/* Conversation List - iOS Style */}
       <div
         className={cn(
@@ -168,30 +293,191 @@ export function ChatInterface({
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-xl font-semibold text-foreground">Mensajes</h2>
+          <h2 className="text-xl font-semibold text-foreground">
+            {showNewConversation ? "Nueva conversación" : "Mensajes"}
+          </h2>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
-              <Plus className="h-5 w-5" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 rounded-full"
+              aria-label={showNewConversation ? "Cerrar" : "Nueva conversación"}
+              onClick={() =>
+                showNewConversation ? closeNewConversation() : setShowNewConversation(true)
+              }
+            >
+              <Plus
+                className={cn("h-5 w-5 transition-transform", showNewConversation && "rotate-45")}
+              />
             </Button>
           </div>
         </div>
 
-        {/* Search - iOS Style */}
-        <div className="p-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9 rounded-lg bg-secondary/50 pl-9 text-sm focus-visible:ring-1"
-            />
-          </div>
-        </div>
+        {showNewConversation ? (
+          <>
+            {canBroadcast && (
+              <div className="flex gap-1 px-3 pt-3">
+                <button
+                  onClick={() => {
+                    setNewMode("persona")
+                    setSelectedTarget(null)
+                  }}
+                  className={cn(
+                    "flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                    newMode === "persona"
+                      ? "bg-blue-500 text-white"
+                      : "bg-secondary/50 text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Persona
+                </button>
+                <button
+                  onClick={() => setNewMode("grupo")}
+                  className={cn(
+                    "flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                    newMode === "grupo"
+                      ? "bg-blue-500 text-white"
+                      : "bg-secondary/50 text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Grupo
+                </button>
+              </div>
+            )}
 
-        {/* Conversation List */}
-        <div className="flex-1 overflow-y-auto">
-          {filteredConversations.map((conversation) => (
+            {newMode === "persona" ? (
+              <>
+                {/* Contact Picker (1:1) */}
+                <div className="p-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar contacto"
+                      value={contactQuery}
+                      onChange={(e) => setContactQuery(e.target.value)}
+                      className="h-9 rounded-lg bg-secondary/50 pl-9 text-sm focus-visible:ring-1"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  {filteredContacts.length === 0 ? (
+                    <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No hay contactos disponibles para iniciar una conversación.
+                    </p>
+                  ) : (
+                    filteredContacts.map((contact) => (
+                      <button
+                        key={contact.id}
+                        onClick={() => startConversation(contact.id)}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50"
+                      >
+                        <Avatar className="h-10 w-10">
+                          <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-sm font-medium">
+                            {contact.initials}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold text-foreground">{contact.name}</span>
+                          {contact.role && (
+                            <span className="block text-xs text-muted-foreground">{contact.role}</span>
+                          )}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </>
+            ) : selectedTarget ? (
+              <div className="flex flex-1 flex-col p-3">
+                <button
+                  onClick={() => setSelectedTarget(null)}
+                  className="mb-2 flex items-center gap-1 text-sm text-blue-500"
+                >
+                  <ArrowLeft className="h-4 w-4" /> {selectedTarget.groupName}
+                </button>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Se enviará como mensaje privado a {selectedTarget.recipientCount}{" "}
+                  {selectedTarget.recipientCount === 1 ? "familia" : "familias"}. Cada acudiente
+                  responde solo contigo, no ve a las demás.
+                </p>
+                <textarea
+                  value={broadcastBody}
+                  onChange={(e) => setBroadcastBody(e.target.value)}
+                  placeholder="Escribe el mensaje para las familias…"
+                  className="min-h-[120px] flex-1 resize-none rounded-lg border border-border bg-secondary/30 p-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+                  autoFocus
+                />
+                <Button
+                  className="mt-3 w-full rounded-lg bg-blue-500 hover:bg-blue-600"
+                  disabled={
+                    !broadcastBody.trim() || broadcasting || selectedTarget.recipientCount === 0
+                  }
+                  onClick={sendBroadcast}
+                >
+                  {broadcasting
+                    ? "Enviando…"
+                    : `Enviar a ${selectedTarget.recipientCount} ${
+                        selectedTarget.recipientCount === 1 ? "familia" : "familias"
+                      }`}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto">
+                {broadcastTargets.length === 0 ? (
+                  <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    No tienes grupos disponibles para difundir.
+                  </p>
+                ) : (
+                  broadcastTargets.map((target) => (
+                    <button
+                      key={target.groupId}
+                      onClick={() => setSelectedTarget(target)}
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50"
+                    >
+                      <Avatar className="h-10 w-10">
+                        <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-600 text-sm font-medium text-white">
+                          {(target.grade ?? "").slice(0, 1)}
+                          {(target.section ?? "").slice(0, 1)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <span className="font-semibold text-foreground">{target.groupName}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {target.recipientCount}{" "}
+                          {target.recipientCount === 1 ? "familia" : "familias"}
+                        </span>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Search - iOS Style */}
+            <div className="p-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 rounded-lg bg-secondary/50 pl-9 text-sm focus-visible:ring-1"
+                />
+              </div>
+            </div>
+
+            {/* Conversation List */}
+            <div className="flex-1 overflow-y-auto">
+              {filteredConversations.length === 0 ? (
+                <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  Aún no tienes conversaciones. Toca + para iniciar una.
+                </p>
+              ) : (
+                filteredConversations.map((conversation) => (
             <button
               key={conversation.id}
               onClick={() => selectConversation(conversation)}
@@ -241,8 +527,11 @@ export function ChatInterface({
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
             </button>
-          ))}
-        </div>
+                ))
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Chat Area - iOS Style */}
@@ -281,12 +570,6 @@ export function ChatInterface({
                 </p>
               </div>
               <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-blue-500">
-                  <Video className="h-5 w-5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-blue-500">
-                  <Phone className="h-5 w-5" />
-                </Button>
                 <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
                   <MoreHorizontal className="h-5 w-5" />
                 </Button>
@@ -324,24 +607,36 @@ export function ChatInterface({
                         </Avatar>
                       )}
                       {!isUser && !showAvatar && <div className="w-7" />}
-                      <div
-                        className={cn(
-                          "max-w-[70%] px-4 py-2 shadow-sm",
-                          isUser
-                            ? "rounded-[20px] rounded-br-md bg-blue-500 text-white"
-                            : "rounded-[20px] rounded-bl-md bg-secondary text-foreground",
-                          isLastInGroup && isUser && "rounded-br-[20px]",
-                          isLastInGroup && !isUser && "rounded-bl-[20px]"
-                        )}
-                      >
-                        <p className="text-[15px] leading-relaxed">{message.content}</p>
-                        <div className={cn(
-                          "mt-1 flex items-center justify-end gap-1",
-                          isUser ? "text-white/70" : "text-muted-foreground"
-                        )}>
-                          <span className="text-[11px]">{formatMessageTime(message.timestamp)}</span>
-                          {isUser && <MessageStatus status={message.status} />}
+                      <div className="flex max-w-[70%] flex-col items-end gap-1">
+                        <div
+                          className={cn(
+                            "px-4 py-2 shadow-sm",
+                            isUser
+                              ? message.status === "failed"
+                                ? "rounded-[20px] rounded-br-md bg-red-500/90 text-white"
+                                : "rounded-[20px] rounded-br-md bg-blue-500 text-white"
+                              : "rounded-[20px] rounded-bl-md bg-secondary text-foreground",
+                            isLastInGroup && isUser && "rounded-br-[20px]",
+                            isLastInGroup && !isUser && "rounded-bl-[20px]"
+                          )}
+                        >
+                          <p className="text-[15px] leading-relaxed">{message.content}</p>
+                          <div className={cn(
+                            "mt-1 flex items-center justify-end gap-1",
+                            isUser ? "text-white/70" : "text-muted-foreground"
+                          )}>
+                            <span className="text-[11px]">{formatMessageTime(message.timestamp)}</span>
+                            {isUser && <MessageStatus status={message.status} />}
+                          </div>
                         </div>
+                        {isUser && message.status === "failed" && (
+                          <button
+                            onClick={() => retryMessage(message)}
+                            className="flex items-center gap-1 text-[11px] font-medium text-red-500 hover:underline"
+                          >
+                            <RotateCw className="h-3 w-3" /> No se pudo enviar. Reintentar
+                          </button>
+                        )}
                       </div>
                     </div>
                   )
@@ -362,29 +657,17 @@ export function ChatInterface({
                     value={messageInput}
                     onChange={(e) => setMessageInput(e.target.value)}
                     onKeyDown={handleKeyPress}
-                    className="min-h-[36px] rounded-full bg-secondary/50 pr-10 text-[15px] focus-visible:ring-1"
+                    className="min-h-[36px] rounded-full bg-secondary/50 text-[15px] focus-visible:ring-1"
                   />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full text-muted-foreground"
-                  >
-                    <Mic className="h-5 w-5" />
-                  </Button>
                 </div>
-                {messageInput.trim() ? (
-                  <Button
-                    size="icon"
-                    className="h-9 w-9 shrink-0 rounded-full bg-blue-500 hover:bg-blue-600"
-                    onClick={handleSendMessage}
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                ) : (
-                  <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0 rounded-full text-blue-500">
-                    <Mic className="h-6 w-6" />
-                  </Button>
-                )}
+                <Button
+                  size="icon"
+                  className="h-9 w-9 shrink-0 rounded-full bg-blue-500 hover:bg-blue-600"
+                  disabled={!messageInput.trim()}
+                  onClick={handleSendMessage}
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </>

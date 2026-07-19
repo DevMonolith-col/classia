@@ -1,7 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, Mail, Pencil, Plus, Power, RefreshCw, Search, Users } from "lucide-react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { AlertTriangle, ChevronLeft, ChevronRight, Mail, Pencil, Plus, Power, RefreshCw, Search, Users } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,6 +18,8 @@ import {
 import { TeacherFormDialog } from "@/components/admin/teacher-form-dialog"
 import type { Teacher } from "@/components/admin/academic-types"
 
+const PAGE_SIZE = 10
+
 const STATUS_LABELS: Record<string, string> = {
   ACTIVE: "Activo",
   INACTIVE: "Inactivo",
@@ -28,7 +31,8 @@ function initials(firstName: string, lastName: string) {
   return `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase()
 }
 
-export default function AdminProfesoresPage() {
+function AdminProfesoresPageContent() {
+  const searchParams = useSearchParams()
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -36,6 +40,7 @@ export default function AdminProfesoresPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
 
   const loadTeachers = useCallback(async () => {
     setLoading(true)
@@ -69,6 +74,14 @@ export default function AdminProfesoresPage() {
     )
   }, [query, teachers])
 
+  const pageCount = Math.max(1, Math.ceil(filteredTeachers.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedTeachers = filteredTeachers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [query])
+
   const stats = useMemo(
     () => ({
       total: teachers.length,
@@ -82,6 +95,11 @@ export default function AdminProfesoresPage() {
     setEditingTeacher(null)
     setDialogOpen(true)
   }
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") openCreateDialog()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   function openEditDialog(teacher: Teacher) {
     setEditingTeacher(teacher)
@@ -230,6 +248,7 @@ export default function AdminProfesoresPage() {
               )}
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -241,7 +260,7 @@ export default function AdminProfesoresPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTeachers.map((teacher) => (
+                {paginatedTeachers.map((teacher) => (
                   <TableRow key={teacher.id}>
                     <TableCell className="pl-6">
                       <div className="flex items-center gap-3">
@@ -294,11 +313,51 @@ export default function AdminProfesoresPage() {
                 ))}
               </TableBody>
             </Table>
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between border-t border-border p-4">
+                <p className="text-sm text-muted-foreground">
+                  Página {currentPage} de {pageCount}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    disabled={currentPage >= pageCount}
+                  >
+                    Siguiente
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>
 
       <TeacherFormDialog open={dialogOpen} onOpenChange={setDialogOpen} teacher={editingTeacher} onSaved={handleSaved} />
     </div>
+  )
+}
+
+export default function AdminProfesoresPage() {
+  return (
+    <Suspense fallback={<div className="p-4 sm:p-6 lg:p-8"><div className="h-64 animate-pulse rounded-lg bg-secondary" /></div>}>
+      <AdminProfesoresPageContent />
+    </Suspense>
   )
 }

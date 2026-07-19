@@ -1,9 +1,14 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import {
+  MarkPublishedEvent,
+  NOTIFICATION_EVENTS,
+} from "../notifications/notifications.events";
 import {
   BulkCreateMarksInput,
   CreateMarkInput,
@@ -11,15 +16,155 @@ import {
   UpdateMarkInput,
 } from "./marks.schemas";
 
+type PublishableMark = {
+  id: string;
+  tenantId: string;
+  title: string;
+  value: number;
+  maxValue: number;
+  isPublished: boolean;
+  student: { id: string };
+  subject: { name: string };
+};
+
+/**
+ * Datos para escribir una nota a través del writer único. Los otros módulos que
+ * hoy escriben `Mark` directo (homework-submissions, quiz-attempts) deben pasar
+ * por `upsertMark()` con esta forma. Ver contrato en
+ * docs/planning/asignaciones-calificacion-en-linea.md §2.
+ */
+export type MarkWriteInput = {
+  tenantId: string;
+  studentId: string;
+  subjectId: string;
+  teacherId: string;
+  homeworkId?: string | null;
+  categoryId?: string | null;
+  title: string;
+  value: number;
+  maxValue?: number;
+  comment?: string | null;
+  period?: number;
+  date?: Date;
+  isPublished?: boolean;
+};
+
+export type MarkWriteActor = {
+  userId: string;
+  role: UserRole;
+  ipAddress?: string;
+  userAgent?: string;
+};
+
 @Injectable()
 export class MarksService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
   ) {}
 
+  private emitMarkPublished(mark: PublishableMark) {
+    if (!mark.isPublished) return;
+    this.events.emit(NOTIFICATION_EVENTS.MARK_PUBLISHED, {
+      tenantId: mark.tenantId,
+      markId: mark.id,
+      studentId: mark.student.id,
+      subjectName: mark.subject.name,
+      markTitle: mark.title,
+      value: mark.value,
+      maxValue: mark.maxValue,
+    } satisfies MarkPublishedEvent);
+  }
+
+  /**
+   * Fuente única de verdad para escribir una nota. Idempotente para notas ligadas
+   * a una tarea vía el índice único [studentId, homeworkId]: reescribir la misma
+   * tarea+alumno actualiza en vez de duplicar, cerrando la carrera de los tres
+   * writers históricos. Las notas manuales (sin homeworkId) siempre se crean.
+   * Registra auditoría y emite MARK_PUBLISHED de forma consistente para cualquier
+   * llamante — por eso los otros módulos deben enrutar aquí.
+   */
+  async upsertMark(input: MarkWriteInput, actor: MarkWriteActor) {
+    const activeYear = await this.resolveActiveYear(input.tenantId);
+
+    const data = {
+      tenantId: input.tenantId,
+      studentId: input.studentId,
+      subjectId: input.subjectId,
+      teacherId: input.teacherId,
+      homeworkId: input.homeworkId ?? null,
+      categoryId: input.categoryId ?? null,
+      academicYearId: activeYear.id,
+      title: input.title,
+      value: input.value,
+      maxValue: input.maxValue,
+      comment: input.comment,
+      period: input.period,
+      date: input.date,
+      isPublished: input.isPublished,
+    };
+
+    const previous = input.homeworkId
+      ? await this.prisma.mark.findUnique({
+          where: { studentId_homeworkId: { studentId: input.studentId, homeworkId: input.homeworkId } },
+          select: this.markSelect(),
+        })
+      : null;
+
+    const mark = input.homeworkId
+      ? await this.prisma.mark.upsert({
+          where: { studentId_homeworkId: { studentId: input.studentId, homeworkId: input.homeworkId } },
+          create: data,
+          update: {
+            teacherId: input.teacherId,
+            academicYearId: activeYear.id,
+            // undefined = no cambiar; solo se reasigna si el llamante manda un valor.
+            categoryId: input.categoryId,
+            title: input.title,
+            value: input.value,
+            maxValue: input.maxValue,
+            comment: input.comment,
+            period: input.period,
+            date: input.date,
+            isPublished: input.isPublished,
+          },
+          select: this.markSelect(),
+        })
+      : await this.prisma.mark.create({ data, select: this.markSelect() });
+
+    await this.audit.record({
+      tenantId: input.tenantId,
+      userId: actor.userId,
+      actorRole: actor.role,
+      action: previous ? "mark.updated" : "mark.created",
+      entityType: "Mark",
+      entityId: mark.id,
+      oldValues: previous ? this.toAuditJson(previous) : undefined,
+      newValues: this.toAuditJson(mark),
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
+
+    // Notifica solo cuando la nota queda publicada y antes no lo estaba.
+    if (mark.isPublished && !previous?.isPublished) {
+      this.emitMarkPublished(mark);
+    }
+
+    return mark;
+  }
+
   async list(actor: RequestUser, query: ListMarksQuery) {
+    let targetYearId = query.academicYearId;
+    if (!targetYearId) {
+      const activeYear = await this.prisma.academicYear.findFirst({
+        where: { tenantId: this.resolveTenantScope(actor, query.tenantId) ?? actor.tenantId, isActive: true },
+      });
+      targetYearId = activeYear?.id;
+    }
+
     const commonFilter = {
+      ...(targetYearId ? { academicYearId: targetYearId } : {}),
       ...(query.studentId ? { studentId: query.studentId } : {}),
       ...(query.subjectId ? { subjectId: query.subjectId } : {}),
       ...(query.homeworkId ? { homeworkId: query.homeworkId } : {}),
@@ -44,6 +189,17 @@ export class MarksService {
 
       return this.prisma.mark.findMany({
         where: { ...commonFilter, studentId: ownStudentId },
+        select: this.markSelect(),
+        orderBy: [{ date: "desc" }],
+      });
+    }
+
+    if (actor.role === UserRole.GUARDIAN) {
+      const childIds = await this.resolveOwnChildIds(actor);
+      if (childIds.length === 0) return [];
+
+      return this.prisma.mark.findMany({
+        where: { ...commonFilter, studentId: { in: childIds } },
         select: this.markSelect(),
         orderBy: [{ date: "desc" }],
       });
@@ -88,13 +244,14 @@ export class MarksService {
       await this.assertHomeworkMatches(input.homeworkId, tenantId, input.subjectId);
     }
 
-    const mark = await this.prisma.mark.create({
-      data: {
+    return this.upsertMark(
+      {
         tenantId,
         studentId: input.studentId,
         subjectId: input.subjectId,
         teacherId,
         homeworkId: input.homeworkId,
+        categoryId: input.categoryId,
         title: input.title,
         value: input.value,
         maxValue: input.maxValue,
@@ -103,22 +260,8 @@ export class MarksService {
         date: input.date,
         isPublished: input.isPublished,
       },
-      select: this.markSelect(),
-    });
-
-    await this.audit.record({
-      tenantId,
-      userId: actor.id,
-      actorRole: actor.role,
-      action: "mark.created",
-      entityType: "Mark",
-      entityId: mark.id,
-      newValues: this.toAuditJson(mark),
-      ipAddress: request.ip,
-      userAgent: request.headers["user-agent"],
-    });
-
-    return mark;
+      { userId: actor.id, role: actor.role, ipAddress: request.ip, userAgent: request.headers["user-agent"] },
+    );
   }
 
   async update(markId: string, input: UpdateMarkInput, actor: RequestUser, request: Request) {
@@ -142,6 +285,7 @@ export class MarksService {
         value: input.value,
         maxValue: input.maxValue,
         comment: input.comment === null ? null : input.comment,
+        categoryId: input.categoryId,
         period: input.period,
         date: input.date,
         isPublished: input.isPublished,
@@ -161,6 +305,11 @@ export class MarksService {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
+
+    // Notificar solo cuando la nota pasa de no publicada a publicada.
+    if (!previous.isPublished && mark.isPublished) {
+      this.emitMarkPublished(mark);
+    }
 
     return mark;
   }
@@ -202,25 +351,47 @@ export class MarksService {
       throw new ForbiddenException("One or more students are outside of this group.");
     }
 
+    const activeYear = await this.resolveActiveYear(tenantId);
+
     const created = await this.prisma.$transaction(
-      input.records.map((record) =>
-        this.prisma.mark.create({
-          data: {
-            tenantId,
-            studentId: record.studentId,
-            subjectId: input.subjectId,
-            teacherId,
-            homeworkId: input.homeworkId,
-            title: input.title,
-            value: record.value,
-            maxValue: input.maxValue,
-            period: input.period,
-            date: input.date,
-            isPublished: input.isPublished,
-          },
-          select: this.markSelect(),
-        }),
-      ),
+      input.records.map((record) => {
+        const data = {
+          tenantId,
+          studentId: record.studentId,
+          subjectId: input.subjectId,
+          teacherId,
+          academicYearId: activeYear.id,
+          homeworkId: input.homeworkId,
+          categoryId: input.categoryId,
+          title: input.title,
+          value: record.value,
+          maxValue: input.maxValue,
+          period: input.period,
+          date: input.date,
+          isPublished: input.isPublished,
+        };
+        // Idempotente por (alumno, tarea) cuando la carga es de una tarea; así
+        // recalificar un grupo entero no genera notas duplicadas.
+        if (input.homeworkId) {
+          return this.prisma.mark.upsert({
+            where: { studentId_homeworkId: { studentId: record.studentId, homeworkId: input.homeworkId } },
+            create: data,
+            update: {
+              teacherId,
+              academicYearId: activeYear.id,
+              categoryId: input.categoryId,
+              title: input.title,
+              value: record.value,
+              maxValue: input.maxValue,
+              period: input.period,
+              date: input.date,
+              isPublished: input.isPublished,
+            },
+            select: this.markSelect(),
+          });
+        }
+        return this.prisma.mark.create({ data, select: this.markSelect() });
+      }),
     );
 
     await this.audit.record({
@@ -234,6 +405,10 @@ export class MarksService {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
+
+    for (const mark of created) {
+      this.emitMarkPublished(mark);
+    }
 
     return created;
   }
@@ -260,6 +435,19 @@ export class MarksService {
     }
 
     return inputTeacherId;
+  }
+
+  // Toda escritura de Mark queda anclada al año académico activo del tenant; sin
+  // año activo no se puede calificar (los históricos viven en años archivados).
+  private async resolveActiveYear(tenantId: string) {
+    const activeYear = await this.prisma.academicYear.findFirst({
+      where: { tenantId, isActive: true },
+      select: { id: true },
+    });
+    if (!activeYear) {
+      throw new ForbiddenException("No hay un año académico activo para este colegio.");
+    }
+    return activeYear;
   }
 
   private async resolveOwnTeacherId(actor: RequestUser) {
@@ -323,6 +511,13 @@ export class MarksService {
         throw new ForbiddenException("You can only view your own marks.");
       }
     }
+
+    if (actor.role === UserRole.GUARDIAN) {
+      const childIds = await this.resolveOwnChildIds(actor);
+      if (!childIds.includes(studentId)) {
+        throw new ForbiddenException("You can only view your own children's marks.");
+      }
+    }
   }
 
   private async resolveOwnStudentId(actor: RequestUser) {
@@ -333,9 +528,17 @@ export class MarksService {
     return student?.id;
   }
 
+  private async resolveOwnChildIds(actor: RequestUser): Promise<string[]> {
+    const guardian = await this.prisma.guardian.findFirst({
+      where: { userId: actor.id, tenantId: actor.tenantId },
+      select: { students: { select: { studentId: true } } },
+    });
+    return guardian?.students.map((s) => s.studentId) ?? [];
+  }
+
   private resolveTenantScope(actor: RequestUser, tenantId?: string) {
     if (this.isGlobalAdmin(actor)) {
-      return tenantId;
+      return tenantId ?? actor.tenantId;
     }
 
     if (tenantId && tenantId !== actor.tenantId) {
@@ -354,6 +557,7 @@ export class MarksService {
       id: true,
       tenantId: true,
       homeworkId: true,
+      categoryId: true,
       title: true,
       value: true,
       maxValue: true,
