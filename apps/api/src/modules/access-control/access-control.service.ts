@@ -6,7 +6,14 @@ import { AuditService } from "../../core/audit/audit.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
 import { NotificationsService } from "../notifications/notifications.service"
 import { RequestUser } from "../../common/types/request-context"
-import { BreakGlassInput, DenyAccessInput, RequestAccessInput, RevokeAccessInput } from "./access-control.schemas"
+import {
+  ApproveAccessInput,
+  BreakGlassInput,
+  DenyAccessInput,
+  MAX_ACCESS_DURATION_MINUTES,
+  RequestAccessInput,
+  RevokeAccessInput,
+} from "./access-control.schemas"
 
 // Mismo criterio que support.controller.ts: quién es "staff" de soporte y quién,
 // dentro de ese staff, es supervisor. Un agente puede solicitar acceso; solo un
@@ -65,14 +72,22 @@ export class AccessControlService {
     return session
   }
 
-  async approve(id: string, user: RequestUser, request: Request) {
+  async approve(id: string, input: ApproveAccessInput, user: RequestUser, request: Request) {
     if (!isSupportSupervisor(user.role)) {
       throw new ForbiddenException("Solo un supervisor puede aprobar accesos.")
     }
 
     const session = await this.getSolicitado(id)
+    // El aprobador puede ajustar la duración; si no la manda, se respeta la
+    // solicitada. Ninguna de las dos puede exceder el techo del sistema — el
+    // schema ya lo valida en la entrada, pero se clampa también aquí por si
+    // requestedDurationMinutes viniera de una fila más vieja que el schema actual.
+    const grantedDurationMinutes = Math.min(
+      input.durationMinutes ?? session.requestedDurationMinutes,
+      MAX_ACCESS_DURATION_MINUTES,
+    )
     const grantedAt = new Date()
-    const expiresAt = new Date(grantedAt.getTime() + session.requestedDurationMinutes * 60_000)
+    const expiresAt = new Date(grantedAt.getTime() + grantedDurationMinutes * 60_000)
 
     const updated = await this.prisma.accessSession.update({
       where: { id },
@@ -86,7 +101,12 @@ export class AccessControlService {
       action: "support.access.approved",
       entityType: "AccessSession",
       entityId: session.id,
-      newValues: { scope: session.scope, expiresAt: expiresAt.toISOString() },
+      newValues: {
+        scope: session.scope,
+        expiresAt: expiresAt.toISOString(),
+        requestedDurationMinutes: session.requestedDurationMinutes,
+        grantedDurationMinutes,
+      },
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     })
