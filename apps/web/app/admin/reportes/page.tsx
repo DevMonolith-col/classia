@@ -596,7 +596,7 @@ export default function AdminReportesPage() {
               <div className="rounded-lg border border-dashed border-border p-6 text-center">
                 <Calendar className="mx-auto h-8 w-8 text-muted-foreground" />
                 <p className="mt-2 text-sm font-medium text-foreground">Configura reportes automáticos</p>
-                <p className="mt-1 text-xs text-muted-foreground">Elegí un tipo de reporte arriba y hacé clic en "Programar".</p>
+                <p className="mt-1 text-xs text-muted-foreground">Elegí un tipo de reporte arriba y hacé clic en &quot;Programar&quot;.</p>
               </div>
             ) : (
               <div className="space-y-3">

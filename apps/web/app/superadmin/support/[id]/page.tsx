@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { ArrowLeft, Send, Lock, Clock, CheckCircle2, XCircle, AlertTriangle, User, Paperclip, FileIcon, LogIn, ChevronDown, Info, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -57,7 +57,7 @@ export default function SuperAdminTicketDetail() {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [showDetails, setShowDetails] = useState(false)
 
-  const fetchTicketAndAgents = async () => {
+  const fetchTicketAndAgents = useCallback(async () => {
     try {
       const [ticketRes, agentsRes] = await Promise.all([
         apiFetch(`/support/tickets/${id}`),
@@ -73,7 +73,7 @@ export default function SuperAdminTicketDetail() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [id])
 
   useEffect(() => {
     fetchTicketAndAgents()
@@ -118,7 +118,7 @@ export default function SuperAdminTicketDetail() {
       newSocket.emit("ticket:leave", { ticketId: id })
       newSocket.disconnect()
     }
-  }, [id])
+  }, [id, fetchTicketAndAgents])
 
   const handleAssign = async (assigneeId: string) => {
     setAssigning(true)

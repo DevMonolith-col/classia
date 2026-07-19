@@ -72,7 +72,7 @@ function AsignacionesProfesorPageContent() {
     } finally {
       setLoadingSetup(false)
     }
-  }, [])
+  }, [scheduleIdParam])
 
   useEffect(() => {
     loadSetup()

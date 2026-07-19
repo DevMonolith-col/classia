@@ -94,7 +94,7 @@ function AsistenciaProfesorPageContent() {
     } finally {
       setLoadingSetup(false)
     }
-  }, [])
+  }, [scheduleIdParam])
 
   useEffect(() => {
     loadSetup()

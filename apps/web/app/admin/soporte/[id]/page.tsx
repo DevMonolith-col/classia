@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { ArrowLeft, Send, Clock, CheckCircle2, XCircle, AlertTriangle, User, LifeBuoy, Paperclip, FileIcon } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -43,7 +43,7 @@ export default function AdminTicketDetail() {
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
   const [socket, setSocket] = useState<Socket | null>(null)
 
-  const fetchTicket = async () => {
+  const fetchTicket = useCallback(async () => {
     try {
       const res = await apiFetch(`/support/tickets/${id}`)
       if (!res.ok) throw new Error("No se pudo cargar el ticket")
@@ -53,7 +53,7 @@ export default function AdminTicketDetail() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [id])
 
   useEffect(() => {
     fetchTicket()
@@ -97,7 +97,7 @@ export default function AdminTicketDetail() {
       newSocket.emit("ticket:leave", { ticketId: id })
       newSocket.disconnect()
     }
-  }, [id])
+  }, [id, fetchTicket])
 
   const handleReply = async () => {
     if (!reply.trim() && !attachment) return
