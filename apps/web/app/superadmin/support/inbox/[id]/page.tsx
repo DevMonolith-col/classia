@@ -209,8 +209,8 @@ export default function SuperAdminTicketDetail() {
       ticketId={id}
       currentUserId={currentUser}
       statusBadge={statusConfig[ticket.status]}
-      backHref="/superadmin/support"
-      heightMode="screen"
+      backHref="/superadmin/support/inbox"
+      hideBackOnDesktop
       isMine={(comment) => comment.author?.memberships?.some((m: any) => SUPPORT_TEAM_ROLES.includes(m.role))}
       renderAuthorLabel={(comment, mine) => (
         <span className={mine ? "text-blue-100" : "text-primary"}>

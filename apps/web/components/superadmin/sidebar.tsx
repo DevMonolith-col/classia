@@ -18,6 +18,8 @@ import {
   ShieldCheck,
   Users,
   X,
+  ChevronDown,
+  MessageSquare,
 } from "lucide-react"
 import { getStoredUser, logout } from "@/lib/auth"
 
@@ -27,14 +29,32 @@ const SUPERADMIN_ROLE_LABELS: Record<string, string> = {
   SUPPORT_AGENT: "Agente de Soporte",
 }
 
-const navigation = [
-  { name: "Panel SaaS", href: "/superadmin", icon: Gauge, available: true },
-  { name: "Colegios", href: "/superadmin/tenants", icon: Building2, available: true },
-  { name: "Usuarios globales", href: "/superadmin/users", icon: Users, available: true },
-  { name: "Auditoria", href: "/superadmin/audit", icon: ClipboardList, available: true },
-  { name: "Soporte", href: "/superadmin/support", icon: LifeBuoy, available: true },
-  { name: "Seguridad", href: "/superadmin/security", icon: ShieldCheck, available: false },
-  { name: "Configuracion", href: "/superadmin/settings", icon: Settings, available: true },
+type NavItem = {
+  name: string
+  href?: string
+  icon: any
+  available?: boolean
+  children?: { name: string; href: string; icon: any; roles?: string[] }[]
+  roles?: string[]
+}
+
+const navigation: NavItem[] = [
+  { name: "Panel SaaS", href: "/superadmin", icon: Gauge, available: true, roles: ["SUPER_ADMIN"] },
+  { name: "Colegios", href: "/superadmin/tenants", icon: Building2, available: true, roles: ["SUPER_ADMIN"] },
+  { name: "Usuarios globales", href: "/superadmin/users", icon: Users, available: true, roles: ["SUPER_ADMIN"] },
+  { name: "Auditoria", href: "/superadmin/audit", icon: ClipboardList, available: true, roles: ["SUPER_ADMIN"] },
+  { 
+    name: "Soporte", 
+    icon: LifeBuoy, 
+    available: true,
+    children: [
+      { name: "Centro de Mando", href: "/superadmin/support/dashboard", icon: Building2, roles: ["SUPER_ADMIN", "SUPPORT_SUPERVISOR"] },
+      { name: "Cola de Triage", href: "/superadmin/support/triage", icon: LifeBuoy, roles: ["SUPER_ADMIN", "SUPPORT_SUPERVISOR"] },
+      { name: "Inbox de Agente", href: "/superadmin/support/inbox", icon: MessageSquare, roles: ["SUPER_ADMIN", "SUPPORT_SUPERVISOR", "SUPPORT_AGENT"] }
+    ]
+  },
+  { name: "Seguridad", href: "/superadmin/security", icon: ShieldCheck, available: false, roles: ["SUPER_ADMIN"] },
+  { name: "Configuracion", href: "/superadmin/settings", icon: Settings, available: true, roles: ["SUPER_ADMIN"] },
 ]
 
 interface Props {
@@ -46,11 +66,25 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ "Soporte": true })
   const [user, setUser] = useState<{ firstName: string; lastName: string; email: string; role: string } | null>(null)
 
   useEffect(() => {
     setUser(getStoredUser())
   }, [])
+
+  useEffect(() => {
+    navigation.forEach(item => {
+      if (item.children && item.children.some(child => pathname === child.href || pathname.startsWith(`${child.href}/`))) {
+        setExpanded(prev => ({ ...prev, [item.name]: true }))
+      }
+    })
+  }, [pathname])
+
+  const toggleCategory = (name: string) => {
+    if (isCollapsed) onToggle()
+    else setExpanded(prev => ({ ...prev, [name]: !prev[name] }))
+  }
 
   const displayName = user?.firstName ? `${user.firstName} ${user.lastName}` : (user?.email ?? "Super Admin")
   const initials = user?.firstName ? `${user.firstName[0]}${user.lastName?.[0] ?? ""}`.toUpperCase() : "SA"
@@ -121,7 +155,66 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
           {navigation.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
+            if (item.roles && user && !item.roles.includes(user.role)) return null
+
+            if (item.children) {
+              const isExpanded = expanded[item.name]
+              const hasActiveChild = item.children.some(child => pathname === child.href || pathname.startsWith(`${child.href}/`))
+              
+              const visibleChildren = item.children.filter(child => !child.roles || (user && child.roles.includes(user.role)))
+              
+              if (visibleChildren.length === 0 && user) return null
+
+              return (
+                <div key={item.name} className="space-y-0.5">
+                  <button
+                    onClick={() => toggleCategory(item.name)}
+                    title={isCollapsed ? item.name : undefined}
+                    className={[
+                      "flex w-full items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
+                      isCollapsed ? "justify-center px-2" : "gap-3 px-3",
+                      hasActiveChild && !isExpanded
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    ].join(" ")}
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" />
+                    {!isCollapsed && (
+                      <>
+                        <span className="truncate flex-1 text-left">{item.name}</span>
+                        <ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                      </>
+                    )}
+                  </button>
+                  
+                  {!isCollapsed && isExpanded && (
+                    <div className="mt-1 space-y-0.5 pl-9 pr-1">
+                      {visibleChildren.map(child => {
+                        const childActive = pathname === child.href || pathname.startsWith(`${child.href}/`)
+                        return (
+                          <Link
+                            key={child.name}
+                            href={child.href}
+                            onClick={() => setMobileOpen(false)}
+                            className={[
+                              "flex items-center gap-2 truncate rounded-md px-3 py-2 text-xs font-medium transition-colors",
+                              childActive
+                                ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                                : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                            ].join(" ")}
+                          >
+                            <child.icon className="h-4 w-4 shrink-0" />
+                            {child.name}
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            }
+
+            const active = pathname === item.href || pathname.startsWith(`${item.href!}/`)
             const content = (
               <>
                 <item.icon className="h-5 w-5 shrink-0" />
@@ -150,7 +243,7 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
             return (
               <Link
                 key={item.name}
-                href={item.href}
+                href={item.href!}
                 onClick={() => setMobileOpen(false)}
                 title={isCollapsed ? item.name : undefined}
                 className={[
