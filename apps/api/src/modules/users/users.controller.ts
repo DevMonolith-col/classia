@@ -26,6 +26,8 @@ import {
   createUserSchema,
   updateMembershipSchema,
   updateUserSchema,
+  listUsersSchema,
+  ListUsersInput,
 } from "./users.schemas";
 import { UsersService } from "./users.service";
 
@@ -48,8 +50,11 @@ export class UsersController {
 
   @Get()
   @Permissions(PERMISSIONS.USERS_LIST)
-  list(@CurrentUser() user: RequestUser, @Query("tenantId") tenantId?: string) {
-    return this.users.listVisibleUsers(user, tenantId);
+  list(
+    @Query(new ZodValidationPipe(listUsersSchema)) query: ListUsersInput,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.users.listVisibleUsers(user, query);
   }
 
   @Post()

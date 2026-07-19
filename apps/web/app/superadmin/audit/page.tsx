@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, Eye, RefreshCw, Search } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, Eye, RefreshCw, Search, X } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -117,8 +117,10 @@ export default function SuperAdminAuditPage() {
       apiFetch("/tenants", { silent: true }),
       apiFetch("/users", { silent: true }),
     ])
-    setTenants(tenantsRes.ok ? (((await tenantsRes.json()) as Tenant[]) ?? []) : [])
-    setUsers(usersRes.ok ? (((await usersRes.json()) as User[]) ?? []) : [])
+    const tenantsData = tenantsRes.ok ? await tenantsRes.json() : []
+    setTenants(Array.isArray(tenantsData) ? tenantsData : tenantsData.items ?? [])
+    const usersData = usersRes.ok ? await usersRes.json() : []
+    setUsers(Array.isArray(usersData) ? usersData : usersData.items ?? [])
   }, [])
 
   useEffect(() => {
@@ -155,6 +157,15 @@ export default function SuperAdminAuditPage() {
     setDialogOpen(true)
   }
 
+  const hasActiveFilters = tenantFilter !== "all" || fromDate !== "" || toDate !== "" || query !== ""
+
+  function clearFilters() {
+    setTenantFilter("all")
+    setFromDate("")
+    setToDate("")
+    setQuery("")
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
@@ -184,54 +195,68 @@ export default function SuperAdminAuditPage() {
           </div>
         )}
 
-        <Card className="mb-6">
-          <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-end">
-            <div className="w-full space-y-2 lg:w-56">
-              <Label>Colegio</Label>
-              <Select value={tenantFilter} onValueChange={setTenantFilter}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los colegios</SelectItem>
-                  {tenants.map((tenant) => (
-                    <SelectItem key={tenant.id} value={tenant.id}>
-                      {tenant.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="w-full space-y-2 sm:w-40">
-              <Label htmlFor="audit-from">Desde</Label>
-              <Input id="audit-from" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
-            </div>
-            <div className="w-full space-y-2 sm:w-40">
-              <Label htmlFor="audit-to">Hasta</Label>
-              <Input id="audit-to" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
-            </div>
-            <div className="relative flex-1 space-y-2">
-              <Label htmlFor="audit-search">Buscar</Label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="audit-search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Acción, entidad, usuario o colegio (en esta página)"
-                  className="pl-9"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         <Card>
-          <CardHeader className="border-b border-border">
-            <CardTitle>Registro de auditoría</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {loading ? "Cargando..." : `Página ${pageIndex + 1} · ${filteredLogs.length} evento${filteredLogs.length === 1 ? "" : "s"}`}
-            </p>
+          <CardHeader className="gap-4 border-b border-border py-4">
+            <div className="flex flex-col gap-4">
+              <div>
+                <CardTitle>Registro de auditoría</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {loading ? "Cargando..." : `Página ${pageIndex + 1} · ${filteredLogs.length} evento${filteredLogs.length === 1 ? "" : "s"}`}
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 lg:items-end">
+                <div className="space-y-2">
+                  <Label>Colegio</Label>
+                  <Select value={tenantFilter} onValueChange={setTenantFilter}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los colegios</SelectItem>
+                      {tenants.map((tenant) => (
+                        <SelectItem key={tenant.id} value={tenant.id}>
+                          {tenant.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="audit-from">Desde</Label>
+                  <Input id="audit-from" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="audit-to">Hasta</Label>
+                  <Input id="audit-to" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="audit-search">Buscar</Label>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="audit-search"
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Acción, entidad, usuario o colegio..."
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {hasActiveFilters && (
+                <div>
+                  <Button variant="ghost" size="sm" className="gap-1.5" onClick={clearFilters}>
+                    <X className="h-3.5 w-3.5" />
+                    Eliminar filtros
+                  </Button>
+                </div>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             {loading ? (

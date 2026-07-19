@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, CalendarClock, Pencil, Plus, RefreshCw, User } from "lucide-react"
+import { AlertTriangle, CalendarClock, ChevronLeft, ChevronRight, Pencil, Plus, RefreshCw, User } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -31,6 +31,8 @@ import {
   type Teacher,
 } from "@/components/admin/academic-types"
 
+const PAGE_SIZE = 10
+
 export default function AdminHorariosPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [groups, setGroups] = useState<Group[]>([])
@@ -43,6 +45,7 @@ export default function AdminHorariosPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogTeacher, setDialogTeacher] = useState<Teacher | null>(null)
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null)
+  const [page, setPage] = useState(1)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -85,6 +88,14 @@ export default function AdminHorariosPage() {
     if (dayFilter !== "all") list = list.filter((s) => String(s.dayOfWeek) === dayFilter)
     return [...list].sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime))
   }, [schedules, selectedTeacherId, dayFilter])
+
+  const pageCount = Math.max(1, Math.ceil(filteredSchedules.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedSchedules = filteredSchedules.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [selectedTeacherId, dayFilter])
 
   function openCreateDialog() {
     if (!selectedTeacher) return
@@ -138,59 +149,61 @@ export default function AdminHorariosPage() {
         </div>
       )}
 
-      <Card className="mb-6">
-        <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
-          <div className="w-full space-y-2 sm:w-72">
-            <label className="text-sm font-medium text-foreground">Profesor</label>
-            <TeacherCombobox
-              teachers={teachers}
-              value={selectedTeacherId}
-              onChange={setSelectedTeacherId}
-              allowAll
-            />
-          </div>
-          <div className="w-full space-y-2 sm:w-48">
-            <label className="text-sm font-medium text-foreground">Día</label>
-            <Select value={dayFilter} onValueChange={setDayFilter}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Todos los días" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los días</SelectItem>
-                {Object.entries(DAY_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            className="gap-2"
-            onClick={openCreateDialog}
-            disabled={!selectedTeacher || !hasCatalog}
-            title={!selectedTeacher ? "Selecciona un profesor para crear un horario" : undefined}
-          >
-            <Plus className="h-4 w-4" />
-            Nuevo horario
-          </Button>
-        </CardContent>
-      </Card>
-
       <Card>
-        <CardHeader className="gap-1 border-b border-border">
-          <CardTitle>
-            {selectedTeacher
-              ? `Horario de ${selectedTeacher.user.firstName} ${selectedTeacher.user.lastName}`
-              : "Todos los horarios"}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {loading
-              ? "Cargando..."
-              : selectedTeacher
-                ? `${filteredSchedules.length} bloque${filteredSchedules.length === 1 ? "" : "s"} asignado${filteredSchedules.length === 1 ? "" : "s"}`
-                : `${filteredSchedules.length} bloque${filteredSchedules.length === 1 ? "" : "s"} en total · busca un profesor arriba para crear o editar`}
-          </p>
+        <CardHeader className="gap-4 border-b border-border py-4">
+          <div className="flex flex-col gap-4">
+            <div>
+              <CardTitle>
+                {selectedTeacher
+                  ? `Horario de ${selectedTeacher.user.firstName} ${selectedTeacher.user.lastName}`
+                  : "Todos los horarios"}
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {loading
+                  ? "Cargando..."
+                  : selectedTeacher
+                    ? `${filteredSchedules.length} bloque${filteredSchedules.length === 1 ? "" : "s"} asignado${filteredSchedules.length === 1 ? "" : "s"}`
+                    : `${filteredSchedules.length} bloque${filteredSchedules.length === 1 ? "" : "s"} en total · busca un profesor arriba para crear o editar`}
+              </p>
+            </div>
+            
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="w-full space-y-2 sm:w-72">
+                <label className="text-sm font-medium text-foreground">Profesor</label>
+                <TeacherCombobox
+                  teachers={teachers}
+                  value={selectedTeacherId}
+                  onChange={setSelectedTeacherId}
+                  allowAll
+                />
+              </div>
+              <div className="w-full space-y-2 sm:w-48">
+                <label className="text-sm font-medium text-foreground">Día</label>
+                <Select value={dayFilter} onValueChange={setDayFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Todos los días" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los días</SelectItem>
+                    {Object.entries(DAY_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                className="gap-2 sm:ml-auto"
+                onClick={openCreateDialog}
+                disabled={!selectedTeacher || !hasCatalog}
+                title={!selectedTeacher ? "Selecciona un profesor para crear un horario" : undefined}
+              >
+                <Plus className="h-4 w-4" />
+                Nuevo horario
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
@@ -210,6 +223,7 @@ export default function AdminHorariosPage() {
               </p>
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -222,7 +236,7 @@ export default function AdminHorariosPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSchedules.map((schedule) => (
+                {paginatedSchedules.map((schedule) => (
                   <TableRow key={schedule.id}>
                     <TableCell className="pl-6">
                       <div className="flex items-center gap-2">
@@ -253,6 +267,38 @@ export default function AdminHorariosPage() {
                 ))}
               </TableBody>
             </Table>
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between border-t border-border p-4">
+                <p className="text-sm text-muted-foreground">
+                  Página {currentPage} de {pageCount}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    disabled={currentPage >= pageCount}
+                  >
+                    Siguiente
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>

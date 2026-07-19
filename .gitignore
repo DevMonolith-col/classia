@@ -15,6 +15,7 @@ build
 .expo
 .turbo
 coverage
+*.tsbuildinfo
 
 # logs
 *.log

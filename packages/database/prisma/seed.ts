@@ -98,6 +98,50 @@ async function main() {
     },
   });
 
+  // ── Equipo de soporte B2B ────────────────────────────────────────────────
+  // Supervisor: asigna tickets y otorga acceso a un colegio, sin el resto
+  // del poder de plataforma que tiene SUPER_ADMIN. Agentes: trabajan los
+  // tickets que el supervisor les asigna.
+  const supportSupervisor = await prisma.user.upsert({
+    where: { email: "supervisor.soporte@classia.com.co" },
+    update: { firstName: "Camila", lastName: "Rodríguez", status: UserStatus.ACTIVE, passwordHash },
+    create: {
+      email: "supervisor.soporte@classia.com.co",
+      passwordHash,
+      firstName: "Camila",
+      lastName: "Rodríguez",
+      status: UserStatus.ACTIVE,
+    },
+  });
+  await prisma.tenantMembership.upsert({
+    where: { tenantId_userId: { tenantId: tenant.id, userId: supportSupervisor.id } },
+    update: { role: UserRole.SUPPORT_SUPERVISOR },
+    create: { tenantId: tenant.id, userId: supportSupervisor.id, role: UserRole.SUPPORT_SUPERVISOR },
+  });
+
+  const supportAgents = [
+    { email: "agente1.soporte@classia.com.co", firstName: "Daniel", lastName: "Torres" },
+    { email: "agente2.soporte@classia.com.co", firstName: "Valentina", lastName: "Ramírez" },
+  ];
+  for (const agent of supportAgents) {
+    const agentUser = await prisma.user.upsert({
+      where: { email: agent.email },
+      update: { firstName: agent.firstName, lastName: agent.lastName, status: UserStatus.ACTIVE, passwordHash },
+      create: {
+        email: agent.email,
+        passwordHash,
+        firstName: agent.firstName,
+        lastName: agent.lastName,
+        status: UserStatus.ACTIVE,
+      },
+    });
+    await prisma.tenantMembership.upsert({
+      where: { tenantId_userId: { tenantId: tenant.id, userId: agentUser.id } },
+      update: { role: UserRole.SUPPORT_AGENT },
+      create: { tenantId: tenant.id, userId: agentUser.id, role: UserRole.SUPPORT_AGENT },
+    });
+  }
+
   // Usuario profesor demo
   const teacherUser = await prisma.user.upsert({
     where: { email: "lopez@demo.classia.co" },
@@ -361,6 +405,186 @@ async function main() {
     },
   });
 
+  // ── Configuración académica por defecto (Colombia) ──────────────────────────
+  const academicYear = await prisma.academicYear.upsert({
+    where: { tenantId_name: { tenantId: tenant.id, name: "2026" } },
+    update: { isActive: true },
+    create: {
+      tenantId: tenant.id,
+      name: "2026",
+      startDate: new Date("2026-01-27"),
+      endDate: new Date("2026-11-27"),
+      isActive: true,
+    },
+  });
+
+  // 4 periodos iguales (25% c/u), como en Colombia. Configurable después vía API.
+  for (let i = 1; i <= 4; i++) {
+    await prisma.academicPeriod.upsert({
+      where: { academicYearId_sequence: { academicYearId: academicYear.id, sequence: i } },
+      update: { weight: 25 },
+      create: {
+        tenantId: tenant.id,
+        academicYearId: academicYear.id,
+        name: `Periodo ${i}`,
+        sequence: i,
+        weight: 25,
+      },
+    });
+  }
+
+  // Escala nacional 1.0–5.0 (aprueba 3.0) con bandas cualitativas. Genérica: el
+  // modelo soporta cualquier escala; esta es solo la semilla por defecto.
+  const existingScale = await prisma.gradingScale.findFirst({
+    where: { tenantId: tenant.id, isDefault: true },
+    select: { id: true },
+  });
+  if (!existingScale) {
+    await prisma.gradingScale.create({
+      data: {
+        tenantId: tenant.id,
+        name: "Escala nacional (1.0–5.0)",
+        minValue: 1,
+        maxValue: 5,
+        passingValue: 3,
+        isDefault: true,
+        bands: {
+          create: [
+            { label: "Bajo", minValue: 1.0, maxValue: 2.99, order: 0 },
+            { label: "Básico", minValue: 3.0, maxValue: 3.99, order: 1 },
+            { label: "Alto", minValue: 4.0, maxValue: 4.59, order: 2 },
+            { label: "Superior", minValue: 4.6, maxValue: 5.0, order: 3 },
+          ],
+        },
+      },
+    });
+  }
+
+  // ── Año histórico 2025 (archivado) con notas y boletines FINAL ─────────────
+  // Data de demostración para el histórico multi-año: notas por periodo y
+  // boletines congelados. Idempotente: se borra y regenera en cada seed.
+  const year2025 = await prisma.academicYear.upsert({
+    where: { tenantId_name: { tenantId: tenant.id, name: "2025" } },
+    update: { status: "ARCHIVED", isActive: false },
+    create: {
+      tenantId: tenant.id,
+      name: "2025",
+      startDate: new Date("2025-01-27"),
+      endDate: new Date("2025-11-28"),
+      status: "ARCHIVED",
+      isActive: false,
+    },
+  });
+
+  const periods2025 = [];
+  for (let i = 1; i <= 4; i++) {
+    periods2025.push(
+      await prisma.academicPeriod.upsert({
+        where: { academicYearId_sequence: { academicYearId: year2025.id, sequence: i } },
+        update: { weight: 25 },
+        create: {
+          tenantId: tenant.id,
+          academicYearId: year2025.id,
+          name: `Periodo ${i}`,
+          sequence: i,
+          weight: 25,
+        },
+      }),
+    );
+  }
+
+  // Definitivas por periodo (escala 1-5): María va bien, Diego remonta el año.
+  const history2025: { student: { id: string }; subject: { id: string; name: string }; finals: number[] }[] = [
+    { student: studentMaria, subject: mathSubject, finals: [4.2, 4.6, 4.4, 4.8] },
+    { student: studentMaria, subject: spanishSubject, finals: [3.8, 4.0, 4.2, 4.4] },
+    { student: studentDiego, subject: mathSubject, finals: [2.8, 3.2, 3.0, 3.4] },
+    { student: studentDiego, subject: spanishSubject, finals: [3.6, 3.4, 3.8, 4.0] },
+  ];
+
+  await prisma.reportCard.deleteMany({ where: { academicYearId: year2025.id } });
+  await prisma.mark.deleteMany({ where: { academicYearId: year2025.id } });
+
+  const bandFor = (v: number) => (v < 3 ? "Bajo" : v < 4 ? "Básico" : v < 4.6 ? "Alto" : "Superior");
+  const round1 = (v: number) => Math.round(v * 100) / 100;
+
+  for (const row of history2025) {
+    for (let p = 0; p < 4; p++) {
+      // Dos notas por periodo cuyo promedio da la definitiva elegida.
+      const final = row.finals[p];
+      for (const [j, value] of [round1(final - 0.2), round1(final + 0.2)].entries()) {
+        await prisma.mark.create({
+          data: {
+            tenantId: tenant.id,
+            studentId: row.student.id,
+            subjectId: row.subject.id,
+            teacherId: teacherProfile.id,
+            academicYearId: year2025.id,
+            title: `${row.subject.name} · Evaluación ${j + 1} P${p + 1} 2025`,
+            value: Math.min(5, Math.max(1, value)),
+            maxValue: 5,
+            period: p + 1,
+            date: new Date(`2025-0${2 + p * 2}-15`),
+            isPublished: true,
+          },
+        });
+      }
+    }
+  }
+
+  const students2025 = [studentMaria, studentDiego];
+  for (const student of students2025) {
+    const rows = history2025.filter((r) => r.student.id === student.id);
+    // Boletines FINAL por periodo.
+    for (let p = 0; p < 4; p++) {
+      const lines = rows.map((r) => ({
+        subjectId: r.subject.id,
+        subjectName: r.subject.name,
+        final: r.finals[p],
+        label: bandFor(r.finals[p]),
+        passing: r.finals[p] >= 3,
+      }));
+      await prisma.reportCard.create({
+        data: {
+          tenantId: tenant.id,
+          studentId: student.id,
+          academicYearId: year2025.id,
+          periodId: periods2025[p].id,
+          status: "FINAL",
+          overallAverage: round1(lines.reduce((s, l) => s + l.final, 0) / lines.length),
+          scaleName: "Escala nacional (1.0–5.0)",
+          generatedById: tenantAdmin.id,
+          generatedAt: new Date(`2025-0${3 + p * 2}-01`),
+          lines: { create: lines },
+        },
+      });
+    }
+    // Boletín FINAL del año (promedio de los 4 periodos por materia).
+    const yearLines = rows.map((r) => {
+      const final = round1(r.finals.reduce((s, v) => s + v, 0) / r.finals.length);
+      return {
+        subjectId: r.subject.id,
+        subjectName: r.subject.name,
+        final,
+        label: bandFor(final),
+        passing: final >= 3,
+      };
+    });
+    await prisma.reportCard.create({
+      data: {
+        tenantId: tenant.id,
+        studentId: student.id,
+        academicYearId: year2025.id,
+        periodId: null,
+        status: "FINAL",
+        overallAverage: round1(yearLines.reduce((s, l) => s + l.final, 0) / yearLines.length),
+        scaleName: "Escala nacional (1.0–5.0)",
+        generatedById: tenantAdmin.id,
+        generatedAt: new Date("2025-12-01"),
+        lines: { create: yearLines },
+      },
+    });
+  }
+
   await prisma.auditLog.create({
     data: {
       tenantId: tenant.id,
@@ -377,6 +601,7 @@ async function main() {
 
   console.log("Demo seed completed.");
   console.log(`Demo password for development only: ${demoPassword}`);
+  console.log("Support team: supervisor.soporte@classia.com.co, agente1.soporte@classia.com.co, agente2.soporte@classia.com.co");
 }
 
 main()

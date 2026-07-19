@@ -31,6 +31,12 @@ export class TenantsService {
         brandColor: true,
         createdAt: true,
         updatedAt: true,
+        _count: {
+          select: {
+            memberships: true,
+            students: true,
+          },
+        },
       },
       orderBy: {
         createdAt: "asc",

@@ -15,13 +15,14 @@ export type LoginResult = {
   accessToken: string
   refreshToken: string
   user: { id: string; email: string; firstName: string; lastName: string }
-  tenant: { id: string; slug: string }
+  tenant: { id: string; slug: string; name: string }
   membership: { id: string; role: string }
 }
 
 const ROLE_ROUTES: Record<string, string> = {
   SUPER_ADMIN: "/superadmin",
-  SUPPORT_AGENT: "/admin",
+  SUPPORT_SUPERVISOR: "/superadmin",
+  SUPPORT_AGENT: "/superadmin",
   TENANT_ADMIN: "/admin",
   PRINCIPAL: "/admin",
   COORDINATOR: "/admin",
@@ -59,7 +60,12 @@ export function setTokens(accessToken: string, refreshToken: string) {
 export function clearTokens() {
   deleteCookie("classia_at")
   deleteCookie("classia_rt")
-  if (typeof localStorage !== "undefined") localStorage.removeItem("classia_user")
+  if (typeof localStorage !== "undefined") {
+    localStorage.removeItem("classia_user")
+    localStorage.removeItem("classia_original_at")
+    localStorage.removeItem("classia_original_rt")
+    localStorage.removeItem("classia_original_user")
+  }
 }
 
 export function getAccessToken(): string | null {
@@ -98,7 +104,7 @@ export function getCurrentUser(): JwtPayload | null {
 
 // ─── User info cache ─────────────────────────────────────────────────────────
 
-type StoredUser = { firstName: string; lastName: string; email: string; role: string }
+type StoredUser = { firstName: string; lastName: string; email: string; role: string; tenantName?: string }
 
 export function setStoredUser(user: StoredUser) {
   if (typeof localStorage === "undefined") return
@@ -137,8 +143,103 @@ export async function login(email: string, password: string): Promise<LoginResul
     lastName: data.user.lastName,
     email: data.user.email,
     role: data.membership.role,
+    tenantName: data.tenant.name,
   })
   return data
+}
+
+export async function impersonateTenant(tenantId: string, returnTo?: string): Promise<LoginResult> {
+  const currentAt = getAccessToken()
+  const currentRt = getRefreshToken()
+  
+  if (!currentAt || !currentRt) {
+    throw new Error("No hay sesión activa para impersonar")
+  }
+
+  const res = await fetch(`${API_URL}/auth/impersonate`, {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${currentAt}`,
+      "X-Tenant-Slug": TENANT_SLUG
+    },
+    body: JSON.stringify({ tenantId }),
+    credentials: "include",
+  })
+
+  if (!res.ok) {
+    throw new Error("No se pudo iniciar la impersonación")
+  }
+
+  // Guardar tokens y usuario originales antes de sobreescribir, para poder
+  // restaurar la identidad real del super admin al salir de la impersonación.
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("classia_original_at", currentAt)
+    localStorage.setItem("classia_original_rt", currentRt)
+    const currentUser = localStorage.getItem("classia_user")
+    if (currentUser) localStorage.setItem("classia_original_user", currentUser)
+    if (returnTo) {
+      localStorage.setItem("classia_impersonate_return", returnTo)
+    } else {
+      localStorage.removeItem("classia_impersonate_return")
+    }
+  }
+
+  const data = (await res.json()) as LoginResult
+  setTokens(data.accessToken, data.refreshToken)
+  setStoredUser({
+    firstName: data.user.firstName,
+    lastName: data.user.lastName,
+    email: data.user.email,
+    role: data.membership.role,
+    tenantName: data.tenant.name,
+  })
+  return data
+}
+
+export async function exitImpersonation(): Promise<{ success: boolean; returnTo: string }> {
+  const fallback = "/superadmin/tenants"
+  if (typeof localStorage === "undefined") return { success: false, returnTo: fallback }
+
+  const originalAt = localStorage.getItem("classia_original_at")
+  const originalRt = localStorage.getItem("classia_original_rt")
+
+  if (!originalAt || !originalRt) return { success: false, returnTo: fallback }
+
+  // Revocar la sesión de impersonación en el servidor antes de restaurar la
+  // identidad real. Sin esto, la sesión efímera (refresh de 30 días) seguiría
+  // viva y reutilizable. El catch es intencional: si la API falla, igual
+  // restauramos localmente para no dejar al usuario atrapado en el colegio.
+  const impersonationRt = getRefreshToken()
+  if (impersonationRt) {
+    await fetch(`${API_URL}/auth/exit-impersonation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Tenant-Slug": TENANT_SLUG },
+      body: JSON.stringify({ refreshToken: impersonationRt }),
+      credentials: "include",
+    }).catch(() => {})
+  }
+
+  setTokens(originalAt, originalRt)
+  localStorage.removeItem("classia_original_at")
+  localStorage.removeItem("classia_original_rt")
+
+  const originalUser = localStorage.getItem("classia_original_user")
+  if (originalUser) {
+    localStorage.setItem("classia_user", originalUser)
+    localStorage.removeItem("classia_original_user")
+  } else {
+    localStorage.removeItem("classia_user")
+  }
+
+  const returnTo = localStorage.getItem("classia_impersonate_return") || fallback
+  localStorage.removeItem("classia_impersonate_return")
+  return { success: true, returnTo }
+}
+
+export function isImpersonating(): boolean {
+  if (typeof localStorage === "undefined") return false
+  return !!localStorage.getItem("classia_original_at")
 }
 
 export async function logout(): Promise<void> {

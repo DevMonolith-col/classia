@@ -26,6 +26,9 @@ export const envSchema = z.object({
   S3_ACCESS_KEY_ID: z.string().min(1),
   S3_SECRET_ACCESS_KEY: z.string().min(1),
   S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+  EMAIL_PROVIDER: z.enum(["disabled", "resend"]).default("disabled"),
+  EMAIL_FROM: z.string().min(1).default("notificaciones@classia.com.co"),
+  RESEND_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

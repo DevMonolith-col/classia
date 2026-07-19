@@ -1,7 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, GraduationCap, Pencil, Plus, RefreshCw, Search } from "lucide-react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { AlertTriangle, ChevronLeft, ChevronRight, GraduationCap, Pencil, Plus, RefreshCw, Search } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,11 +19,14 @@ import { StudentFormDialog } from "@/components/admin/student-form-dialog"
 import type { Group } from "@/components/admin/academic-types"
 import type { Guardian, Student } from "@/components/admin/student-types"
 
+const PAGE_SIZE = 10
+
 function initials(firstName: string, lastName: string) {
   return `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase()
 }
 
-export default function EstudiantesPage() {
+function EstudiantesPageContent() {
+  const searchParams = useSearchParams()
   const [students, setStudents] = useState<Student[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [guardians, setGuardians] = useState<Guardian[]>([])
@@ -31,6 +35,7 @@ export default function EstudiantesPage() {
   const [query, setQuery] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingStudent, setEditingStudent] = useState<Student | null>(null)
+  const [page, setPage] = useState(1)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -74,10 +79,23 @@ export default function EstudiantesPage() {
     )
   }, [query, students])
 
+  const pageCount = Math.max(1, Math.ceil(filteredStudents.length / PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const paginatedStudents = filteredStudents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [query])
+
   function openCreateDialog() {
     setEditingStudent(null)
     setDialogOpen(true)
   }
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") openCreateDialog()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   function openEditDialog(student: Student) {
     setEditingStudent(student)
@@ -162,6 +180,7 @@ export default function EstudiantesPage() {
               )}
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -174,7 +193,7 @@ export default function EstudiantesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredStudents.map((student) => (
+                {paginatedStudents.map((student) => (
                   <TableRow key={student.id}>
                     <TableCell className="pl-6">
                       <div className="flex items-center gap-3">
@@ -212,6 +231,38 @@ export default function EstudiantesPage() {
                 ))}
               </TableBody>
             </Table>
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between border-t border-border p-4">
+                <p className="text-sm text-muted-foreground">
+                  Página {currentPage} de {pageCount}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    disabled={currentPage >= pageCount}
+                  >
+                    Siguiente
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -225,5 +276,13 @@ export default function EstudiantesPage() {
         onSaved={handleSaved}
       />
     </div>
+  )
+}
+
+export default function EstudiantesPage() {
+  return (
+    <Suspense fallback={<div className="p-4 sm:p-6 lg:p-8"><div className="h-64 animate-pulse rounded-lg bg-secondary" /></div>}>
+      <EstudiantesPageContent />
+    </Suspense>
   )
 }
