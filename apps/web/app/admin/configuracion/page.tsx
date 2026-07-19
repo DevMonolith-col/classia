@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   User,
   Bell,
@@ -22,6 +22,7 @@ import {
   Users,
   GraduationCap,
   Calendar,
+  ShieldQuestion,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,6 +30,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { apiFetch } from "@/lib/api-client"
+import { getAccessToken, decodeJwt } from "@/lib/auth"
+
+// Debe reflejar MAX_ACCESS_DURATION_MINUTES en access-control.schemas.ts (API):
+// el backend es quien valida y rechaza de verdad, esto solo evita un
+// round-trip inútil cuando ya se escribió algo fuera de rango.
+const MAX_ACCESS_DURATION_MINUTES = 480
 
 export default function AdminConfiguracionPage() {
   const [darkMode, setDarkMode] = useState(false)
@@ -42,6 +50,66 @@ export default function AdminConfiguracionPage() {
     attendance: true,
     reports: false,
   })
+
+  // Único bloque de esta página conectado a datos reales — el resto de las
+  // pestañas son maquetas sin backend. Techo de duración de acceso de soporte
+  // para este colegio (ver access-control.service#approve en la API).
+  const [tenantId, setTenantId] = useState<string | null>(null)
+  const [accessDurationCap, setAccessDurationCap] = useState("")
+  const [accessDurationLoading, setAccessDurationLoading] = useState(true)
+  const [accessDurationSaving, setAccessDurationSaving] = useState(false)
+  const [accessDurationError, setAccessDurationError] = useState("")
+  const [accessDurationSaved, setAccessDurationSaved] = useState(false)
+
+  useEffect(() => {
+    const jwt = decodeJwt(getAccessToken() || "")
+    if (!jwt?.tenantId) {
+      setAccessDurationLoading(false)
+      return
+    }
+    setTenantId(jwt.tenantId)
+    apiFetch(`/tenants/${jwt.tenantId}`, { silent: true })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((tenant) => {
+        if (tenant?.maxAccessDurationMinutes != null) {
+          setAccessDurationCap(String(tenant.maxAccessDurationMinutes))
+        }
+      })
+      .finally(() => setAccessDurationLoading(false))
+  }, [])
+
+  async function saveAccessDurationCap() {
+    if (!tenantId) return
+    setAccessDurationError("")
+    setAccessDurationSaved(false)
+
+    const trimmed = accessDurationCap.trim()
+    let value: number | null = null
+    if (trimmed !== "") {
+      const parsed = Number(trimmed)
+      if (!Number.isInteger(parsed) || parsed < 15 || parsed > MAX_ACCESS_DURATION_MINUTES) {
+        setAccessDurationError(`Debe ser un número entero entre 15 y ${MAX_ACCESS_DURATION_MINUTES} minutos, o vacío para usar el techo del sistema.`)
+        return
+      }
+      value = parsed
+    }
+
+    setAccessDurationSaving(true)
+    try {
+      const res = await apiFetch(`/tenants/${tenantId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ maxAccessDurationMinutes: value }),
+      })
+      if (res.ok) {
+        setAccessDurationSaved(true)
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setAccessDurationError(body.message || "No se pudo guardar el techo de duración.")
+      }
+    } finally {
+      setAccessDurationSaving(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -393,6 +461,49 @@ export default function AdminConfiguracionPage() {
                       <Input type="date" defaultValue="2024-12-15" />
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ShieldQuestion className="h-5 w-5" />
+                    Acceso de soporte
+                  </CardTitle>
+                  <CardDescription>
+                    Duración máxima que puede durar un acceso de soporte concedido a tu colegio.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {accessDurationLoading ? (
+                    <p className="text-sm text-muted-foreground">Cargando...</p>
+                  ) : (
+                    <>
+                      <div className="space-y-2 sm:max-w-xs">
+                        <label className="text-sm font-medium text-foreground">Techo de duración (minutos)</label>
+                        <Input
+                          type="number"
+                          min={15}
+                          max={MAX_ACCESS_DURATION_MINUTES}
+                          step={15}
+                          placeholder={`Techo del sistema (${MAX_ACCESS_DURATION_MINUTES})`}
+                          value={accessDurationCap}
+                          onChange={(e) => {
+                            setAccessDurationCap(e.target.value)
+                            setAccessDurationSaved(false)
+                          }}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Vacío = usa el techo del sistema ({MAX_ACCESS_DURATION_MINUTES} min). Nunca puede superar ese valor.
+                        </p>
+                      </div>
+                      {accessDurationError && <p className="text-sm text-destructive">{accessDurationError}</p>}
+                      {accessDurationSaved && <p className="text-sm text-emerald-600">Techo guardado.</p>}
+                      <Button size="sm" onClick={saveAccessDurationCap} disabled={accessDurationSaving}>
+                        {accessDurationSaving ? "Guardando..." : "Guardar techo"}
+                      </Button>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 

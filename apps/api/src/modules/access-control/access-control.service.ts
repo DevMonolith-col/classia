@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common"
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common"
 import { OnEvent } from "@nestjs/event-emitter"
 import { AccessScope, AccessSessionStatus, NotificationEventType, UserRole } from "@prisma/client"
 import { Request } from "express"
@@ -14,6 +14,12 @@ import {
   RequestAccessInput,
   RevokeAccessInput,
 } from "./access-control.schemas"
+
+export const ACCESS_SESSION_EXPIRY_QUEUE = "access-session-expiry"
+// Cada minuto: las duraciones mínimas son de 15 min, así que un margen de
+// hasta 1 min entre que algo vence y el barrido lo marca es despreciable
+// frente a eso, sin generar carga de más.
+export const EXPIRY_SWEEP_INTERVAL_MS = 60_000
 
 // Mismo criterio que support.controller.ts: quién es "staff" de soporte y quién,
 // dentro de ese staff, es supervisor. Un agente puede solicitar acceso; solo un
@@ -78,14 +84,28 @@ export class AccessControlService {
     }
 
     const session = await this.getSolicitado(id)
+
     // El aprobador puede ajustar la duración; si no la manda, se respeta la
-    // solicitada. Ninguna de las dos puede exceder el techo del sistema — el
-    // schema ya lo valida en la entrada, pero se clampa también aquí por si
-    // requestedDurationMinutes viniera de una fila más vieja que el schema actual.
-    const grantedDurationMinutes = Math.min(
-      input.durationMinutes ?? session.requestedDurationMinutes,
-      MAX_ACCESS_DURATION_MINUTES,
-    )
+    // solicitada. El techo efectivo es el del colegio si lo configuró, si no
+    // el absoluto del sistema — nunca al revés (un colegio no puede fijar un
+    // techo por encima del absoluto; eso ya lo valida updateTenantSchema al
+    // guardarlo). A diferencia del cierre anterior, esto RECHAZA en vez de
+    // recortar en silencio: si el supervisor pide una duración por encima del
+    // techo, se entera con un 400 en vez de recibir una ventana más corta sin
+    // avisar.
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({
+      where: { id: session.tenantId },
+      select: { maxAccessDurationMinutes: true },
+    })
+    const effectiveCap = tenant.maxAccessDurationMinutes ?? MAX_ACCESS_DURATION_MINUTES
+    const grantedDurationMinutes = input.durationMinutes ?? session.requestedDurationMinutes
+
+    if (grantedDurationMinutes > effectiveCap) {
+      throw new BadRequestException(
+        `La duración concedida no puede exceder el techo de este colegio (${effectiveCap} minutos).`,
+      )
+    }
+
     const grantedAt = new Date()
     const expiresAt = new Date(grantedAt.getTime() + grantedDurationMinutes * 60_000)
 
@@ -190,12 +210,19 @@ export class AccessControlService {
     })
     if (active.length === 0) return
 
-    await this.prisma.accessSession.updateMany({
-      where: { id: { in: active.map((s) => s.id) } },
-      data: { status: AccessSessionStatus.REVOCADO, revokedAt: new Date(), revokedReason: reason },
-    })
-
     for (const session of active) {
+      // Compare-and-swap por fila (WHERE incluye el status leído): si el
+      // barrido de expiración proactiva (u otra llamada solapada de este mismo
+      // método) ya transicionó esta fila entre el findMany y este update,
+      // count da 0 y se salta — sin pisar el estado real ni duplicar la
+      // auditoría. Antes era un updateMany por id sin este guard, que sí podía
+      // sobreescribir un EXPIRADO recién puesto por el job.
+      const { count } = await this.prisma.accessSession.updateMany({
+        where: { id: session.id, status: session.status },
+        data: { status: AccessSessionStatus.REVOCADO, revokedAt: new Date(), revokedReason: reason },
+      })
+      if (count === 0) continue
+
       await this.audit.record({
         tenantId: session.tenantId,
         action: "support.access.revoked",
@@ -347,6 +374,15 @@ export class AccessControlService {
   // Genérico para no perder relaciones incluidas (requestedBy/approvedBy en
   // listForTicket): en vez de reemplazar el objeto con el resultado plano del
   // update, solo se sobreescribe el status sobre el objeto original.
+  //
+  // Red de seguridad además del job de expireOverdueSessions(), no un
+  // reemplazo: si el job todavía no corrió su barrido cuando se lee esta fila
+  // (hasta EXPIRY_SWEEP_INTERVAL_MS de retraso), esto la marca EXPIRADO al
+  // vuelo para que un GET no muestre una sesión vencida como si siguiera
+  // activa. Nunca escribe en la bitácora — la auditoría de la expiración la
+  // registra el job (o queda sin registrar si nadie más volvió a leer esta
+  // fila antes de que el job la alcance, lo cual es aceptable: la sesión igual
+  // queda bloqueada de inmediato por DataScopeGuard vía expiresAt).
   private async resolveExpiration<T extends { id: string; status: AccessSessionStatus; expiresAt: Date | null }>(
     session: T,
   ): Promise<T> {
@@ -357,11 +393,83 @@ export class AccessControlService {
 
     if (!isExpired) return session
 
-    await this.prisma.accessSession.update({
-      where: { id: session.id },
+    // Compare-and-swap: si el job (u otra llamada) ya cambió el status entre
+    // que se leyó esta fila y este intento, count da 0 y se relee el estado
+    // real en vez de asumir EXPIRADO a ciegas (podría ya estar REVOCADO).
+    const { count } = await this.prisma.accessSession.updateMany({
+      where: { id: session.id, status: session.status },
       data: { status: AccessSessionStatus.EXPIRADO },
     })
+    if (count === 0) {
+      const fresh = await this.prisma.accessSession.findUniqueOrThrow({
+        where: { id: session.id },
+        select: { status: true },
+      })
+      return { ...session, status: fresh.status }
+    }
 
     return { ...session, status: AccessSessionStatus.EXPIRADO }
+  }
+
+  // Barrido proactivo (llamado por AccessSessionExpiryProcessor cada
+  // EXPIRY_SWEEP_INTERVAL_MS): marca EXPIRADO toda AccessSession CONCEDIDO o
+  // EMERGENCIA vencida y revoca las AuthSession de impersonación asociadas —
+  // sin esto, un refresh() nunca llega a evaluarse mientras nadie llame a la
+  // API entre la expiración y el próximo intento de refresh, dejando la
+  // AuthSession "viva" en la base aunque ya no sirva para nada (DataScopeGuard
+  // igual la bloquearía por expiresAt, pero la fila queda huérfana).
+  //
+  // Idempotente y seguro ante solapes: cada fila se transiciona con un
+  // compare-and-swap por status (WHERE incluye el status leído en el
+  // findMany). Si dos corridas del job se solapan, o el job corre a la vez que
+  // la resolución perezosa o una revocación manual, como mucho una de ellas
+  // gana el update — las demás ven count=0 y se saltan esa fila sin auditar
+  // ni revocar AuthSession dos veces.
+  async expireOverdueSessions(): Promise<{ expiredSessions: number; revokedAuthSessions: number }> {
+    const now = new Date()
+    const candidates = await this.prisma.accessSession.findMany({
+      where: {
+        status: { in: [AccessSessionStatus.CONCEDIDO, AccessSessionStatus.EMERGENCIA] },
+        expiresAt: { lte: now },
+      },
+      select: { id: true, status: true, tenantId: true, ticketId: true, requestedById: true, scope: true },
+    })
+
+    let expiredSessions = 0
+    let revokedAuthSessions = 0
+
+    for (const candidate of candidates) {
+      const { count } = await this.prisma.accessSession.updateMany({
+        where: { id: candidate.id, status: candidate.status },
+        data: { status: AccessSessionStatus.EXPIRADO },
+      })
+      if (count === 0) continue
+      expiredSessions++
+
+      const revoked = await this.prisma.authSession.updateMany({
+        where: {
+          ticketId: candidate.ticketId,
+          userId: candidate.requestedById,
+          isImpersonated: true,
+          revokedAt: null,
+        },
+        data: { revokedAt: now },
+      })
+      revokedAuthSessions += revoked.count
+
+      // Distinto de "support.access.revoked" (revocación manual o por cierre
+      // de ticket) a propósito: esto lo disparó el paso del tiempo, no una
+      // decisión de una persona.
+      await this.audit.record({
+        tenantId: candidate.tenantId,
+        userId: candidate.requestedById,
+        action: "support.access.expired",
+        entityType: "AccessSession",
+        entityId: candidate.id,
+        newValues: { scope: candidate.scope, ticketId: candidate.ticketId, authSessionsRevoked: revoked.count },
+      })
+    }
+
+    return { expiredSessions, revokedAuthSessions }
   }
 }

@@ -66,6 +66,16 @@ model Tenant {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
+  // Techo propio del colegio para cuánto puede durar un acceso de soporte
+  // concedido (ver access-control.service#approve). Nullable: null significa
+  // "usa el techo absoluto del sistema" (MAX_ACCESS_DURATION_MINUTES en
+  // access-control.schemas.ts). Nunca puede guardarse por encima de ese techo —
+  // se valida en updateTenantSchema, no solo en el frontend. No existe un
+  // modelo de "settings" separado por tenant en este esquema (el único
+  // SystemSetting existente es global, de toda la plataforma) — se agrega
+  // aquí directamente en vez de crear un modelo nuevo solo para un campo.
+  maxAccessDurationMinutes Int?
+
   memberships       TenantMembership[]
   sessions          AuthSession[]
   students          Student[]

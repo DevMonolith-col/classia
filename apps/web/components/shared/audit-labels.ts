@@ -46,6 +46,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "support.access.denied": "negó una solicitud de acceso de soporte",
   "support.access.revoked": "revocó un acceso de soporte",
   "support.access.emergency_granted": "usó acceso de emergencia (break-glass)",
+  "support.access.expired": "un acceso de soporte expiró automáticamente",
+  "files.scope_fallback": "un archivo no pudo clasificarse por alcance (fallback conservador)",
 }
 
 /** Session/auth events are noise for an activity feed — they don't represent institutional work. */
