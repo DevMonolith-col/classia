@@ -266,7 +266,12 @@ export class ConversationsService {
   }
 
   async sendMessage(actor: RequestUser, conversationId: string, input: SendMessageInput) {
-    await this.assertMember(actor, conversationId);
+    const conversation = await this.assertMember(actor, conversationId);
+    // No se puede escribir en un hilo archivado: listConversations ya lo oculta
+    // (archivedAt: null), así que el mensaje quedaría invisible para ambas partes.
+    if (conversation.archivedAt) {
+      throw new ForbiddenException("Esta conversación está archivada.");
+    }
 
     const [message] = await this.prisma.$transaction([
       this.prisma.conversationMessage.create({
@@ -390,12 +395,13 @@ export class ConversationsService {
   private async assertMember(actor: RequestUser, conversationId: string) {
     const member = await this.prisma.conversationMember.findUnique({
       where: { conversationId_userId: { conversationId, userId: actor.id } },
-      select: { id: true, conversation: { select: { tenantId: true } } },
+      select: { id: true, conversation: { select: { tenantId: true, archivedAt: true } } },
     });
 
     if (!member || member.conversation.tenantId !== actor.tenantId) {
       throw new ForbiddenException("No perteneces a esta conversación.");
     }
+    return member.conversation;
   }
 
   private async assertCanBroadcastToGroup(actor: RequestUser, groupId: string) {
