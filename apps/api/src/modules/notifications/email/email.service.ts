@@ -2,7 +2,10 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 export type EmailMessage = { to: string; subject: string; html: string };
-export type EmailResult = { status: "sent" | "skipped" | "failed"; error?: string };
+// `permanent` marca un fallo que no tiene sentido reintentar (4xx de Resend salvo
+// 429): email inválido, dominio no verificado, etc. Los transitorios (5xx, 429,
+// red) se dejan reintentar por la cola.
+export type EmailResult = { status: "sent" | "skipped" | "failed"; error?: string; permanent?: boolean };
 
 /**
  * Abstracción de envío de email. Degrada con elegancia: con EMAIL_PROVIDER=disabled
@@ -55,10 +58,13 @@ export class EmailService {
 
       if (!res.ok) {
         const text = await res.text();
-        return { status: "failed", error: `resend ${res.status}: ${text.slice(0, 200)}` };
+        // 4xx (salvo 429 rate-limit) = fallo permanente: reintentar no ayuda.
+        const permanent = res.status >= 400 && res.status < 500 && res.status !== 429;
+        return { status: "failed", error: `resend ${res.status}: ${text.slice(0, 200)}`, permanent };
       }
       return { status: "sent" };
     } catch (error) {
+      // Fallo de red/transitorio: se deja reintentar.
       return { status: "failed", error: (error as Error).message };
     }
   }
