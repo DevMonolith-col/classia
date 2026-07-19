@@ -43,7 +43,7 @@ export class AnnouncementsService {
         };
 
     const announcements = await this.prisma.announcement.findMany({
-      where,
+      where: { ...where, deletedAt: null }, // los soft-deleted no se listan
       orderBy: { createdAt: "desc" },
       select: this.announcementSelect(actor.id),
     });
@@ -132,7 +132,7 @@ export class AnnouncementsService {
 
   async markRead(actor: RequestUser, announcementId: string) {
     const announcement = await this.prisma.announcement.findFirst({
-      where: { id: announcementId, tenantId: actor.tenantId },
+      where: { id: announcementId, tenantId: actor.tenantId, deletedAt: null },
       select: { id: true },
     });
     if (!announcement) {
@@ -150,7 +150,7 @@ export class AnnouncementsService {
 
   async delete(actor: RequestUser, announcementId: string, request: Request) {
     const announcement = await this.prisma.announcement.findFirst({
-      where: { id: announcementId, tenantId: actor.tenantId },
+      where: { id: announcementId, tenantId: actor.tenantId, deletedAt: null },
       select: { id: true, authorId: true },
     });
     if (!announcement) {
@@ -160,7 +160,11 @@ export class AnnouncementsService {
       throw new ForbiddenException("Solo puedes eliminar tus propios comunicados.");
     }
 
-    await this.prisma.announcement.delete({ where: { id: announcementId } });
+    // Soft-delete: comunicación oficial, se conserva la fila (Ley 1620/527).
+    await this.prisma.announcement.update({
+      where: { id: announcementId },
+      data: { deletedAt: new Date() },
+    });
 
     await this.audit.record({
       tenantId: actor.tenantId,
