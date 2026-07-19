@@ -1,5 +1,10 @@
 # Plan de Preparación para Despliegue (Trust Proxy & CORS Dinámico)
 
+> **✅ Implementado** (verificado el 2026-07-19): `trust proxy` y el regex de CORS
+> dinámico por subdominio ya están en `apps/api/src/app.setup.ts` tal como describe
+> este documento. Queda como referencia técnica de diseño, no como pendiente. Ver
+> [`migracion-vps.md`](migracion-vps.md) para el estado actual de la migración a VPS.
+
 Este documento contiene las especificaciones técnicas detalladas para habilitar el soporte de Proxy Inverso (Coolify / Cloudflare) y la gestión de CORS dinámico para subdominios multi-tenant en el backend de **Classia SaaS**. 
 
 Está redactado como una guía paso a paso lista para ser procesada por un asistente de código (como Claude) para su implementación directa.
