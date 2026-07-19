@@ -13,6 +13,18 @@ import {
   ListUsersInput,
 } from "./users.schemas";
 
+// Roles de plataforma (no pertenecen a un colegio): operan a nivel global. Fuente
+// única de verdad para (a) quién puede leer datos cross-tenant (isGlobalAdmin) y
+// (b) qué roles solo el SUPER_ADMIN puede asignar (assertCanAssignRole). Antes
+// isGlobalAdmin incluía SUPPORT_AGENT pero no SUPPORT_SUPERVISOR, una
+// inconsistencia frágil: cualquier permiso de usuarios que se otorgara a un rol
+// de soporte podía dar acceso cross-tenant sin querer.
+const PLATFORM_ROLES: UserRole[] = [
+  UserRole.SUPER_ADMIN,
+  UserRole.SUPPORT_SUPERVISOR,
+  UserRole.SUPPORT_AGENT,
+];
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -328,7 +340,6 @@ export class UsersService {
   // de soporte nunca puede ascenderse a sí mismo ni a nadie más, aunque pasen
   // el check general de "admin global" para otras acciones.
   private assertCanAssignRole(actor: RequestUser, role: UserRole) {
-    const PLATFORM_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.SUPPORT_SUPERVISOR, UserRole.SUPPORT_AGENT];
     if (PLATFORM_ROLES.includes(role) && actor.role !== UserRole.SUPER_ADMIN) {
       throw new ForbiddenException("Only super admins can assign global roles.");
     }
@@ -347,7 +358,7 @@ export class UsersService {
   }
 
   private isGlobalAdmin(user: RequestUser) {
-    return user.role === UserRole.SUPER_ADMIN || user.role === UserRole.SUPPORT_AGENT;
+    return PLATFORM_ROLES.includes(user.role);
   }
 
   private userSelect() {
