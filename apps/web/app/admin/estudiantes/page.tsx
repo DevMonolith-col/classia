@@ -94,7 +94,6 @@ function EstudiantesPageContent() {
 
   useEffect(() => {
     if (searchParams.get("new") === "1") openCreateDialog()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
 
   function openEditDialog(student: Student) {

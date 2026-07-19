@@ -91,7 +91,7 @@ function CalificacionesProfesorPageContent() {
     } finally {
       setLoadingSetup(false)
     }
-  }, [])
+  }, [scheduleIdParam])
 
   useEffect(() => {
     loadSetup()

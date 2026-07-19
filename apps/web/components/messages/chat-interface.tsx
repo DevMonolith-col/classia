@@ -125,6 +125,10 @@ export function ChatInterface({
     if (selectedConversation) {
       scrollToBottom()
     }
+    // Depende solo de .messages a propósito: si se depende del objeto completo,
+    // cualquier otro cambio en selectedConversation (no solo mensajes nuevos)
+    // dispararía un scroll no deseado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversation?.messages])
 
   const filteredConversations = conversations.filter((c) =>
