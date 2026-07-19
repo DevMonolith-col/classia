@@ -728,6 +728,7 @@ model Announcement {
   targetRole UserRole? // null = todos los roles; si no, solo ese rol
   groupId    String? // null = todo el colegio; si no, solo ese curso/grupo
   createdAt  DateTime  @default(now())
+  deletedAt  DateTime? // soft-delete: se oculta pero NUNCA se borra (Ley 1620 / Ley 527), como mensajería
 
   tenant Tenant             @relation(fields: [tenantId], references: [id])
   author User               @relation("AnnouncementAuthor", fields: [authorId], references: [id])
