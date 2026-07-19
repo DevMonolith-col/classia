@@ -4,6 +4,8 @@
 > Este documento reemplaza a `roadmap-prototype-2.md` como fuente de verdad del estado actual — ese archivo quedó desactualizado (fue escrito antes de construir materias, horarios, asistencia, calificaciones, tareas, etc., que hoy ya existen). Se deja como referencia histórica, no se debe seguir usando para saber qué falta.
 >
 > **Corrección del 2026-07-16**: la versión anterior de este documento (2026-07-13) quedó obsoleta en cuestión de horas — el commit `5e93a6a` del mismo día, y después toda la mensajería (`4e3517c`..`f6bc554`), invalidaron varias de sus afirmaciones. Decía que `Message`/`Announcement`/`HomeworkSubmission` eran modelos fantasma, que no existía la calificación manual de respuesta corta, que `GUARDIAN` no tenía scoping ni permisos, y que `/familia/*` estaba mock sin excepción: **todas eran falsas**. Se corrigieron abajo. Lección para el próximo que edite este archivo: fecharlo y verificar contra el código, no contra la memoria.
+>
+> **Corrección del 2026-07-19** (rama `feature/reportes-reales`): este documento (§3, línea 96 en su momento) decía que `/admin/reportes` estaba "sin backend ni conexión". **Ya no es cierto**: entre el 2026-07-18 y el 2026-07-19 se construyó el módulo `reports` completo (6 tipos de reporte con queries reales, generación async PDF/CSV vía BullMQ, historial, programación recurrente con reprogramación dinámica) y el módulo `payments` (conceptos de cobro, facturas, pagos, resumen financiero). Ambos verificados end-to-end en navegador real (preview → generar → descargar → programar → eliminar) el 2026-07-19. Además, esa misma rama pasó por una auditoría de seguridad de 6 fases sobre TODO el diff acumulado (no solo reportes) — ver `auditoria-seguridad-2026-07.md` para el detalle completo (hallazgos, decisiones tomadas y verificación de cada fase).
 
 Este documento se generó auditando el código real (rutas, llamadas a la API, modelos de Prisma, módulos del backend), no de memoria. Cada afirmación de "funciona" o "es mock" se verificó revisando si la página hace `apiFetch` real o solo tiene arrays hardcodeados.
 
@@ -78,6 +80,11 @@ No existe `apps/mobile` — la app móvil (React Native/Expo) mencionada en docu
 - **`homework-submissions`**: el alumno sube archivo para Tarea/Proyecto (ventanas `availableFrom`/`cutOffDate`, marcado `LATE` automático) y el profesor califica con nota + comentario + archivo de devolución, en una transacción que crea/actualiza la `Mark`.
 - **Calificación manual de respuesta corta**: `PATCH /homework/:id/quiz/attempts/:attemptId/questions/:questionId/grade` + UI en `/profesor/quiz/[homeworkId]/calificar`. Al calificar la última respuesta corta el intento pasa a `GRADED` y nace la `Mark` sola.
 
+### Reportes y pagos — construido el 2026-07-18/19 (rama `feature/reportes-reales`)
+- **Reportes** (`/admin/reportes`, módulo `reports`): 6 tipos reales con queries en vivo (asistencia, calificaciones — reusa el motor de `report-cards`, estudiantes, profesores, cursos, financiero). Preview síncrono (JSON) + generación asíncrona vía BullMQ (PDF con `PdfRendererService`/Puppeteer compartido, o CSV), historial con contador de descargas, descarga por URL firmada. **Programación recurrente**: jobs diferidos reprogramados dinámicamente (no cron estático), anclados a `Tenant.timezone`, correctos para cualquier intervalo mensual 1–12 (ver `auditoria-seguridad-2026-07.md` Fase 4). CRUD completo de schedules (crear/listar/pausar/editar/eliminar) desde la UI.
+- **Pagos** (`/admin/pagos`, módulo `payments`): conceptos de cobro (facturación masiva por colegio o por grupo), facturas con estado PENDING/PARTIAL/PAID/CANCELLED, registro de pagos transaccional con guardia de sobrepago, resumen financiero por agregación en BD. Dinero en `Decimal`, no `Float`.
+- Ambos verificados end-to-end en navegador real (no solo backend): golden path completo de reportes probado el 2026-07-19 — preview con datos reales, generación de PDF real, descarga, historial, creación y eliminación de un schedule (con verificación del job en Redis).
+
 ---
 
 ## 3. Lo que es mock / no funcional todavía
@@ -93,7 +100,8 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
 
 ### Panel del colegio (`/admin`) — pendientes
 - `page.tsx` (Dashboard): stats hardcodeadas.
-- `calendario`, `reportes`, `configuracion`, `plugins`, `plugins/desarrolladores`: sin backend ni conexión.
+- `calendario`, `configuracion`, `plugins`, `plugins/desarrolladores`: sin backend ni conexión.
+- (`reportes` y `pagos` ya se conectaron el 2026-07-18/19 — ver §2.)
 - `mensajes/nuevo`: **página muerta** ("Próximamente...") — el módulo de mensajería lleva conectado desde `eda38c4` y la composición vive dentro del panel. Los quick-actions del dashboard todavía apuntan a esa ruta muerta.
 - (`estudiantes`, `profesores`, `cursos` ya se conectaron en `1f9870b`.)
 
@@ -140,7 +148,7 @@ Lo que sí sigue declarado y muerto, verificado por grep:
 
 1. **Chat en tiempo real** → `chat-tiempo-real.md`. Alcance aprobado: completo estilo WhatsApp. Su Fase 0 (paginar `GET /conversations`, que hoy trae el historial completo de todos los hilos) es mergeable sola y ya mejora el producto.
 2. **Calificar asignaciones en línea** → `asignaciones-calificacion-en-linea.md`. El backend ya existe; es desenterrar la UI, arreglar el bug de pérdida de datos y darle una puerta propia. **Tiene frontera estricta con "notas y reportes"** — leer su §2 antes de tocar `Mark`.
-3. **Notas y reportes** — trabajo paralelo de otro equipo. Su contrato de handoff (5 puntos verificados) está en `asignaciones-calificacion-en-linea.md` §2.
+3. **Notas y reportes** (dominio de calificaciones/boletines, no confundir con el módulo `reports` de §2) — trabajo paralelo de otro equipo. Su contrato de handoff (5 puntos verificados) está en `asignaciones-calificacion-en-linea.md` §2.
 4. **Unificación de UI por rol** → `frontend-unificacion-roles.md`. Nada implementado todavía.
 
 **Sin documento todavía:**
