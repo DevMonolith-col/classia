@@ -9,6 +9,10 @@ export type JwtPayload = {
   role: string
   exp: number
   iat: number
+  // Ticket que justificó una impersonación (ver access-control en la API).
+  // Ausente en sesiones normales, no impersonadas.
+  ticketId?: string
+  isImpersonated?: boolean
 }
 
 export type LoginResult = {

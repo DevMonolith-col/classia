@@ -200,4 +200,15 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
     this.server.to("dashboard:superadmin").emit("ticket:updated", payload);
     this.server.to(`dashboard:tenant:${payload.tenantId}`).emit("ticket:updated", payload);
   }
+
+  // Emitido por AccessControlService#expireSessionById (barrido, job diferido
+  // o resolución perezosa, quien gane la carrera). Reenviado al mismo room
+  // `ticket:${ticketId}` que ya existe para el chat — no amplía el modelo de
+  // rooms. El cliente impersonado se une a este room igual que cualquier otro
+  // participante del ticket (ver admin/layout.tsx), así reacciona sin esperar
+  // a su próximo request.
+  @OnEvent("support.access.expired")
+  handleAccessExpired(payload: { ticketId: string; accessSessionId: string; scope: string }) {
+    this.server.to(`ticket:${payload.ticketId}`).emit("access:expired", payload);
+  }
 }
