@@ -1,6 +1,8 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common"
-import { OnEvent } from "@nestjs/event-emitter"
-import { AccessScope, AccessSessionStatus, NotificationEventType, UserRole } from "@prisma/client"
+import { InjectQueue } from "@nestjs/bullmq"
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common"
+import { EventEmitter2, OnEvent } from "@nestjs/event-emitter"
+import { AccessScope, AccessSessionStatus, NotificationEventType, Prisma, UserRole } from "@prisma/client"
+import { Queue } from "bullmq"
 import { Request } from "express"
 import { AuditService } from "../../core/audit/audit.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
@@ -18,7 +20,10 @@ import {
 export const ACCESS_SESSION_EXPIRY_QUEUE = "access-session-expiry"
 // Cada minuto: las duraciones mínimas son de 15 min, así que un margen de
 // hasta 1 min entre que algo vence y el barrido lo marca es despreciable
-// frente a eso, sin generar carga de más.
+// frente a eso, sin generar carga de más. Sigue siendo la red de seguridad —
+// el job diferido por sesión (scheduleExpiryJob) es quien dispara justo a
+// tiempo; el barrido atrapa lo que ese job se pierda (caída del proceso entre
+// que se programó y que debía dispararse, reinicio de Redis, etc.).
 export const EXPIRY_SWEEP_INTERVAL_MS = 60_000
 
 // Mismo criterio que support.controller.ts: quién es "staff" de soporte y quién,
@@ -38,6 +43,8 @@ export class AccessControlService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly eventEmitter: EventEmitter2,
+    @InjectQueue(ACCESS_SESSION_EXPIRY_QUEUE) private readonly expiryQueue: Queue,
   ) {}
 
   async requestAccess(input: RequestAccessInput, user: RequestUser, request: Request) {
@@ -89,10 +96,9 @@ export class AccessControlService {
     // solicitada. El techo efectivo es el del colegio si lo configuró, si no
     // el absoluto del sistema — nunca al revés (un colegio no puede fijar un
     // techo por encima del absoluto; eso ya lo valida updateTenantSchema al
-    // guardarlo). A diferencia del cierre anterior, esto RECHAZA en vez de
-    // recortar en silencio: si el supervisor pide una duración por encima del
-    // techo, se entera con un 400 en vez de recibir una ventana más corta sin
-    // avisar.
+    // guardarlo). Esto RECHAZA en vez de recortar en silencio: si el
+    // supervisor pide una duración por encima del techo, se entera con un 400
+    // en vez de recibir una ventana más corta sin avisar.
     const tenant = await this.prisma.tenant.findUniqueOrThrow({
       where: { id: session.tenantId },
       select: { maxAccessDurationMinutes: true },
@@ -113,6 +119,10 @@ export class AccessControlService {
       where: { id },
       data: { status: AccessSessionStatus.CONCEDIDO, approvedById: user.id, grantedAt, expiresAt },
     })
+
+    // Job diferido puntual además del barrido periódico — dispara justo cuando
+    // vence en vez de tolerar hasta EXPIRY_SWEEP_INTERVAL_MS de desfase.
+    await this.scheduleExpiryJob(updated.id, expiresAt)
 
     await this.audit.record({
       tenantId: session.tenantId,
@@ -161,6 +171,11 @@ export class AccessControlService {
     return updated
   }
 
+  // deny() opera sobre SOLICITADO -> REVOCADO y no tiene otro escritor
+  // concurrente posible (nada más transiciona una solicitud sin resolver), así
+  // que no pasa por transitionAccessSession — ese guard existe para las
+  // transiciones CONCEDIDO/EMERGENCIA -> terminal, donde sí compiten el
+  // barrido, el job diferido, la resolución perezosa y las revocaciones.
   async revoke(id: string, input: RevokeAccessInput, user: RequestUser, request: Request) {
     if (!isSupportSupervisor(user.role)) {
       throw new ForbiddenException("Solo un supervisor puede revocar un acceso.")
@@ -172,10 +187,19 @@ export class AccessControlService {
       throw new ForbiddenException("Solo se puede revocar un acceso activo.")
     }
 
-    const updated = await this.prisma.accessSession.update({
-      where: { id },
-      data: { status: AccessSessionStatus.REVOCADO, revokedAt: new Date(), revokedReason: input.reason },
+    const won = await this.transitionAccessSession(session, {
+      status: AccessSessionStatus.REVOCADO,
+      revokedAt: new Date(),
+      revokedReason: input.reason,
     })
+    if (!won) {
+      // Alguien más (el barrido, el job diferido de esta misma sesión, o la
+      // resolución perezosa de otro request) ganó la transición entre que se
+      // leyó esta fila y este intento — la sesión ya no está activa.
+      throw new ConflictException("Esta sesión ya no está activa; probablemente expiró justo ahora.")
+    }
+
+    await this.cancelExpiryJob(session.id)
 
     await this.audit.record({
       tenantId: session.tenantId,
@@ -189,7 +213,7 @@ export class AccessControlService {
       userAgent: request.headers["user-agent"],
     })
 
-    return updated
+    return this.prisma.accessSession.findUniqueOrThrow({ where: { id } })
   }
 
   // Escucha el mismo evento que ya emite support.service.ts en cada cambio de
@@ -211,17 +235,14 @@ export class AccessControlService {
     if (active.length === 0) return
 
     for (const session of active) {
-      // Compare-and-swap por fila (WHERE incluye el status leído): si el
-      // barrido de expiración proactiva (u otra llamada solapada de este mismo
-      // método) ya transicionó esta fila entre el findMany y este update,
-      // count da 0 y se salta — sin pisar el estado real ni duplicar la
-      // auditoría. Antes era un updateMany por id sin este guard, que sí podía
-      // sobreescribir un EXPIRADO recién puesto por el job.
-      const { count } = await this.prisma.accessSession.updateMany({
-        where: { id: session.id, status: session.status },
-        data: { status: AccessSessionStatus.REVOCADO, revokedAt: new Date(), revokedReason: reason },
+      const won = await this.transitionAccessSession(session, {
+        status: AccessSessionStatus.REVOCADO,
+        revokedAt: new Date(),
+        revokedReason: reason,
       })
-      if (count === 0) continue
+      if (!won) continue
+
+      await this.cancelExpiryJob(session.id)
 
       await this.audit.record({
         tenantId: session.tenantId,
@@ -262,6 +283,8 @@ export class AccessControlService {
         expiresAt,
       },
     })
+
+    await this.scheduleExpiryJob(session.id, expiresAt)
 
     await this.audit.record({
       tenantId: ticket.tenantId,
@@ -304,7 +327,7 @@ export class AccessControlService {
   // siempre refleja la sesión que realmente está aplicando DataScopeGuard para
   // ESTE JWT, aunque el agente tenga otra sesión activa por otro ticket. Resuelve
   // la expiración de forma perezosa: si CONCEDIDO/EMERGENCIA ya venció, la marca
-  // EXPIRADO al leerla en vez de depender de un job en segundo plano.
+  // EXPIRADO al leerla en vez de depender solo del job en segundo plano.
   async getActiveForCurrentUser(user: RequestUser) {
     if (!user.isImpersonated || !user.ticketId) return null
 
@@ -371,18 +394,33 @@ export class AccessControlService {
     return session
   }
 
+  // Único punto de escritura del status de una AccessSession activa
+  // (CONCEDIDO/EMERGENCIA -> lo que sea). Compare-and-swap: el WHERE incluye
+  // el status que se leyó, así que si otra ruta ya transicionó la fila entre
+  // la lectura y este intento, count da 0 y el caller sabe que perdió la
+  // carrera en vez de pisar un estado que ya no es el que creía. Consumida por
+  // expireSessionById, revokeAllForTicket, resolveExpiration y revoke() — es
+  // la única escritura directa de `status` fuera de requestAccess/approve/deny
+  // (que parten de SOLICITADO, sin escritores concurrentes posibles).
+  private async transitionAccessSession(
+    session: { id: string; status: AccessSessionStatus },
+    data: Prisma.AccessSessionUpdateInput,
+  ): Promise<boolean> {
+    const { count } = await this.prisma.accessSession.updateMany({
+      where: { id: session.id, status: session.status },
+      data,
+    })
+    return count === 1
+  }
+
   // Genérico para no perder relaciones incluidas (requestedBy/approvedBy en
   // listForTicket): en vez de reemplazar el objeto con el resultado plano del
   // update, solo se sobreescribe el status sobre el objeto original.
   //
-  // Red de seguridad además del job de expireOverdueSessions(), no un
-  // reemplazo: si el job todavía no corrió su barrido cuando se lee esta fila
-  // (hasta EXPIRY_SWEEP_INTERVAL_MS de retraso), esto la marca EXPIRADO al
-  // vuelo para que un GET no muestre una sesión vencida como si siguiera
-  // activa. Nunca escribe en la bitácora — la auditoría de la expiración la
-  // registra el job (o queda sin registrar si nadie más volvió a leer esta
-  // fila antes de que el job la alcance, lo cual es aceptable: la sesión igual
-  // queda bloqueada de inmediato por DataScopeGuard vía expiresAt).
+  // Red de seguridad además del barrido y del job diferido por sesión, no un
+  // reemplazo de ninguno de los dos: si se lee esta fila antes de que
+  // cualquiera de ellos la alcance, esto la marca EXPIRADO al vuelo para que
+  // un GET no muestre una sesión vencida como si siguiera activa.
   private async resolveExpiration<T extends { id: string; status: AccessSessionStatus; expiresAt: Date | null }>(
     session: T,
   ): Promise<T> {
@@ -393,83 +431,141 @@ export class AccessControlService {
 
     if (!isExpired) return session
 
-    // Compare-and-swap: si el job (u otra llamada) ya cambió el status entre
-    // que se leyó esta fila y este intento, count da 0 y se relee el estado
-    // real en vez de asumir EXPIRADO a ciegas (podría ya estar REVOCADO).
-    const { count } = await this.prisma.accessSession.updateMany({
-      where: { id: session.id, status: session.status },
-      data: { status: AccessSessionStatus.EXPIRADO },
-    })
-    if (count === 0) {
-      const fresh = await this.prisma.accessSession.findUniqueOrThrow({
-        where: { id: session.id },
-        select: { status: true },
-      })
-      return { ...session, status: fresh.status }
-    }
+    const won = await this.expireSessionById(session.id)
+    if (won) return { ...session, status: AccessSessionStatus.EXPIRADO }
 
-    return { ...session, status: AccessSessionStatus.EXPIRADO }
+    // Perdió la carrera contra el barrido, el job diferido o una revocación —
+    // se relee el estado real en vez de asumir EXPIRADO a ciegas (podría estar
+    // REVOCADO).
+    const fresh = await this.prisma.accessSession.findUniqueOrThrow({
+      where: { id: session.id },
+      select: { status: true },
+    })
+    return { ...session, status: fresh.status }
+  }
+
+  // Único punto que expira una AccessSession con TODOS sus efectos:
+  // transición CONCEDIDO/EMERGENCIA -> EXPIRADO (compare-and-swap vía
+  // transitionAccessSession), revocación de las AuthSession de impersonación
+  // asociadas, auditoría "support.access.expired" y notificación en tiempo
+  // real al room del ticket. Lo llaman el barrido periódico
+  // (expireOverdueSessions), el job diferido por sesión y resolveExpiration()
+  // — cualquiera que gane la transición hace todo el trabajo una sola vez; los
+  // demás ven `false` y no hacen nada más. Así una sesión nunca produce más de
+  // un "support.access.expired" ni revoca sus AuthSession dos veces, sin
+  // importar cuál de los tres caminos llegue primero.
+  async expireSessionById(id: string): Promise<boolean> {
+    const session = await this.prisma.accessSession.findUnique({
+      where: { id },
+      select: { id: true, status: true, tenantId: true, ticketId: true, requestedById: true, scope: true, expiresAt: true },
+    })
+    if (!session) return false
+    if (session.status !== AccessSessionStatus.CONCEDIDO && session.status !== AccessSessionStatus.EMERGENCIA) return false
+    // Defensivo: el job diferido está programado para disparar justo a
+    // tiempo, pero si por lo que sea corre antes (reloj del worker adelantado,
+    // reintento inmediato de BullMQ), no expira una sesión que todavía es válida.
+    if (!session.expiresAt || session.expiresAt.getTime() > Date.now()) return false
+
+    const won = await this.transitionAccessSession(session, { status: AccessSessionStatus.EXPIRADO })
+    if (!won) return false
+
+    // Si fue el barrido (o la resolución perezosa) quien ganó la transición
+    // — no el propio job diferido de esta sesión — el job diferido original
+    // sigue pendiente en Redis apuntando a una sesión que ya no existe como
+    // CONCEDIDO/EMERGENCIA. No es un problema de corrección (expireSessionById
+    // es un no-op seguro si llega a disparar igual), pero lo cancela para no
+    // dejar basura acumulándose en la cola. Si SÍ fue el job diferido quien
+    // ganó, esto es un no-op (BullMQ ya lo retira solo por removeOnComplete).
+    await this.cancelExpiryJob(session.id)
+
+    const revoked = await this.prisma.authSession.updateMany({
+      where: {
+        ticketId: session.ticketId,
+        userId: session.requestedById,
+        isImpersonated: true,
+        revokedAt: null,
+      },
+      data: { revokedAt: new Date() },
+    })
+
+    // Distinto de "support.access.revoked" (revocación manual o por cierre de
+    // ticket) a propósito: esto lo disparó el paso del tiempo, no una decisión
+    // de una persona.
+    await this.audit.record({
+      tenantId: session.tenantId,
+      userId: session.requestedById,
+      action: "support.access.expired",
+      entityType: "AccessSession",
+      entityId: session.id,
+      newValues: { scope: session.scope, ticketId: session.ticketId, authSessionsRevoked: revoked.count },
+    })
+
+    // Tiempo real: SupportGateway reenvía esto al room `ticket:${ticketId}`
+    // (el mismo que ya existe para el chat, sin ampliar el modelo de rooms)
+    // para que el banner de quien está impersonando reaccione sin esperar a
+    // su próximo request.
+    this.eventEmitter.emit("support.access.expired", {
+      ticketId: session.ticketId,
+      accessSessionId: session.id,
+      scope: session.scope,
+    })
+
+    return true
   }
 
   // Barrido proactivo (llamado por AccessSessionExpiryProcessor cada
-  // EXPIRY_SWEEP_INTERVAL_MS): marca EXPIRADO toda AccessSession CONCEDIDO o
-  // EMERGENCIA vencida y revoca las AuthSession de impersonación asociadas —
-  // sin esto, un refresh() nunca llega a evaluarse mientras nadie llame a la
-  // API entre la expiración y el próximo intento de refresh, dejando la
-  // AuthSession "viva" en la base aunque ya no sirva para nada (DataScopeGuard
-  // igual la bloquearía por expiresAt, pero la fila queda huérfana).
-  //
-  // Idempotente y seguro ante solapes: cada fila se transiciona con un
-  // compare-and-swap por status (WHERE incluye el status leído en el
-  // findMany). Si dos corridas del job se solapan, o el job corre a la vez que
-  // la resolución perezosa o una revocación manual, como mucho una de ellas
-  // gana el update — las demás ven count=0 y se saltan esa fila sin auditar
-  // ni revocar AuthSession dos veces.
-  async expireOverdueSessions(): Promise<{ expiredSessions: number; revokedAuthSessions: number }> {
-    const now = new Date()
+  // EXPIRY_SWEEP_INTERVAL_MS): red de seguridad para toda AccessSession
+  // CONCEDIDO/EMERGENCIA vencida cuyo job diferido no disparó (proceso caído
+  // entre que se programó y que debía dispararse, Redis reiniciado sin
+  // persistir, etc.). Cada candidata se procesa vía expireSessionById(), que
+  // ya es idempotente por diseño.
+  async expireOverdueSessions(): Promise<{ expiredSessions: number }> {
     const candidates = await this.prisma.accessSession.findMany({
       where: {
         status: { in: [AccessSessionStatus.CONCEDIDO, AccessSessionStatus.EMERGENCIA] },
-        expiresAt: { lte: now },
+        expiresAt: { lte: new Date() },
       },
-      select: { id: true, status: true, tenantId: true, ticketId: true, requestedById: true, scope: true },
+      select: { id: true },
     })
 
     let expiredSessions = 0
-    let revokedAuthSessions = 0
-
     for (const candidate of candidates) {
-      const { count } = await this.prisma.accessSession.updateMany({
-        where: { id: candidate.id, status: candidate.status },
-        data: { status: AccessSessionStatus.EXPIRADO },
-      })
-      if (count === 0) continue
-      expiredSessions++
-
-      const revoked = await this.prisma.authSession.updateMany({
-        where: {
-          ticketId: candidate.ticketId,
-          userId: candidate.requestedById,
-          isImpersonated: true,
-          revokedAt: null,
-        },
-        data: { revokedAt: now },
-      })
-      revokedAuthSessions += revoked.count
-
-      // Distinto de "support.access.revoked" (revocación manual o por cierre
-      // de ticket) a propósito: esto lo disparó el paso del tiempo, no una
-      // decisión de una persona.
-      await this.audit.record({
-        tenantId: candidate.tenantId,
-        userId: candidate.requestedById,
-        action: "support.access.expired",
-        entityType: "AccessSession",
-        entityId: candidate.id,
-        newValues: { scope: candidate.scope, ticketId: candidate.ticketId, authSessionsRevoked: revoked.count },
-      })
+      if (await this.expireSessionById(candidate.id)) expiredSessions++
     }
 
-    return { expiredSessions, revokedAuthSessions }
+    return { expiredSessions }
+  }
+
+  private expiryJobId(accessSessionId: string) {
+    // Sin ":" a propósito: BullMQ rechaza jobId personalizados que lo
+    // contengan ("Custom Id cannot contain :") — lo usa como separador interno
+    // para sus propias claves. reports.service.ts#schedulerJobId tiene el
+    // mismo patrón con ":" y probablemente el mismo problema latente, pero
+    // tocar ese módulo queda fuera del alcance de este cierre.
+    return `access-session-expire-${accessSessionId}`
+  }
+
+  // Job diferido puntual, programado al conceder (approve/breakGlass) con
+  // delay = la ventana real de la sesión. jobId estable por sesión: un
+  // approve() nunca re-programa la misma sesión dos veces (cada sesión solo
+  // se concede una vez), pero el jobId estable de todas formas dobla como
+  // protección barata si algo llegara a llamarlo dos veces.
+  private async scheduleExpiryJob(accessSessionId: string, expiresAt: Date) {
+    const delay = Math.max(0, expiresAt.getTime() - Date.now())
+    await this.expiryQueue.add(
+      "expire-one",
+      { accessSessionId },
+      { jobId: this.expiryJobId(accessSessionId), delay, removeOnComplete: true, removeOnFail: true },
+    )
+  }
+
+  // Se llama desde toda transición terminal previa al vencimiento (revoke,
+  // revokeAllForTicket) para no dejar un job diferido "vivo" en Redis
+  // apuntando a una sesión que ya no está CONCEDIDO/EMERGENCIA. No es
+  // estrictamente necesario para la corrección (expireSessionById es un no-op
+  // seguro si la sesión ya no está activa cuando el job dispara), pero evita
+  // acumular jobs diferidos muertos en la cola indefinidamente.
+  private async cancelExpiryJob(accessSessionId: string) {
+    await this.expiryQueue.remove(this.expiryJobId(accessSessionId)).catch(() => {})
   }
 }
