@@ -15,6 +15,7 @@ const TEACHER_EMAIL = "teacher.e2e@classia.test";
 const GUARDIAN_EMAIL = "guardian.e2e@classia.test";
 const CLASSMATE_GUARDIAN_EMAIL = "classmate-guardian.e2e@classia.test";
 const OTHER_TEACHER_EMAIL = "other-teacher.e2e@classia.test";
+const SUPPORT_AGENT_EMAIL = "support-agent.e2e@classia.test";
 
 type ApiResponse<T> = {
   status: number;
@@ -846,6 +847,18 @@ async function ensureDemoE2eUsers(prisma: PrismaService) {
     lastName: "E2E",
     passwordHash,
     role: UserRole.TEACHER,
+  });
+  // Segunda cuenta de soporte (distinta de la SUPER_ADMIN sembrada por
+  // packages/database/prisma/seed.ts) para poder probar, con dos identidades
+  // reales, la rama "es del equipo de soporte pero no soy yo" del chat de
+  // soporte (ver apps/web/components/support/SupportChatThread.tsx).
+  await ensureUserWithMembership(prisma, {
+    tenantId: tenant.id,
+    email: SUPPORT_AGENT_EMAIL,
+    firstName: "Support Agent",
+    lastName: "E2E",
+    passwordHash,
+    role: UserRole.SUPPORT_AGENT,
   });
 }
 
