@@ -82,6 +82,9 @@ export class NotificationsProcessor extends WorkerHost {
           attempts: { increment: 1 },
         },
       });
+      // Fallo permanente (4xx de Resend salvo 429): no relanzar, reintentar no
+      // ayuda y solo quemaría los 5 intentos con backoff. Los transitorios sí.
+      if (result.permanent) return;
       throw new Error(result.error ?? "email failed"); // que BullMQ reintente
     }
   }
