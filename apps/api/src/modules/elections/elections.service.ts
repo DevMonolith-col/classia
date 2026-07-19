@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { ElectionStatus, Prisma, UserRole } from "@prisma/client"
 import { Request } from "express"
 import { RequestUser } from "../../common/types/request-context"
+import { PERMISSIONS } from "../../common/permissions/permissions"
 import { AuditService } from "../../core/audit/audit.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
 import { AddCandidateInput, CreateElectionInput, UpdateElectionInput } from "./elections.schemas"
@@ -349,7 +350,10 @@ export class ElectionsService {
     if (election.status === ElectionStatus.PUBLISHED) {
       // cualquier miembro del tenant puede ver resultados publicados
     } else if (election.status === ElectionStatus.CLOSED) {
-      if (actor.role !== UserRole.TENANT_ADMIN && actor.role !== UserRole.PRINCIPAL && actor.role !== UserRole.SUPER_ADMIN) {
+      // El escrutinio pre-publicación lo ve quien gestiona la elección. Se gatea
+      // por permiso (ELECTIONS_MANAGE = "ver escrutinio") y no por roles fijos, para
+      // que un rol personalizado con ese permiso también pueda verlo.
+      if (!actor.permissions?.includes(PERMISSIONS.ELECTIONS_MANAGE)) {
         throw new ForbiddenException("Los resultados aún no se han publicado")
       }
     } else {
