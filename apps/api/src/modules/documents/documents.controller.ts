@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Put, UseGuards } from "@nestjs/common"
+import { Throttle, ThrottlerGuard } from "@nestjs/throttler"
 import { DocumentType } from "@prisma/client"
 import { CurrentUser } from "../../common/decorators/current-user.decorator"
 import { Permissions } from "../../common/decorators/permissions.decorator"
@@ -68,7 +69,10 @@ export class DocumentsController {
 
   // Pública: un tercero (universidad, entidad) verifica un PDF impreso sin
   // sesión. No exponer nada que no vaya ya impreso en el propio documento.
+  // Rate-limit por IP (defensa en profundidad contra enumeración del código).
   @Get("verify/:code")
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   verify(@Param("code") code: string) {
     return this.documents.verify(code)
   }
