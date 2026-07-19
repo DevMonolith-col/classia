@@ -83,7 +83,7 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
   const router    = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    "Académico": true,
+    "Académico": false,
     "Comunidad": false,
     "Comunicación": false,
     "Administración": false,
