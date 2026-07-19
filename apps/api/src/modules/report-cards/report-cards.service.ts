@@ -32,7 +32,14 @@ export type ComputedReportCard = {
   lines: SubjectLine[];
 };
 
-type PreloadedMark = { subjectId: string; period: number; categoryId: string | null; value: number; maxValue: number };
+type PreloadedMark = {
+  subjectId: string;
+  period: number;
+  categoryId: string | null;
+  value: number;
+  maxValue: number;
+  homework: { weight: number } | null;
+};
 type PreloadedCategory = { id: string; subjectId: string; periodId: string; weight: number };
 
 @Injectable()
@@ -71,9 +78,11 @@ export class ReportCardsService {
   /**
    * Fracción (0..1) lograda por un estudiante en una materia y periodo, calculada
    * EN MEMORIA sobre las notas y categorías ya precargadas (ver compute()). Usa las
-   * categorías ponderadas del profesor si existen (promediando las notas de cada una
-   * y ponderando por su weight); si no hay categorías, o hay pero sin notas
-   * asignadas, cae a un promedio simple de las notas del periodo. null si no hay notas.
+   * categorías ponderadas del profesor si existen; si no (el caso actual, sin UI de
+   * categorías todavía), pondera por el peso de cada tarea (`homework.weight`), el
+   * MISMO criterio que el preview del frontend (`lib/grading.ts`) para que la vista
+   * previa coincida con el boletín oficial. Una nota sin tarea (manual) cuenta con
+   * peso 1. null si no hay notas.
    * Antes era una query por (materia × periodo × categoría), lo que producía un N+1
    * severo en la generación masiva.
    */
@@ -100,10 +109,18 @@ export class ReportCardsService {
       if (weightWithMarks > 0) return weightedSum / weightWithMarks;
     }
 
-    // Sin categorías (o con categorías pero sin notas categorizadas): promedio
-    // simple de las notas del periodo por secuencia.
+    // Ponderado por el peso de cada tarea, igual que lib/grading.ts. Sin peso
+    // (>0) la nota cuenta con peso 1 (equitativo), como en el frontend.
     const periodMarks = marks.filter((m) => m.subjectId === subjectId && m.period === periodSequence);
-    return periodMarks.length > 0 ? this.mean(periodMarks.map((m) => m.value / m.maxValue)) : null;
+    if (periodMarks.length === 0) return null;
+    let weighted = 0;
+    let totalWeight = 0;
+    for (const m of periodMarks) {
+      const w = m.homework && m.homework.weight > 0 ? m.homework.weight : 1;
+      weighted += (m.value / m.maxValue) * w;
+      totalWeight += w;
+    }
+    return totalWeight > 0 ? weighted / totalWeight : null;
   }
 
   // ── Cálculo de un boletín (periodo o año) sin persistir ──────────────────
@@ -126,7 +143,14 @@ export class ReportCardsService {
       ? await Promise.all([
           this.prisma.mark.findMany({
             where: { studentId, academicYearId: year.id, isPublished: true },
-            select: { subjectId: true, period: true, categoryId: true, value: true, maxValue: true },
+            select: {
+              subjectId: true,
+              period: true,
+              categoryId: true,
+              value: true,
+              maxValue: true,
+              homework: { select: { weight: true } }, // para ponderar por peso de tarea
+            },
           }),
           this.prisma.gradingCategory.findMany({
             where: { groupId: student.groupId, periodId: { in: year.periods.map((p) => p.id) } },
