@@ -53,6 +53,8 @@ export function TicketSidebar({ basePath, isTenant = false }: { basePath: string
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "ALL">("ALL")
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL")
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("ALL")
+  const [agents, setAgents] = useState<any[]>([])
   const [socket, setSocket] = useState<Socket | null>(null)
   
   const { id: activeTicketId } = useParams() as { id?: string }
@@ -62,10 +64,20 @@ export function TicketSidebar({ basePath, isTenant = false }: { basePath: string
     async function fetchTickets() {
       try {
         setLoading(true)
-        const res = await apiFetch("/support/tickets")
-        if (!res.ok) throw new Error("Error al cargar los tickets")
-        const data = await res.json()
+        const fetchPromises: Promise<Response>[] = [apiFetch("/support/tickets")]
+        if (!isTenant) {
+          fetchPromises.push(apiFetch("/support/agents"))
+        }
+        
+        const [ticketsRes, agentsRes] = await Promise.all(fetchPromises)
+        if (!ticketsRes.ok) throw new Error("Error al cargar los tickets")
+        const data = await ticketsRes.json()
         if (!cancelled) setTickets(data)
+
+        if (!isTenant && agentsRes && agentsRes.ok) {
+          const agentsData = await agentsRes.json()
+          if (!cancelled) setAgents(agentsData)
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Error")
       } finally {
@@ -109,6 +121,7 @@ export function TicketSidebar({ basePath, isTenant = false }: { basePath: string
   const filteredTickets = tickets.filter(t => {
     if (statusFilter !== "ALL" && t.status !== statusFilter) return false
     if (categoryFilter !== "ALL" && t.category !== categoryFilter) return false
+    if (assigneeFilter !== "ALL" && (assigneeFilter === "UNASSIGNED" ? t.assignee : t.assignee?.id !== assigneeFilter)) return false
     if (search) {
       const q = search.toLowerCase()
       if (!t.title.toLowerCase().includes(q) && !(t.tenant?.name || "").toLowerCase().includes(q)) return false
@@ -176,6 +189,21 @@ export function TicketSidebar({ basePath, isTenant = false }: { basePath: string
             ))}
           </SelectContent>
         </Select>
+
+        {!isTenant && (
+          <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+            <SelectTrigger className="h-8 w-full text-xs">
+              <SelectValue placeholder="Asignado a" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Cualquiera (Agente)</SelectItem>
+              <SelectItem value="UNASSIGNED">Sin asignar</SelectItem>
+              {agents.map((agent) => (
+                <SelectItem key={agent.id} value={agent.id}>{agent.firstName} {agent.lastName}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
