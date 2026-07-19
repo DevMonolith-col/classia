@@ -68,9 +68,11 @@ export function middleware(request: NextRequest) {
       const currentSection = PROTECTED_SECTIONS.find((s) => pathname.startsWith(s))
 
       if (correctSection && currentSection && currentSection !== correctSection) {
-        // Permitir que el personal de plataforma acceda a /admin (modo impersonación)
+        // Permitir que quien puede impersonar acceda a /admin (modo impersonación).
+        // Alineado con el backend (auth.service.impersonate): solo SUPER_ADMIN y
+        // SUPPORT_SUPERVISOR pueden entrar al colegio; el agente no.
         if (
-          (payload.role === "SUPER_ADMIN" || payload.role === "SUPPORT_SUPERVISOR" || payload.role === "SUPPORT_AGENT") &&
+          (payload.role === "SUPER_ADMIN" || payload.role === "SUPPORT_SUPERVISOR") &&
           currentSection === "/admin"
         ) {
           return NextResponse.next()
