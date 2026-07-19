@@ -4,6 +4,7 @@ import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { NotificationChannel, NotificationEventType } from "@prisma/client";
 import { Queue } from "bullmq";
 import { RequestUser } from "../../common/types/request-context";
+import { buildJobId } from "../../core/queue/job-id";
 import { PrismaService } from "../../core/prisma/prisma.service";
 import { UpdatePreferenceInput } from "./notifications.schemas";
 
@@ -73,7 +74,11 @@ export class NotificationsService {
             name: "dispatch",
             data: { deliveryId: d.id },
             opts: {
-              jobId: d.id,
+              // d.id ya es un randomUUID(), nunca trae ":" — se pasa por
+              // buildJobId() igual que el resto de las colas para que todo
+              // jobId personalizado del repo se arme de la misma forma (ver
+              // core/queue/job-id.ts).
+              jobId: buildJobId(d.id),
               attempts: 5,
               backoff: { type: "exponential" as const, delay: 2000 },
               removeOnComplete: true,

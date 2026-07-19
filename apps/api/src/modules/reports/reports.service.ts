@@ -5,6 +5,7 @@ import { AttendanceStatus, ReportFrequencyType, ReportType, UserRole } from "@pr
 import { Request } from "express"
 import { RequestUser } from "../../common/types/request-context"
 import { AuditService } from "../../core/audit/audit.service"
+import { buildJobId } from "../../core/queue/job-id"
 import { PrismaService } from "../../core/prisma/prisma.service"
 import { StorageService } from "../../core/storage/storage.service"
 import { ReportCardsService } from "../report-cards/report-cards.service"
@@ -288,7 +289,11 @@ export class ReportsService {
   }
 
   private schedulerJobId(scheduleId: string, runAt: Date) {
-    return `schedule:${scheduleId}:${runAt.getTime()}`
+    // Antes: `schedule:${scheduleId}:${runAt.getTime()}` — BullMQ rechaza ":"
+    // en un jobId personalizado ("Custom Id cannot contain :"), así que esto
+    // nunca había logrado programar un reporte con éxito (0 filas en
+    // report_schedules, sin rastro en Redis). Ver core/queue/job-id.ts.
+    return buildJobId("schedule", scheduleId, runAt.getTime())
   }
 
   private async tenantTimezone(tenantId: string): Promise<string> {

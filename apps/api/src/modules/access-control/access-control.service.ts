@@ -5,6 +5,7 @@ import { AccessScope, AccessSessionStatus, NotificationEventType, Prisma, UserRo
 import { Queue } from "bullmq"
 import { Request } from "express"
 import { AuditService } from "../../core/audit/audit.service"
+import { buildJobId } from "../../core/queue/job-id"
 import { PrismaService } from "../../core/prisma/prisma.service"
 import { NotificationsService } from "../notifications/notifications.service"
 import { RequestUser } from "../../common/types/request-context"
@@ -537,12 +538,10 @@ export class AccessControlService {
   }
 
   private expiryJobId(accessSessionId: string) {
-    // Sin ":" a propósito: BullMQ rechaza jobId personalizados que lo
-    // contengan ("Custom Id cannot contain :") — lo usa como separador interno
-    // para sus propias claves. reports.service.ts#schedulerJobId tiene el
-    // mismo patrón con ":" y probablemente el mismo problema latente, pero
-    // tocar ese módulo queda fuera del alcance de este cierre.
-    return `access-session-expire-${accessSessionId}`
+    // Ver core/queue/job-id.ts: BullMQ rechaza ":" en un jobId personalizado.
+    // reports.service.ts#schedulerJobId tenía el mismo bug — ya corregido, ver
+    // ese archivo — y ambos ahora pasan por el mismo helper.
+    return buildJobId("access-session-expire", accessSessionId)
   }
 
   // Job diferido puntual, programado al conceder (approve/breakGlass) con

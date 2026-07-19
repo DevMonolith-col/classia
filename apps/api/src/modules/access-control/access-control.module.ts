@@ -4,6 +4,7 @@ import { JwtModule } from "@nestjs/jwt"
 import { Queue } from "bullmq"
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard"
 import { AuditCoreModule } from "../../core/audit/audit-core.module"
+import { buildJobId } from "../../core/queue/job-id"
 import { NotificationsModule } from "../notifications/notifications.module"
 import { AccessControlController } from "./access-control.controller"
 import { AccessSessionExpiryProcessor } from "./access-session-expiry.processor"
@@ -25,14 +26,15 @@ export class AccessControlModule implements OnModuleInit {
 
   // jobId estable: si el proceso se reinicia, BullMQ no duplica el scheduler
   // repetible — lo reconoce como el mismo y lo deja como está en vez de crear
-  // uno nuevo en paralelo.
+  // uno nuevo en paralelo. Sin ":" (ver core/queue/job-id.ts), aunque acá nunca
+  // hubo bug real: es una sola parte fija, sin separador que pudiera fallar.
   async onModuleInit() {
     await this.queue.add(
       "sweep",
       {},
       {
         repeat: { every: EXPIRY_SWEEP_INTERVAL_MS },
-        jobId: "access-session-expiry-sweep",
+        jobId: buildJobId("access-session-expiry-sweep"),
         removeOnComplete: true,
         removeOnFail: true,
       },
