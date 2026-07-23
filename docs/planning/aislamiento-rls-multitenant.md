@@ -40,6 +40,30 @@ la extensión es sólo conveniencia de desarrollo.
 Cada punto de acá se descubrió cuestionando la versión anterior del plan hasta
 que dejó de tener huecos. Quedan documentados para que nadie los reintroduzca:
 
+0. **(La más severa, encontrada recién al validar Fase 4 en vivo, 2026-07-22.)
+   El rol "classia" es SUPERUSER de Postgres.** Es el usuario de bootstrap
+   de la imagen oficial de `postgres` (`POSTGRES_USER` en
+   `docker-compose.yml`), y un superuser **siempre** ignora Row-Level
+   Security — ni `FORCE ROW LEVEL SECURITY` lo cambia (FORCE solo quita la
+   excepción de "dueño de tabla", no la de superuser). Sin esto, **todo el
+   plan sería un no-op silencioso**: las políticas existirían en el schema,
+   `tsc` compilaría, todo se vería correcto, y ninguna fila quedaría
+   protegida — el peor tipo de falla posible para un control de seguridad
+   (parece que funciona, no funciona). Confirmado con una prueba directa
+   contra Postgres (tabla de prueba con FORCE RLS: como "classia" devolvió
+   todas las filas de todos los tenants sin importar el contexto; como el
+   nuevo rol "classia_app", sin privilegios de superuser, devolvió cero
+   filas sin contexto y solo las correctas con `SET LOCAL`). **Se soluciona
+   con dos roles separados**: "classia" (superuser, dueño de las tablas)
+   sigue corriendo `prisma migrate` — las migraciones necesitan esos
+   privilegios para `ALTER TABLE`/`CREATE POLICY`. La APP en runtime se
+   conecta con un rol nuevo, "classia_app" (`NOSUPERUSER NOBYPASSRLS`,
+   migración `20260722120000_rls_app_roles`, ya aplicada) vía una variable
+   de entorno nueva, `DATABASE_URL_APP` — nunca con `DATABASE_URL`. Esto es
+   universal, no un detalle de este repo: cualquier despliegue que use el
+   usuario de bootstrap de Postgres como conexión de la app tiene este
+   mismo problema.
+
 1. **El dueño de la tabla ignora RLS por default en Postgres.** El rol `classia`
    (con el que corren las migraciones) es dueño de las 32+ tablas. Sin
    `ALTER TABLE ... FORCE ROW LEVEL SECURITY` explícito, las políticas existen
