@@ -4,6 +4,8 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { GenerateReportCardInput } from "./report-cards.schemas";
 
 type ScaleWithBands = {
@@ -47,6 +49,7 @@ export class ReportCardsService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   // ── Motor de cálculo ─────────────────────────────────────────────────────
@@ -235,7 +238,7 @@ export class ReportCardsService {
 
     const overall = computed.overallAverage ?? 0;
     const buildCard = () =>
-      this.prisma.$transaction(async (tx) => {
+      runInTenantTransaction(this.prisma, this.tenantRlsContext, student.tenantId, async (tx) => {
         if (existing) await tx.reportCard.delete({ where: { id: existing.id } });
         return tx.reportCard.create({
           data: {

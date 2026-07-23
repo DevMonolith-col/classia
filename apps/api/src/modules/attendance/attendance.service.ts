@@ -5,6 +5,8 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import {
   AttendanceAbsenceEvent,
   NOTIFICATION_EVENTS,
@@ -22,6 +24,7 @@ export class AttendanceService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   async listSessions(actor: RequestUser, query: ListSessionsQuery) {
@@ -226,9 +229,9 @@ export class AttendanceService {
       throw new ForbiddenException("One or more students are outside of this session's group.");
     }
 
-    await this.prisma.$transaction(
-      input.records.map((record) =>
-        this.prisma.attendanceRecord.upsert({
+    await runInTenantTransaction(this.prisma, this.tenantRlsContext, session.tenantId, async (tx) => {
+      for (const record of input.records) {
+        await tx.attendanceRecord.upsert({
           where: { sessionId_studentId: { sessionId, studentId: record.studentId } },
           update: { status: record.status, observation: record.observation },
           create: {
@@ -238,9 +241,9 @@ export class AttendanceService {
             status: record.status,
             observation: record.observation,
           },
-        }),
-      ),
-    );
+        });
+      }
+    });
 
     const updated = await this.prisma.attendanceSession.findUniqueOrThrow({
       where: { id: sessionId },

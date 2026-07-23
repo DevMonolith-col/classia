@@ -5,6 +5,8 @@ import { Request } from "express"
 import { RequestUser } from "../../common/types/request-context"
 import { AuditService } from "../../core/audit/audit.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction"
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service"
 import { CreateTicketDto, UpdateTicketStatusDto, CreateCommentDto } from "./support.schemas"
 
 const SUPPORT_STAFF_ROLES: UserRole[] = [UserRole.SUPER_ADMIN, UserRole.SUPPORT_SUPERVISOR, UserRole.SUPPORT_AGENT]
@@ -21,6 +23,7 @@ export class SupportService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly audit: AuditService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   async createTicket(tenantId: string, userId: string, data: CreateTicketDto, actor: RequestUser, request: Request) {
@@ -175,7 +178,7 @@ export class SupportService {
     // If not superadmin, force isInternal to false
     const isInternal = isSuperAdmin ? data.isInternal : false
 
-    const newComment = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const newComment = await runInTenantTransaction(this.prisma, this.tenantRlsContext, ticket.tenantId, async (tx) => {
       const comment = await tx.ticketComment.create({
         data: {
           ticketId,
