@@ -72,7 +72,7 @@ export class DocumentsService {
       },
     })
 
-    await this.queue.add("generate", { issuanceId: issuance.id }, GENERATE_JOB_OPTIONS)
+    await this.queue.add("generate", { issuanceId: issuance.id, tenantId: actor.tenantId }, GENERATE_JOB_OPTIONS)
 
     return issuance
   }
@@ -120,7 +120,7 @@ export class DocumentsService {
       where: { id: issuanceId },
       data: { status: "PENDING", errorMessage: null },
     })
-    await this.queue.add("generate", { issuanceId: updated.id }, GENERATE_JOB_OPTIONS)
+    await this.queue.add("generate", { issuanceId: updated.id, tenantId: actor.tenantId }, GENERATE_JOB_OPTIONS)
     return updated
   }
 

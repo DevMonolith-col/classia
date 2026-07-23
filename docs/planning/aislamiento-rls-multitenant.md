@@ -261,18 +261,19 @@ NO cubre:
    se hizo — es la condición de cierre real de Fase 4/6 antes de poder
    aplicar el SQL de Fase 2 sin romper funcionalidad existente de soporte.
 
-**Orden real de aplicación**: Fase 4 completa — mecanismo central, los 18
-sitios de `$transaction` migrados, extensión+interceptor conectados a la
-app real, cliente `classia_platform_admin` real levantado (**todo hecho y
-verificado en vivo**, 2026-07-22) → Fase 6 (tenantId en job.data + el job
-sweep usando el cliente bypass — **pendiente**) → auditoría de los 26
-puntos cross-tenant de SUPER_ADMIN/soporte (**pendiente**, la pieza que
-más criterio necesita) → **recién ahí** aplicar el SQL de esta Fase 2 al
-entorno de dev → verificación en vivo (login normal, panel SUPER_ADMIN,
-soporte, un flujo de pagos, una votación, un reporte generado, el sweep de
-accesos). Si algo falla en esa verificación, el rollback es `DISABLE ROW
-LEVEL SECURITY` + `DROP POLICY` tabla por tabla (no destructivo, no toca
-datos).
+**Orden real de aplicación**: Fase 4 completa (mecanismo central, los 18
+sitios de `$transaction`, extensión+interceptor conectados, cliente
+`classia_platform_admin` real) → Fase 6 completa (tenantId en job.data de
+los 4 processors, `reconcileSchedulers` y el sweep de accesos usando el
+cliente bypass) — **ambas hechas y verificadas en vivo**, 2026-07-22 →
+auditoría de los 26 puntos cross-tenant de SUPER_ADMIN/soporte
+(**pendiente — el único paso que falta antes de aplicar el SQL**, y el que
+más criterio necesita, no es mecánico) → **recién ahí** aplicar el SQL de
+esta Fase 2 al entorno de dev → verificación en vivo (login normal, panel
+SUPER_ADMIN, soporte, un flujo de pagos, una votación, un reporte
+generado, el sweep de accesos). Si algo falla en esa verificación, el
+rollback es `DISABLE ROW LEVEL SECURITY` + `DROP POLICY` tabla por tabla
+(no destructivo, no toca datos).
 
 ### Fase 3 — Script de verificación exhaustivo
 Estado: ⏳ pendiente. `scripts/verify-rls.ts`: lista blanca explícita de lo
@@ -353,24 +354,48 @@ lint/CI en sí
 `prisma.$transaction` crudo — puramente preventivo hacia adelante.
 
 ### Fase 6 — BullMQ: contexto de tenant por job
-Estado: ⏳ pendiente. Ver el hallazgo en Fase 2 más arriba para el porqué.
+Estado: ✅ hecho y verificado en vivo (2026-07-22).
 
-Afecta 4 processors: `reports.processor.ts` (jobs `generate` y
-`scheduled-run`), `documents.processor.ts`, `notifications.processor.ts`,
-`access-session-expiry.processor.ts`.
+Los 4 processors afectados, todos con `tenantId` viajando en `job.data`
+desde que se encola (el código que encola siempre lo tiene a mano:
+`actor.tenantId` o el de la entidad recién creada), y `process()` envuelve
+el resto del job en `tenantRlsContext.runWithTenant(job.data.tenantId,
+...)` ANTES de la primera query:
 
-Para los primeros tres: agregar `tenantId` al `job.data` en cada punto
-donde se encola (`queue.add`/`addBulk`/`upsertJobScheduler` — el código que
-encola siempre tiene `actor.tenantId` o el `tenantId` de la entidad recién
-creada a mano), y al entrar al processor, envolver el resto de la lógica del
-job en el contexto de tenant (`tenantContext.run({tenantId: job.data.tenantId}, ...)`)
-ANTES de la primera query — incluyendo el `findUnique({where:{id}})` inicial
-que hoy no filtra por tenant.
+- `reports.processor.ts` — jobs `generate` y `scheduled-run`. También
+  `reconcileSchedulers()` (llamado al boot, `ReportsModule.onModuleInit`):
+  **hallazgo nuevo** — corre sin contexto de request y necesita ver los
+  schedules activos de TODOS los colegios, así que ahora usa
+  `PlatformAdminPrismaService` para esa lectura inicial. Y
+  `scheduleNextRun()` (compartido entre un request HTTP y el boot) ahora
+  establece su propio contexto explícitamente para su `update`, sin asumir
+  el del caller.
+- `documents.processor.ts` — job `generate`.
+- `notifications.processor.ts` — job `dispatch`.
+- `access-session-expiry.processor.ts` — el job `expire-one` sigue el mismo
+  patrón (tenantId conocido al programarlo en `scheduleExpiryJob`). El job
+  `sweep` es legítimamente cross-tenant: `expireOverdueSessions()` usa
+  `PlatformAdminPrismaService` **solo** para descubrir las candidatas de
+  todos los colegios (`select id, tenantId`), y el trabajo real de cada una
+  (`expireSessionById` — transición, revocar `AuthSession`, auditar) corre
+  scopeado al tenant de ESA sesión particular vía
+  `tenantRlsContext.runWithTenant`, no con bypass — el bypass solo abre la
+  puerta a encontrarlas, no se usa de más.
 
-Para `access-session-expiry.processor.ts`: el job `expire-one` sigue el
-mismo patrón (tenantId conocido al programarlo). El job `sweep` es
-legítimamente cross-tenant — usa el cliente `classia_platform_admin`
-(`BYPASSRLS`) de Fase 4, no contexto de un tenant.
+**Verificado en vivo** (job real de BullMQ ejecutándose, no solo tsc):
+generación de un reporte (PDF vía Puppeteer, `generate`), emisión de un
+certificado (`documents.processor.ts`), y publicación de un comunicado →
+`notify()` → job `dispatch` de `notifications.processor.ts` (confirmado en
+la tabla `notification_deliveries`: status `SKIPPED` con
+`error: "email provider 'disabled'"`, exactamente el comportamiento
+esperado en este entorno sin `EMAIL_PROVIDER` configurado — la fila se
+creó y el job la procesó correctamente end-to-end). Cero errores en los
+logs de la API. El boot de la API con `reconcileSchedulers()` usando el
+cliente de bypass también se probó en vivo sin errores.
+`expire-one`/`sweep` no se probaron en vivo (difícil de disparar sin
+esperar un vencimiento real o mockear tiempo) pero siguen exactamente el
+mismo patrón ya validado en los otros tres processors, y `tsc --noEmit`
+está en verde.
 
 ### Fase 7 — Test de regresión de aislamiento cross-tenant
 Estado: ⏳ pendiente. Se agrega a la suite e2e existente

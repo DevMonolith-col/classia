@@ -72,7 +72,7 @@ export class NotificationsService {
         await this.queue.addBulk(
           deliveryRows.map((d) => ({
             name: "dispatch",
-            data: { deliveryId: d.id },
+            data: { deliveryId: d.id, tenantId: params.tenantId },
             opts: {
               // d.id ya es un randomUUID(), nunca trae ":" — se pasa por
               // buildJobId() igual que el resto de las colas para que todo
