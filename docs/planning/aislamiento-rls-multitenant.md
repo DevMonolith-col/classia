@@ -81,15 +81,30 @@ que dejó de tener huecos. Quedan documentados para que nadie los reintroduzca:
    siguen la misma política simple en vez de políticas por-join (más lentas y
    más fáciles de escribir mal, una por una).
 
-3. **El wrapper no puede anidar transacciones.** `payments.service.ts`
-   (registrar pago, con `FOR UPDATE`), `elections.service.ts` (`castVote`) y
-   `report-cards.service.ts` (`generate`) ya abren su propia
-   `prisma.$transaction(async (tx) => {...})`. El cliente `tx` no tiene método
-   `.$transaction()` — no se puede abrir una transacción nueva desde adentro de
-   una que ya está abierta. Por eso el mecanismo NO es "envolver cada operación
-   suelta en su propia transacción" a ciegas: es un único wrapper sancionado
-   (`runInTenantTransaction`) que es la única forma de abrir una transacción de
-   negocio en todo el repo, y los tres servicios existentes se migran a usarlo.
+3. **El wrapper no puede anidar transacciones — y son 17 archivos, no 3.**
+   La versión original de este documento identificó `payments.service.ts`,
+   `elections.service.ts` y `report-cards.service.ts` como los únicos casos.
+   Un grep exhaustivo (`grep -rn "prisma\.\$transaction"`, 2026-07-22)
+   encontró **17 archivos** con `$transaction` crudo: los tres anteriores
+   más `academic.service.ts`, `attendance.service.ts` (2 sitios),
+   `conversations.service.ts` (2 sitios), `grading.service.ts` (3 sitios),
+   `homework-submissions.service.ts`, `marks.service.ts`,
+   `questions.service.ts`, `quiz-attempts.service.ts`,
+   `settings.service.ts`, `support.service.ts`. Validado en vivo (tabla de
+   prueba con RLS forzado + rol `classia_app`): una operación llamada
+   *dentro* de un `$transaction` crudo (forma array o forma interactiva)
+   corre en la conexión de ESA transacción, pero la extensión de Prisma
+   solo puede setear `app.tenant_id` abriendo SU PROPIA mini-transacción
+   nueva — que usaría una conexión DISTINTA del pool. El resultado no es
+   una fuga de datos (RLS sigue fallando cerrado: cero filas), pero SÍ
+   rompe la funcionalidad — cada uno de estos 17 sitios necesita migrarse a
+   `runInTenantTransaction` antes de poder aplicar el SQL de la Fase 2, no
+   solo los 3 originales. El wrapper detecta "ya estoy dentro de una
+   transacción sancionada" vía un flag explícito en el mismo contexto
+   (`AsyncLocalStorage`) que carga el `tenantId` — **no** inspeccionando el
+   cliente Prisma (`this` dentro de `$allOperations` no es el cliente, es
+   un array interno de argumentos; confirmado con una prueba directa, otro
+   supuesto que parecía razonable y no lo era).
 
 4. **Raw queries no pasan por `$allOperations`.** El `FOR UPDATE` de
    `payments.service.ts` es un `tx.$queryRaw`. Se resuelve solo, gratis, en
@@ -233,14 +248,18 @@ NO cubre:
    aplicar el SQL de Fase 2 sin romper funcionalidad existente de soporte.
 
 **Orden real de aplicación**: Fase 4 (mecanismo HTTP + extensión + wrapper
-+ cliente `classia_platform_admin` real) → Fase 6 (tenantId en job.data +
-el job sweep usando el cliente bypass) → auditoría de los 26 puntos
-cross-tenant de SUPER_ADMIN/soporte → **recién ahí** aplicar el SQL de esta
-Fase 2 al entorno de dev → verificación en vivo (login normal, panel
-SUPER_ADMIN, soporte, un flujo de pagos, una votación, un reporte
-generado, el sweep de accesos). Si algo falla en esa verificación, el
-rollback es `DISABLE ROW LEVEL SECURITY` + `DROP POLICY` tabla por tabla
-(no destructivo, no toca datos).
++ cliente `classia_platform_admin` real; mecanismo central ya validado en
+vivo el 2026-07-22 contra una tabla real con RLS temporal, revertida
+después de la prueba) → migrar los 17 archivos con `$transaction` crudo a
+`runInTenantTransaction` (ver trampa #3, esto es lo que antes se llamaba
+"Fase 5" pero en realidad es un prerrequisito de la Fase 2, no un lint
+posterior) → Fase 6 (tenantId en job.data + el job sweep usando el cliente
+bypass) → auditoría de los 26 puntos cross-tenant de SUPER_ADMIN/soporte →
+**recién ahí** aplicar el SQL de esta Fase 2 al entorno de dev →
+verificación en vivo (login normal, panel SUPER_ADMIN, soporte, un flujo
+de pagos, una votación, un reporte generado, el sweep de accesos). Si algo
+falla en esa verificación, el rollback es `DISABLE ROW LEVEL SECURITY` +
+`DROP POLICY` tabla por tabla (no destructivo, no toca datos).
 
 ### Fase 3 — Script de verificación exhaustivo
 Estado: ⏳ pendiente. `scripts/verify-rls.ts`: lista blanca explícita de lo
@@ -258,12 +277,17 @@ Entregables concretos:
    arranca el contexto desde `request.user.tenantId` para el resto del
    request.
 3. Prisma Client Extension (`$allModels.$allOperations`) que, si hay
-   contexto activo, corre `SET LOCAL app.tenant_id` antes de cada
-   operación. Detecta si ya está corriendo dentro de una transacción
-   abierta por `runInTenantTransaction` (`typeof this.$transaction ===
-   "function"` distingue el cliente top-level del `tx` — el `tx` no tiene
-   ese método, que es justo la trampa #3) para no intentar anidar una
-   transacción nueva.
+   contexto activo, corre `SET LOCAL app.tenant_id` (via `SELECT
+   set_config('app.tenant_id', $1, true)` parametrizado, dentro de
+   `client.$transaction([setConfig, query(args)])` en forma array — validado
+   en vivo que ambas comparten conexión) antes de cada operación. Detecta si
+   ya está corriendo dentro de una transacción abierta por
+   `runInTenantTransaction` mediante un **flag explícito en el mismo store
+   de `AsyncLocalStorage`** (`{tenantId, inTransaction}`) — NO inspeccionando
+   el cliente Prisma: `this` dentro de `$allOperations` no es el cliente (es
+   un array interno de argumentos, confirmado con prueba directa), así que
+   cualquier intento de distinguir "estoy en un `tx`" por introspección del
+   cliente no funciona con esta versión de Prisma (5.22).
 4. `runInTenantTransaction(tenantId, callback)` — el único punto sancionado
    para abrir una transacción de negocio; migra `payments.service.ts`,
    `elections.service.ts` y `report-cards.service.ts` a usarlo en vez de
@@ -278,7 +302,13 @@ Entregables concretos:
    default inyectado.
 
 ### Fase 5 — Lint/CI contra `$transaction` crudo
-Estado: ⏳ pendiente.
+Estado: ⏳ pendiente. Nota (2026-07-22): la migración de los 17 archivos
+existentes que usan `$transaction` crudo a `runInTenantTransaction` ya NO
+es parte de esta fase — se movió a ser prerrequisito de la Fase 2 (ver
+trampa #3), porque sin ella la Fase 2 rompe funcionalidad real, no es
+opcional/futuro. Lo que queda en esta Fase 5 es la regla de lint/CI en sí
+(ESLint custom rule o `grep` en CI) que impida que código NUEVO reintroduzca
+`prisma.$transaction` crudo — puramente preventivo hacia adelante.
 
 ### Fase 6 — BullMQ: contexto de tenant por job
 Estado: ⏳ pendiente. Ver el hallazgo en Fase 2 más arriba para el porqué.
