@@ -6,7 +6,9 @@ import { AccessScope, MembershipStatus, UserRole, UserStatus } from "@prisma/cli
 import bcrypt from "bcryptjs";
 import { Request } from "express";
 import { AuditService } from "../../core/audit/audit.service";
+import { PlatformAdminPrismaService } from "../../core/prisma/platform-admin-prisma.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { TenantContextService } from "../../core/tenant-context/tenant-context.service";
 import { AccessControlService } from "../access-control/access-control.service";
 import { LoginInput, RefreshTokenInput, ImpersonateInput } from "./auth.schemas";
@@ -26,7 +28,19 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
     private readonly accessControl: AccessControlService,
+    private readonly platformAdmin: PlatformAdminPrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
+
+  // AuthSession.tenantId es nullable (sesiones de plataforma sin colegio
+  // asociado) -- si es null, la política de RLS de auth_sessions ya deja
+  // pasar la fila sin importar el contexto, así que no hace falta
+  // establecer ninguno. Si tiene tenantId, se establece explícitamente
+  // (estos métodos corren off refresh-token/login, sin contexto ambiente
+  // del interceptor HTTP -- docs/planning/aislamiento-rls-multitenant.md).
+  private withSessionTenant<T>(tenantId: string | null, fn: () => Promise<T>): Promise<T> {
+    return tenantId ? this.tenantRlsContext.runWithTenant(tenantId, fn) : fn();
+  }
 
   async login(input: LoginInput, request: Request) {
     const tenant = input.tenantSlug
@@ -49,14 +63,20 @@ export class AuthService {
       throw new UnauthorizedException("Invalid credentials.");
     }
 
-    const membership = await this.prisma.tenantMembership.findUnique({
-      where: {
-        tenantId_userId: {
-          tenantId: tenant.id,
-          userId: user.id,
+    // login() corre sin ningún JWT todavía -- no hay contexto de tenant
+    // ambiente del interceptor HTTP. Ya se conoce el tenant (resuelto por
+    // slug/host arriba), así que se establece explícitamente para esta
+    // lectura en vez de depender de contexto que no existe.
+    const membership = await this.tenantRlsContext.runWithTenant(tenant.id, () =>
+      this.prisma.tenantMembership.findUnique({
+        where: {
+          tenantId_userId: {
+            tenantId: tenant.id,
+            userId: user.id,
+          },
         },
-      },
-    });
+      }),
+    );
 
     if (!membership || membership.status !== MembershipStatus.ACTIVE) {
       throw new UnauthorizedException("Tenant membership is not active.");
@@ -101,7 +121,13 @@ export class AuthService {
 
   async refresh(input: RefreshTokenInput, request: Request) {
     const refreshTokenHash = this.hashRefreshToken(input.refreshToken);
-    const session = await this.prisma.authSession.findUnique({
+    // refresh() corre off la cookie de refresh token, no del Bearer JWT --
+    // no hay contexto de tenant ambiente del interceptor HTTP en este punto
+    // (request.user nunca se pobló). No se sabe a qué tenant pertenece la
+    // sesión hasta encontrarla, así que esta lectura usa el cliente de
+    // bypass (igual para memberships anidado: se filtra por tenantId a mano
+    // más abajo, así que da igual que bypass traiga las de todos los colegios).
+    const session = await this.platformAdmin.get().authSession.findUnique({
       where: { refreshTokenHash },
       include: {
         tenant: true,
@@ -146,10 +172,12 @@ export class AuthService {
         ));
 
       if (!hasAccess) {
-        await this.prisma.authSession.update({
-          where: { id: session.id },
-          data: { revokedAt: new Date() },
-        });
+        await this.withSessionTenant(session.tenantId, () =>
+          this.prisma.authSession.update({
+            where: { id: session.id },
+            data: { revokedAt: new Date() },
+          }),
+        );
 
         await this.audit.record({
           tenantId: session.tenant.id,
@@ -166,10 +194,12 @@ export class AuthService {
         throw new UnauthorizedException("La sesión de acceso para este ticket ya no está activa.");
       }
 
-      await this.prisma.authSession.update({
-        where: { id: session.id },
-        data: { revokedAt: new Date() },
-      });
+      await this.withSessionTenant(session.tenantId, () =>
+        this.prisma.authSession.update({
+          where: { id: session.id },
+          data: { revokedAt: new Date() },
+        }),
+      );
 
       const impersonatedRole = session.impersonatedRole ?? UserRole.TENANT_ADMIN;
       const tokens = await this.createSession({
@@ -208,10 +238,12 @@ export class AuthService {
       throw new UnauthorizedException("Tenant membership is not active.");
     }
 
-    await this.prisma.authSession.update({
-      where: { id: session.id },
-      data: { revokedAt: new Date() },
-    });
+    await this.withSessionTenant(session.tenantId, () =>
+      this.prisma.authSession.update({
+        where: { id: session.id },
+        data: { revokedAt: new Date() },
+      }),
+    );
 
     const tokens = await this.createSession({
       sub: session.user.id,
@@ -239,7 +271,9 @@ export class AuthService {
 
   async logout(input: RefreshTokenInput, request: Request) {
     const refreshTokenHash = this.hashRefreshToken(input.refreshToken);
-    const session = await this.prisma.authSession.findUnique({
+    // Igual que refresh(): corre off la cookie de refresh token, sin
+    // contexto ambiente. Bypass para encontrar la sesión de cualquier tenant.
+    const session = await this.platformAdmin.get().authSession.findUnique({
       where: { refreshTokenHash },
       include: {
         user: {
@@ -255,10 +289,12 @@ export class AuthService {
         (item) => item.tenantId === session.tenantId,
       );
 
-      await this.prisma.authSession.update({
-        where: { id: session.id },
-        data: { revokedAt: new Date() },
-      });
+      await this.withSessionTenant(session.tenantId, () =>
+        this.prisma.authSession.update({
+          where: { id: session.id },
+          data: { revokedAt: new Date() },
+        }),
+      );
 
       await this.audit.record({
         tenantId: session.tenantId ?? undefined,
@@ -299,11 +335,16 @@ export class AuthService {
 
     // El ticket debe existir y pertenecer al mismo colegio que se quiere entrar
     // — defensa en profundidad: sin esto alguien podría citar un ticket válido
-    // de OTRO colegio para intentar colar el check de más abajo.
-    const ticket = await this.prisma.supportTicket.findUnique({
-      where: { id: input.ticketId },
-      select: { id: true, tenantId: true },
-    });
+    // de OTRO colegio para intentar colar el check de más abajo. Ya se conoce
+    // targetTenant acá, así que se establece ese contexto para la lectura en
+    // vez de depender del contexto ambiente del actor (que es SU PROPIO
+    // tenant/ninguno, no necesariamente el del ticket que quiere citar).
+    const ticket = await this.tenantRlsContext.runWithTenant(targetTenant.id, () =>
+      this.prisma.supportTicket.findUnique({
+        where: { id: input.ticketId },
+        select: { id: true, tenantId: true },
+      }),
+    );
     if (!ticket || ticket.tenantId !== targetTenant.id) {
       throw new ForbiddenException("El ticket no corresponde a este colegio.");
     }
@@ -379,15 +420,19 @@ export class AuthService {
   // impersonación (refresh de 30 días) seguiría viva y reutilizable.
   async exitImpersonation(input: RefreshTokenInput, request: Request) {
     const refreshTokenHash = this.hashRefreshToken(input.refreshToken);
-    const session = await this.prisma.authSession.findUnique({
+    // Igual que refresh()/logout(): corre off la cookie de refresh token,
+    // sin contexto ambiente. Bypass para encontrar la sesión.
+    const session = await this.platformAdmin.get().authSession.findUnique({
       where: { refreshTokenHash },
     });
 
     if (session && !session.revokedAt && session.isImpersonated) {
-      await this.prisma.authSession.update({
-        where: { id: session.id },
-        data: { revokedAt: new Date() },
-      });
+      await this.withSessionTenant(session.tenantId, () =>
+        this.prisma.authSession.update({
+          where: { id: session.id },
+          data: { revokedAt: new Date() },
+        }),
+      );
 
       await this.audit.record({
         tenantId: session.tenantId ?? undefined,
@@ -416,23 +461,29 @@ export class AuthService {
     const refreshTokenHash = this.hashRefreshToken(refreshToken);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30);
 
-    await this.prisma.authSession.create({
-      data: {
-        userId: input.sub,
-        tenantId: input.tenantId,
-        refreshTokenHash,
-        expiresAt,
-        ipAddress: input.request.ip,
-        userAgent: input.request.headers["user-agent"],
-        isImpersonated: input.isImpersonated ?? false,
-        // El rol efectivo de la impersonación se guarda para poder re-emitir el
-        // token en cada refresh sin leer ninguna membership.
-        impersonatedRole: input.isImpersonated ? input.role : null,
-        // Igual que impersonatedRole: se persiste para que el refresh (más abajo
-        // en este archivo) pueda re-embeber el mismo ticketId en el nuevo token.
-        ticketId: input.isImpersonated ? (input.ticketId ?? null) : null,
-      },
-    });
+    // Se llama desde login()/refresh()/impersonate(), ninguno de los cuales
+    // garantiza contexto ambiente correcto (login y los refresh-flows corren
+    // sin JWT/interceptor) -- se establece acá explícitamente para que este
+    // write funcione sin importar quién llame, en vez de asumirlo.
+    await this.tenantRlsContext.runWithTenant(input.tenantId, () =>
+      this.prisma.authSession.create({
+        data: {
+          userId: input.sub,
+          tenantId: input.tenantId,
+          refreshTokenHash,
+          expiresAt,
+          ipAddress: input.request.ip,
+          userAgent: input.request.headers["user-agent"],
+          isImpersonated: input.isImpersonated ?? false,
+          // El rol efectivo de la impersonación se guarda para poder re-emitir el
+          // token en cada refresh sin leer ninguna membership.
+          impersonatedRole: input.isImpersonated ? input.role : null,
+          // Igual que impersonatedRole: se persiste para que el refresh (más abajo
+          // en este archivo) pueda re-embeber el mismo ticketId en el nuevo token.
+          ticketId: input.isImpersonated ? (input.ticketId ?? null) : null,
+        },
+      }),
+    );
 
     const accessToken = await this.signAccessToken({
       sub: input.sub,
