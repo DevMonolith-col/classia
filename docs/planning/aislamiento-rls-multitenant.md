@@ -589,10 +589,36 @@ código de la app — sin esto, la suite entera fallaba en el setup con
 agarra el typecheck — son errores de runtime de Prisma, no de tipos).
 
 ### Fase 3 — Script de verificación exhaustivo
-Estado: ⏳ pendiente. `scripts/verify-rls.ts`: lista blanca explícita de lo
-genuinamente global, todo lo demás debe tener RLS forzado. Falla si encuentra
-un modelo no clasificado — no busca "modelos con tenantId" (ese criterio fue
-exactamente el que dejó pasar las 21 tablas de la Fase 1).
+Estado: ✅ hecho (2026-07-23). `scripts/verify-rls.ts` (`pnpm verify:rls`,
+carga `.env`/`.env.example` vía `dotenv-cli` + corre con `tsx` -- ambos
+agregados como devDependencies del root).
+
+Itera `Prisma.dmmf.datamodel.models` (los 52 modelos reales del schema
+generado, no un grep del `.prisma`) y cruza cada uno contra una consulta
+directa a `pg_class`/`pg_namespace` (`relrowsecurity`/`relforcerowsecurity`
+reales en la base de datos, no lo que el código *cree* que debería estar
+aplicado). Clasificación con una lista blanca explícita y corta
+(`GLOBAL_ALLOWLIST`, 4 tablas: `tenants`, `users`, `system_settings`,
+`notification_preferences`, cada una con su razón en el propio código) --
+**todo lo demás, sin excepción, debe tener RLS habilitado y forzado**, o el
+script falla con `exit 1` y el `ALTER TABLE` exacto que hace falta. A
+propósito NO usa "¿el modelo tiene `tenantId`?" como criterio: ese es
+exactamente el que dejó pasar sin detectar las 21 tablas indirectas de la
+Fase 1 en su momento (ver trampa #2 más arriba) -- acá un modelo nuevo cae
+en "debe tener RLS" por default, y solo se exime agregándolo a mano a la
+lista blanca con una justificación.
+
+Verificado en vivo contra la BD de dev: `52 modelos revisados -- 46
+estándar + 2 nullable-tenant (auth_sessions/audit_logs) + 4 en la lista
+blanca -- verify:rls OK`, coincide exactamente con la clasificación
+documentada en la Fase 2. No se probó en vivo el caso negativo (desactivar
+RLS a mano en una tabla real para confirmar que el script lo detecta) --
+el harness de este entorno bloqueó ese comando por tratarse de una
+modificación de seguridad sobre la base de datos real, correctamente. La
+lógica (misma consulta a `pg_class` ya validada en la Fase 2, más un
+chequeo de membership de sets) no tiene ambigüedad, pero queda como
+verificación pendiente si alguien quiere confirmarlo en un entorno
+descartable.
 
 ### Fase 4 — Extensión de Prisma + `runInTenantTransaction`
 Estado: ✅ hecho y verificado en vivo (2026-07-22).
@@ -657,14 +683,33 @@ errores en los logs de la API en todo el recorrido. `tsc --noEmit` en
 verde.
 
 ### Fase 5 — Lint/CI contra `$transaction` crudo
-Estado: ⏳ pendiente. Nota (2026-07-22): la migración de los 18 sitios
-existentes que usaban `$transaction` crudo a `runInTenantTransaction` ya NO
-era parte de esta fase — se movió a ser prerrequisito de la Fase 2 (ver
-trampa #3, **ya hecho**), porque sin ella la Fase 2 rompe funcionalidad
-real, no es opcional/futuro. Lo que queda en esta Fase 5 es la regla de
-lint/CI en sí
-(ESLint custom rule o `grep` en CI) que impida que código NUEVO reintroduzca
-`prisma.$transaction` crudo — puramente preventivo hacia adelante.
+Estado: ✅ hecho (2026-07-23). `apps/api/eslint.config.js`: regla
+`no-restricted-syntax` con un selector AST
+(`CallExpression[callee.property.name='$transaction']`) que bloquea
+cualquier `algo.$transaction(...)` nuevo, con un mensaje custom que apunta
+directo a `runInTenantTransaction` y a la trampa #3 de este documento. Se
+eligió `no-restricted-syntax` (built-in de ESLint) en vez de escribir un
+plugin/regla custom completa — mismo resultado, sin la sobrecarga de
+mantenimiento de un paquete de reglas propio, y ya cubre exactamente el
+selector que hace falta.
+
+Tres excepciones explícitas (`files:` override en el mismo config, cada
+una referenciando por qué es segura en su propio código, no solo en el
+config): `run-in-tenant-transaction.ts` (el wrapper sancionado en sí),
+`tenant-rls.extension.ts` (la extensión de Prisma, que usa la misma forma
+`$transaction([setConfig, query])` para operaciones sueltas fuera de un
+`runInTenantTransaction`), y `conversations.service.ts` (el
+`unreadCountsFor` con `$queryRaw` standalone arreglado en la Fase 7 de
+arriba, que necesitó la misma forma manual porque `$queryRaw` tampoco pasa
+por la extensión).
+
+Verificado en vivo: `npx eslint .` en `apps/api` corre limpio (0 errores
+nuevos -- un warning preexistente y no relacionado de
+`support.service.ts` sigue ahí, no es de esta regla). Probado que la regla
+SÍ dispara: un archivo temporal con `prisma.$transaction(...)` crudo fuera
+de las 3 excepciones da
+`error no-restricted-syntax: No uses prisma.$transaction(...) crudo -- ...`,
+archivo borrado después de confirmar.
 
 ### Fase 6 — BullMQ: contexto de tenant por job
 Estado: ✅ hecho y verificado en vivo (2026-07-22).

@@ -15,7 +15,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "verify:rls": "dotenv -e .env -e .env.example -- tsx scripts/verify-rls.ts"
   },
   "keywords": [
     "saas",
@@ -28,8 +29,10 @@
   "author": "Juan Jose Toro",
   "license": "UNLICENSED",
   "devDependencies": {
+    "dotenv-cli": "^7.4.4",
     "eslint": "^9.39.5",
     "prettier": "^3.8.3",
+    "tsx": "^4.22.3",
     "typescript": "^5.9.3"
   }
 }
