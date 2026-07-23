@@ -268,7 +268,33 @@ un modelo no clasificado — no busca "modelos con tenantId" (ese criterio fue
 exactamente el que dejó pasar las 21 tablas de la Fase 1).
 
 ### Fase 4 — Extensión de Prisma + `runInTenantTransaction`
-Estado: ⏳ pendiente.
+Estado: ⏳ en progreso (2026-07-22). Escritos y con `tsc` en verde, pero
+**todavía NO conectados a la app real** (código inerte a propósito —
+conectarlos ahora, antes de migrar los 17 archivos de la trampa #3,
+rompería esos 17 sitios en runtime aunque RLS ni siquiera esté prendido:
+la extensión intentaría envolver cada operación individual dentro de un
+`$transaction` crudo existente en su propia mini-transacción, y pasar eso
+como ítem de un `$transaction([...])` en forma array probablemente lance
+en tiempo de ejecución porque Prisma exige que los ítems de esa forma sean
+`PrismaPromise` genuinos, no promesas envueltas):
+
+- `apps/api/src/core/prisma/tenant-rls-context.service.ts` — el
+  `AsyncLocalStorage` (`{tenantId, inTransaction}`).
+- `apps/api/src/core/prisma/tenant-rls.extension.ts` — la extensión.
+- `apps/api/src/core/prisma/run-in-tenant-transaction.ts` — el wrapper.
+- `apps/api/src/common/interceptors/tenant-rls-context.interceptor.ts` —
+  arranca el contexto por request HTTP desde `request.user.tenantId`.
+
+**Siguiente paso real, en orden**: (1) migrar los 17 archivos de la
+trampa #3 a `runInTenantTransaction`, (2) recién ahí registrar el
+interceptor global y cambiar `PrismaModule` para aplicar la extensión
+(factory provider — `PrismaService` sigue siendo el token de inyección en
+los ~43 archivos que lo usan, sin tocarlos, siguiendo el patrón oficial de
+Prisma para extensiones + NestJS), (3) cambiar `PrismaService` a conectar
+con `DATABASE_URL_APP` (rol `classia_app`) en vez de `DATABASE_URL`, (4)
+`classia_platform_admin` real (ver más abajo), (5) verificar en vivo que
+nada se rompió — todavía sin RLS habilitado, así que cualquier fallo acá
+es barato de revertir.
 
 Entregables concretos:
 1. `TenantContextService` — wrapper delgado sobre `AsyncLocalStorage<{tenantId}>`.
