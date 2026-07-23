@@ -5,6 +5,8 @@ import { RequestUser } from "../../common/types/request-context"
 import { PERMISSIONS } from "../../common/permissions/permissions"
 import { AuditService } from "../../core/audit/audit.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction"
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service"
 import { AddCandidateInput, CreateElectionInput, UpdateElectionInput } from "./elections.schemas"
 
 const ELECTION_LIST_PAGE_SIZE = 200
@@ -24,6 +26,7 @@ export class ElectionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   async createElection(actor: RequestUser, data: CreateElectionInput, request: Request) {
@@ -299,14 +302,14 @@ export class ElectionsService {
       // peticiones simultáneas del mismo estudiante llegan a la vez, la BD
       // rechaza la segunda con una violación de unicidad (P2002), no una
       // condición de carrera resuelta a medias en la aplicación.
-      await this.prisma.$transaction([
-        this.prisma.electionVoter.create({
+      await runInTenantTransaction(this.prisma, this.tenantRlsContext, actor.tenantId, async (tx) => {
+        await tx.electionVoter.create({
           data: { electionId, tenantId: actor.tenantId, studentId: student.id, ipAddress: request.ip },
-        }),
-        this.prisma.electionVote.create({
+        })
+        await tx.electionVote.create({
           data: { electionId, tenantId: actor.tenantId, candidateId: resolvedCandidateId! },
-        }),
-      ])
+        })
+      })
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
         throw new ForbiddenException("Ya emitiste tu voto en esta elección")

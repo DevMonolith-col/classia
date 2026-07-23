@@ -4,6 +4,8 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { GradeSubmissionInput, SubmitHomeworkInput } from "./homework-submissions.schemas";
 
 @Injectable()
@@ -11,6 +13,7 @@ export class HomeworkSubmissionsService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   async upsertMine(
@@ -105,7 +108,7 @@ export class HomeworkSubmissionsService {
 
     const maxValue = input.maxValue ?? 100;
 
-    const submission = await this.prisma.$transaction(async (tx) => {
+    const submission = await runInTenantTransaction(this.prisma, this.tenantRlsContext, homework.tenantId, async (tx) => {
       const updated = await tx.homeworkSubmission.update({
         where: { id: submissionId },
         data: {

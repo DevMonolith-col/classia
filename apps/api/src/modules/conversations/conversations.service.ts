@@ -5,6 +5,8 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import {
   MessageReceivedEvent,
   NOTIFICATION_EVENTS,
@@ -46,6 +48,7 @@ export class ConversationsService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   // ─── Lectura ────────────────────────────────────────────────────────────────
@@ -197,20 +200,21 @@ export class ConversationsService {
         actor.id,
         recipientId,
       );
-      const [message] = await this.prisma.$transaction([
-        this.prisma.conversationMessage.create({
+      const message = await runInTenantTransaction(this.prisma, this.tenantRlsContext, actor.tenantId, async (tx) => {
+        const created = await tx.conversationMessage.create({
           data: { conversationId, tenantId: actor.tenantId, fromId: actor.id, body: input.body },
           select: { id: true },
-        }),
-        this.prisma.conversation.update({
+        });
+        await tx.conversation.update({
           where: { id: conversationId },
           data: { lastMessageAt: now },
-        }),
-        this.prisma.conversationMember.update({
+        });
+        await tx.conversationMember.update({
           where: { conversationId_userId: { conversationId, userId: actor.id } },
           data: { lastReadAt: now },
-        }),
-      ]);
+        });
+        return created;
+      });
       this.events.emit(NOTIFICATION_EVENTS.MESSAGE_RECEIVED, {
         tenantId: actor.tenantId,
         conversationId,
@@ -273,8 +277,8 @@ export class ConversationsService {
       throw new ForbiddenException("Esta conversación está archivada.");
     }
 
-    const [message] = await this.prisma.$transaction([
-      this.prisma.conversationMessage.create({
+    const message = await runInTenantTransaction(this.prisma, this.tenantRlsContext, actor.tenantId, async (tx) => {
+      const created = await tx.conversationMessage.create({
         data: {
           conversationId,
           tenantId: actor.tenantId,
@@ -284,17 +288,18 @@ export class ConversationsService {
           attachmentName: input.attachmentName,
         },
         select: this.messageSelect(),
-      }),
-      this.prisma.conversation.update({
+      });
+      await tx.conversation.update({
         where: { id: conversationId },
         data: { lastMessageAt: new Date() },
-      }),
+      });
       // El remitente ya "leyó" todo hasta este punto.
-      this.prisma.conversationMember.update({
+      await tx.conversationMember.update({
         where: { conversationId_userId: { conversationId, userId: actor.id } },
         data: { lastReadAt: new Date() },
-      }),
-    ]);
+      });
+      return created;
+    });
 
     const otherMembers = await this.prisma.conversationMember.findMany({
       where: { conversationId, userId: { not: actor.id } },

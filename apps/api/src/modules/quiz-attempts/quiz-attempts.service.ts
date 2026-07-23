@@ -4,6 +4,8 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { GradeAnswerInput, SaveAnswerInput } from "./quiz-attempts.schemas";
 
 @Injectable()
@@ -11,6 +13,7 @@ export class QuizAttemptsService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   async getQuiz(homeworkId: string, actor: RequestUser) {
@@ -164,7 +167,7 @@ export class QuizAttemptsService {
     const answers = await this.prisma.quizAnswer.findMany({ where: { attemptId } });
     const answersByQuestion = new Map(answers.map((answer) => [answer.questionId, answer]));
 
-    await this.prisma.$transaction(async (tx) => {
+    await runInTenantTransaction(this.prisma, this.tenantRlsContext, student.tenantId, async (tx) => {
       for (const question of homework.questions) {
         if (question.type === "SHORT_ANSWER") continue;
 
