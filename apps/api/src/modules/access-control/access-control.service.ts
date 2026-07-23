@@ -6,7 +6,9 @@ import { Queue } from "bullmq"
 import { Request } from "express"
 import { AuditService } from "../../core/audit/audit.service"
 import { buildJobId } from "../../core/queue/job-id"
+import { PlatformAdminPrismaService } from "../../core/prisma/platform-admin-prisma.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service"
 import { NotificationsService } from "../notifications/notifications.service"
 import { RequestUser } from "../../common/types/request-context"
 import {
@@ -45,6 +47,8 @@ export class AccessControlService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly platformAdmin: PlatformAdminPrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
     @InjectQueue(ACCESS_SESSION_EXPIRY_QUEUE) private readonly expiryQueue: Queue,
   ) {}
 
@@ -123,7 +127,7 @@ export class AccessControlService {
 
     // Job diferido puntual además del barrido periódico — dispara justo cuando
     // vence en vez de tolerar hasta EXPIRY_SWEEP_INTERVAL_MS de desfase.
-    await this.scheduleExpiryJob(updated.id, expiresAt)
+    await this.scheduleExpiryJob(updated.id, expiresAt, session.tenantId)
 
     await this.audit.record({
       tenantId: session.tenantId,
@@ -285,7 +289,7 @@ export class AccessControlService {
       },
     })
 
-    await this.scheduleExpiryJob(session.id, expiresAt)
+    await this.scheduleExpiryJob(session.id, expiresAt, ticket.tenantId)
 
     await this.audit.record({
       tenantId: ticket.tenantId,
@@ -521,17 +525,26 @@ export class AccessControlService {
   // persistir, etc.). Cada candidata se procesa vía expireSessionById(), que
   // ya es idempotente por diseño.
   async expireOverdueSessions(): Promise<{ expiredSessions: number }> {
-    const candidates = await this.prisma.accessSession.findMany({
+    // Barrido genuinamente cross-tenant a propósito (no hay un solo colegio
+    // al que asociar este job) -- usa el cliente de bypass solo para
+    // DESCUBRIR las candidatas de todos los colegios. El trabajo real de
+    // cada una (expireSessionById: transición, revocar AuthSession,
+    // auditar) corre scopeado al tenant de ESA sesión particular, no con
+    // bypass -- el bypass solo abre la puerta a encontrarlas.
+    const candidates = await this.platformAdmin.get().accessSession.findMany({
       where: {
         status: { in: [AccessSessionStatus.CONCEDIDO, AccessSessionStatus.EMERGENCIA] },
         expiresAt: { lte: new Date() },
       },
-      select: { id: true },
+      select: { id: true, tenantId: true },
     })
 
     let expiredSessions = 0
     for (const candidate of candidates) {
-      if (await this.expireSessionById(candidate.id)) expiredSessions++
+      const won = await this.tenantRlsContext.runWithTenant(candidate.tenantId, () =>
+        this.expireSessionById(candidate.id),
+      )
+      if (won) expiredSessions++
     }
 
     return { expiredSessions }
@@ -549,11 +562,11 @@ export class AccessControlService {
   // approve() nunca re-programa la misma sesión dos veces (cada sesión solo
   // se concede una vez), pero el jobId estable de todas formas dobla como
   // protección barata si algo llegara a llamarlo dos veces.
-  private async scheduleExpiryJob(accessSessionId: string, expiresAt: Date) {
+  private async scheduleExpiryJob(accessSessionId: string, expiresAt: Date, tenantId: string) {
     const delay = Math.max(0, expiresAt.getTime() - Date.now())
     await this.expiryQueue.add(
       "expire-one",
-      { accessSessionId },
+      { accessSessionId, tenantId },
       { jobId: this.expiryJobId(accessSessionId), delay, removeOnComplete: true, removeOnFail: true },
     )
   }

@@ -6,7 +6,9 @@ import { Request } from "express"
 import { RequestUser } from "../../common/types/request-context"
 import { AuditService } from "../../core/audit/audit.service"
 import { buildJobId } from "../../core/queue/job-id"
+import { PlatformAdminPrismaService } from "../../core/prisma/platform-admin-prisma.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service"
 import { StorageService } from "../../core/storage/storage.service"
 import { ReportCardsService } from "../report-cards/report-cards.service"
 import { PaymentsService } from "../payments/payments.service"
@@ -68,6 +70,8 @@ export class ReportsService {
     private readonly reportCards: ReportCardsService,
     private readonly payments: PaymentsService,
     private readonly audit: AuditService,
+    private readonly platformAdmin: PlatformAdminPrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
     @InjectQueue(REPORTS_QUEUE) private readonly queue: Queue,
   ) {}
 
@@ -86,7 +90,7 @@ export class ReportsService {
       },
     })
 
-    await this.queue.add("generate", { reportId: report.id }, REPORT_JOB_OPTIONS)
+    await this.queue.add("generate", { reportId: report.id, tenantId: actor.tenantId }, REPORT_JOB_OPTIONS)
     return report
   }
 
@@ -224,9 +228,12 @@ export class ReportsService {
   }
 
   // Se llama una vez al boot (ver ReportsModule.onModuleInit) por si Redis
-  // perdió el estado de los schedulers entre reinicios.
+  // perdió el estado de los schedulers entre reinicios. Corre sin contexto
+  // de request (no hay tenant "actual" al arrancar la app) y necesita ver
+  // los schedules activos de TODOS los colegios -- por eso usa el cliente
+  // de bypass (classia_platform_admin) en vez de this.prisma.
   async reconcileSchedulers() {
-    const schedules = await this.prisma.reportSchedule.findMany({
+    const schedules = await this.platformAdmin.get().reportSchedule.findMany({
       where: { active: true },
       select: SCHEDULABLE_SELECT,
     })
@@ -272,11 +279,17 @@ export class ReportsService {
     const delay = Math.max(0, nextRunAt.getTime() - Date.now())
     await this.queue.add(
       "scheduled-run",
-      { scheduleId: schedule.id, scheduledFor: nextRunAt.toISOString() },
+      { scheduleId: schedule.id, scheduledFor: nextRunAt.toISOString(), tenantId: schedule.tenantId },
       { jobId: this.schedulerJobId(schedule.id, nextRunAt), delay, ...REPORT_JOB_OPTIONS },
     )
 
-    await this.prisma.reportSchedule.update({ where: { id: schedule.id }, data: { nextRunAt } })
+    // Este método se llama tanto desde un request HTTP (que ya trae contexto
+    // de tenant) como desde reconcileSchedulers() al boot (sin contexto,
+    // recorriendo TODOS los colegios) -- se establece acá explícitamente
+    // para que el write funcione en ambos casos, sin asumir el del caller.
+    await this.tenantRlsContext.runWithTenant(schedule.tenantId, () =>
+      this.prisma.reportSchedule.update({ where: { id: schedule.id }, data: { nextRunAt } }),
+    )
   }
 
   private async removeScheduler(schedule: SchedulableRecord) {

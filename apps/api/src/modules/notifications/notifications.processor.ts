@@ -4,6 +4,7 @@ import { ConfigService } from "@nestjs/config";
 import { NotificationDeliveryStatus } from "@prisma/client";
 import { Job } from "bullmq";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { EmailService } from "./email/email.service";
 import { NOTIFICATIONS_QUEUE } from "./notifications.service";
 
@@ -28,11 +29,18 @@ export class NotificationsProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly config: ConfigService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {
     super();
   }
 
-  async process(job: Job<{ deliveryId: string }>) {
+  // Ver reports.processor.ts: los jobs de BullMQ corren fuera de cualquier
+  // request HTTP, así que el tenantId viaja en job.data desde que se encola.
+  async process(job: Job<{ deliveryId: string; tenantId: string }>) {
+    return this.tenantRlsContext.runWithTenant(job.data.tenantId, () => this.processDelivery(job));
+  }
+
+  private async processDelivery(job: Job<{ deliveryId: string; tenantId: string }>) {
     const { deliveryId } = job.data;
 
     const delivery = await this.prisma.notificationDelivery.findUnique({
