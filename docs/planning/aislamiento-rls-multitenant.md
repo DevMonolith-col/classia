@@ -148,7 +148,75 @@ nunca un valor nuevo o adivinado. `npx tsc --noEmit` queda en verde en
 cambio — confirmado limpiando `.next` y reconstruyendo).
 
 ### Fase 2 — RLS: `ENABLE` + `FORCE` en todas las tablas tenant-owned
-Estado: ⏳ pendiente (depende de Fase 1).
+Estado: ⏳ SQL escrito y committeado, **NO aplicado a la base de datos
+todavía** — a propósito.
+
+Migración: `packages/database/prisma/migrations/20260722110000_rls_enable_force_policies/migration.sql`.
+Clasificación completa (auditoría exhaustiva de los 52 modelos del schema,
+no una búsqueda de "modelos con tenantId" — ese criterio es exactamente el
+que dejó pasar el hueco de la Fase 1):
+- **46 tablas** con política estándar (`tenantId` `NOT NULL`).
+- **2 tablas** (`auth_sessions`, `audit_logs`) con política que además deja
+  pasar `tenantId IS NULL` — nullable por diseño, para sesiones/acciones de
+  plataforma sin colegio asociado (confirmado: son las únicas 2 con
+  `tenantId String?` en todo el schema).
+- **4 tablas genuinamente globales, sin RLS** (allow-list): `tenants`,
+  `users` (un usuario pertenece a varios colegios vía `TenantMembership`),
+  `notification_preferences` (pendiente de decisión de producto, Fase 1),
+  `system_settings`.
+- Rol `classia_platform_admin` con `BYPASSRLS` creado (sin `LOGIN` — la
+  contraseña real, fuera de git, es trabajo de Fase 4).
+
+**Por qué no está aplicado todavía, y qué destrabó esto (hallazgo nuevo,
+2026-07-22):** `FORCE ROW LEVEL SECURITY` sin que nada setee
+`app.tenant_id` bloquea el 100% de las queries — la app completa deja de
+funcionar. Al diseñar cómo evitar eso (Fase 4, contexto vía
+AsyncLocalStorage por request HTTP) aparecieron dos casos que Fase 4 sola
+NO cubre:
+
+1. **Los 4 procesadores de BullMQ corren fuera de cualquier request HTTP**
+   (`reports.processor.ts`, `documents.processor.ts`,
+   `notifications.processor.ts`, `access-session-expiry.processor.ts`) —
+   no hay `request.user` del que leer `tenantId`. Sus primeras queries son
+   lookups por solo-ID (`findUnique({where:{id}})`, sin `tenantId` en el
+   `where`, porque hoy confían en que el ID vino de una fuente legítima) —
+   bajo RLS forzado, esas queries devolverían 0 filas y el job fallaría en
+   silencio. **Fix decidido**: el `tenantId` viaja en el `job.data` desde el
+   momento en que se encola (el código que encola siempre lo tiene a mano:
+   `actor.tenantId` o el `tenantId` de la entidad recién creada) — así el
+   contexto se establece ANTES de la primera query del job, sin necesitar
+   resolver nada. Esto es Fase 6, y por lo anterior, **Fase 2 depende de
+   Fase 6 tanto como de Fase 4**, no solo de Fase 4 como decía la versión
+   anterior de este documento.
+
+2. **El job "sweep" de `access-session-expiry.processor.ts` es
+   legítimamente cross-tenant a propósito** (barre `AccessSession`
+   vencidas de TODOS los colegios como red de seguridad periódica) — no
+   tiene un solo tenant que ponerle en el `job.data`. Este es un caso real
+   de necesitar el rol `classia_platform_admin` (`BYPASSRLS`), no un
+   contexto de tenant.
+
+3. **Función abierta, todavía sin auditar**: el hallazgo original de este
+   documento (trampa #5) ya anticipaba "26 archivos dependen de" lectura
+   cross-tenant para SUPER_ADMIN/soporte (bandeja de triage entre colegios,
+   dashboards agregados, listado de tenants). Cada uno de esos 26 puntos
+   necesita decidirse caso a caso: ¿de verdad necesita ver TODOS los
+   colegios (→ `classia_platform_admin`), o solo necesita que se le setee
+   `app.tenant_id` al colegio que el admin *eligió* operar (→ contexto
+   normal, sin bypass)? Aplicar bypass de más reabriría exactamente el
+   agujero que este proyecto existe para cerrar. Esta auditoría todavía no
+   se hizo — es la condición de cierre real de Fase 4/6 antes de poder
+   aplicar el SQL de Fase 2 sin romper funcionalidad existente de soporte.
+
+**Orden real de aplicación**: Fase 4 (mecanismo HTTP + extensión + wrapper
++ cliente `classia_platform_admin` real) → Fase 6 (tenantId en job.data +
+el job sweep usando el cliente bypass) → auditoría de los 26 puntos
+cross-tenant de SUPER_ADMIN/soporte → **recién ahí** aplicar el SQL de esta
+Fase 2 al entorno de dev → verificación en vivo (login normal, panel
+SUPER_ADMIN, soporte, un flujo de pagos, una votación, un reporte
+generado, el sweep de accesos). Si algo falla en esa verificación, el
+rollback es `DISABLE ROW LEVEL SECURITY` + `DROP POLICY` tabla por tabla
+(no destructivo, no toca datos).
 
 ### Fase 3 — Script de verificación exhaustivo
 Estado: ⏳ pendiente. `scripts/verify-rls.ts`: lista blanca explícita de lo
@@ -159,12 +227,54 @@ exactamente el que dejó pasar las 21 tablas de la Fase 1).
 ### Fase 4 — Extensión de Prisma + `runInTenantTransaction`
 Estado: ⏳ pendiente.
 
+Entregables concretos:
+1. `TenantContextService` — wrapper delgado sobre `AsyncLocalStorage<{tenantId}>`.
+2. Interceptor global (no middleware — el middleware corre antes que los
+   guards, y `request.user` recién existe después de `JwtAuthGuard`) que
+   arranca el contexto desde `request.user.tenantId` para el resto del
+   request.
+3. Prisma Client Extension (`$allModels.$allOperations`) que, si hay
+   contexto activo, corre `SET LOCAL app.tenant_id` antes de cada
+   operación. Detecta si ya está corriendo dentro de una transacción
+   abierta por `runInTenantTransaction` (`typeof this.$transaction ===
+   "function"` distingue el cliente top-level del `tx` — el `tx` no tiene
+   ese método, que es justo la trampa #3) para no intentar anidar una
+   transacción nueva.
+4. `runInTenantTransaction(tenantId, callback)` — el único punto sancionado
+   para abrir una transacción de negocio; migra `payments.service.ts`,
+   `elections.service.ts` y `report-cards.service.ts` a usarlo en vez de
+   `prisma.$transaction()` directo.
+5. **Cliente `classia_platform_admin` real** (segundo `PrismaClient`,
+   credenciales por variable de entorno, rol `BYPASSRLS` creado en Fase 2) —
+   no estaba en el alcance original de esta fase, pero el hallazgo del sweep
+   job de accesos (Fase 6) y los 26 puntos de lectura cross-tenant de
+   SUPER_ADMIN/soporte (trampa #5) lo necesitan de verdad, no como algo
+   especulativo. Se expone detrás de un método de servicio con nombre
+   explícito (p. ej. `PlatformAdminPrismaService`), nunca como el cliente
+   default inyectado.
+
 ### Fase 5 — Lint/CI contra `$transaction` crudo
 Estado: ⏳ pendiente.
 
 ### Fase 6 — BullMQ: contexto de tenant por job
-Estado: ⏳ pendiente. Afecta `documents.processor.ts`, `reports.processor.ts`,
-`notifications.processor.ts`.
+Estado: ⏳ pendiente. Ver el hallazgo en Fase 2 más arriba para el porqué.
+
+Afecta 4 processors: `reports.processor.ts` (jobs `generate` y
+`scheduled-run`), `documents.processor.ts`, `notifications.processor.ts`,
+`access-session-expiry.processor.ts`.
+
+Para los primeros tres: agregar `tenantId` al `job.data` en cada punto
+donde se encola (`queue.add`/`addBulk`/`upsertJobScheduler` — el código que
+encola siempre tiene `actor.tenantId` o el `tenantId` de la entidad recién
+creada a mano), y al entrar al processor, envolver el resto de la lógica del
+job en el contexto de tenant (`tenantContext.run({tenantId: job.data.tenantId}, ...)`)
+ANTES de la primera query — incluyendo el `findUnique({where:{id}})` inicial
+que hoy no filtra por tenant.
+
+Para `access-session-expiry.processor.ts`: el job `expire-one` sigue el
+mismo patrón (tenantId conocido al programarlo). El job `sweep` es
+legítimamente cross-tenant — usa el cliente `classia_platform_admin`
+(`BYPASSRLS`) de Fase 4, no contexto de un tenant.
 
 ### Fase 7 — Test de regresión de aislamiento cross-tenant
 Estado: ⏳ pendiente. Se agrega a la suite e2e existente
