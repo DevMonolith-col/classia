@@ -25,12 +25,29 @@ export type TenantRlsStore = {
 export class TenantRlsContextService {
   private readonly als = new AsyncLocalStorage<TenantRlsStore>();
 
-  runWithTenant<T>(tenantId: string, callback: () => T): T {
-    return this.als.run({ tenantId }, callback);
+  // async + await INTERNO (no "return this.als.run(store, callback)" a secas):
+  // las queries de Prisma son lazy (PrismaPromise no dispara $allOperations
+  // hasta que algo llama .then()/await sobre ellas). Si el callback del
+  // caller es un arrow plano tipo `() => this.prisma.modelo.metodo(args)`
+  // (sin await propio adentro), ese .then() ocurre en el `await
+  // runWithTenant(...)` del CALLER -- que ya corre FUERA de la ventana
+  // síncrona de `als.run()`, así que AsyncLocalStorage pierde el contexto y
+  // la extensión ve `getStore() === undefined` -- RLS filtra todo (login()
+  // encontrado en vivo 2026-07-23: la membership existía y estaba ACTIVE en
+  // la BD, pero el store llegaba undefined a la extensión). Al await-ear acá
+  // ADENTRO del callback que le pasamos a `als.run`, el .then() real queda
+  // enganchado mientras el contexto todavía está activo, sin importar cómo
+  // haya escrito su callback quien llama.
+  async runWithTenant<T>(tenantId: string, callback: () => T | Promise<T>): Promise<T> {
+    return this.als.run({ tenantId }, async () => {
+      return await callback();
+    });
   }
 
-  runInTransaction<T>(tenantId: string, callback: () => T): T {
-    return this.als.run({ tenantId, inTransaction: true }, callback);
+  async runInTransaction<T>(tenantId: string, callback: () => T | Promise<T>): Promise<T> {
+    return this.als.run({ tenantId, inTransaction: true }, async () => {
+      return await callback();
+    });
   }
 
   getStore(): TenantRlsStore | undefined {
