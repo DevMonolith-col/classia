@@ -67,7 +67,7 @@ export class ConversationsService {
       select: this.conversationSelect(actor.tenantId),
     });
 
-    const unread = await this.unreadCountsFor(actor.id, conversations.map((c) => c.id));
+    const unread = await this.unreadCountsFor(actor.tenantId, actor.id, conversations.map((c) => c.id));
     return conversations.map((conversation) =>
       this.mapConversation(conversation, actor, unread.get(conversation.id) ?? 0),
     );
@@ -540,26 +540,48 @@ export class ConversationsService {
       where: { id: conversationId },
       select: this.conversationSelect(actor.tenantId),
     });
-    const unread = await this.unreadCountsFor(actor.id, [conversationId]);
+    const unread = await this.unreadCountsFor(actor.tenantId, actor.id, [conversationId]);
     return this.mapConversation(conversation, actor, unread.get(conversationId) ?? 0);
   }
 
   // Conteo de no leídos EXACTO por conversación en una sola query. Antes se contaba
   // sobre los mensajes ya cargados (tope MESSAGE_PAGE_SIZE=50), así que con más de
   // 50 sin leer el contador se topaba en 50. El corte usa lastReadAt del miembro.
-  private async unreadCountsFor(actorId: string, conversationIds: string[]): Promise<Map<string, number>> {
+  //
+  // `$queryRaw` NO pasa por `$allModels.$allOperations` de la extensión de RLS
+  // (esa extensión solo intercepta operaciones de MODELO -- find/create/etc --,
+  // no los métodos top-level $queryRaw/$executeRaw) -- confirmado leyendo
+  // tenant-rls.extension.ts, que declara `query: { $allModels: { $allOperations } }`.
+  // Sin esto, la query corre en una conexión sin `app.tenant_id` seteado y RLS
+  // forzado devuelve CERO filas de `conversation_messages`/`conversation_members`
+  // sin importar qué diga el propio WHERE -- encontrado en vivo 2026-07-23 (el
+  // conteo de no-leídos daba 0 para todo el mundo bajo RLS real, aunque el
+  // filtro explícito por tenantId ya estuviera puesto: RLS actúa sobre el scan
+  // de la tabla, no sobre el resultado del WHERE del caller). Se resuelve
+  // exactamente como la extensión: `set_config` + la query real en la MISMA
+  // transacción (forma array), para que compartan conexión. El filtro
+  // `m."tenantId"` se mantiene además como defensa en profundidad explícita.
+  private async unreadCountsFor(
+    tenantId: string,
+    actorId: string,
+    conversationIds: string[],
+  ): Promise<Map<string, number>> {
     if (conversationIds.length === 0) return new Map();
-    const rows = await this.prisma.$queryRaw<Array<{ conversationId: string; unread: number }>>(Prisma.sql`
-      SELECT m."conversationId" AS "conversationId", COUNT(*)::int AS unread
-      FROM conversation_messages m
-      JOIN conversation_members mem
-        ON mem."conversationId" = m."conversationId" AND mem."userId" = ${actorId}
-      WHERE m."conversationId" IN (${Prisma.join(conversationIds)})
-        AND m."deletedAt" IS NULL
-        AND m."fromId" <> ${actorId}
-        AND (mem."lastReadAt" IS NULL OR m."createdAt" > mem."lastReadAt")
-      GROUP BY m."conversationId"
-    `);
+    const [, rows] = await this.prisma.$transaction([
+      this.prisma.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
+      this.prisma.$queryRaw<Array<{ conversationId: string; unread: number }>>(Prisma.sql`
+        SELECT m."conversationId" AS "conversationId", COUNT(*)::int AS unread
+        FROM conversation_messages m
+        JOIN conversation_members mem
+          ON mem."conversationId" = m."conversationId" AND mem."userId" = ${actorId}
+        WHERE m."tenantId" = ${tenantId}
+          AND m."conversationId" IN (${Prisma.join(conversationIds)})
+          AND m."deletedAt" IS NULL
+          AND m."fromId" <> ${actorId}
+          AND (mem."lastReadAt" IS NULL OR m."createdAt" > mem."lastReadAt")
+        GROUP BY m."conversationId"
+      `),
+    ]);
     return new Map(rows.map((r) => [r.conversationId, Number(r.unread)]));
   }
 

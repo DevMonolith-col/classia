@@ -33,3 +33,6 @@ Thumbs.db
 
 # local
 .cache
+
+# Respaldos de base de datos (docs/planning/aislamiento-rls-multitenant.md) -- nunca a git
+docs/planning/backups/

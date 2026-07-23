@@ -205,8 +205,11 @@ nunca un valor nuevo o adivinado. `npx tsc --noEmit` queda en verde en
 cambio — confirmado limpiando `.next` y reconstruyendo).
 
 ### Fase 2 — RLS: `ENABLE` + `FORCE` en todas las tablas tenant-owned
-Estado: ⏳ SQL escrito y committeado, **NO aplicado a la base de datos
-todavía** — a propósito.
+Estado: ✅ **SQL aplicado a la base de datos de dev (2026-07-23)**, sanity
+checks estructurales en verde. Ver más abajo la sección "Aplicación a la
+base de datos" y, sobre todo, el hallazgo crítico de la verificación en
+vivo posterior (bug sistémico de `AsyncLocalStorage` + Prisma, encontrado y
+arreglado el mismo día — es la entrada más importante de este documento).
 
 Migración: `packages/database/prisma/migrations/20260722110000_rls_enable_force_policies/migration.sql`.
 Clasificación completa (auditoría exhaustiva de los 52 modelos del schema,
@@ -339,6 +342,252 @@ accesos, un `impersonate()` real de punta a punta). Si algo falla en esa
 verificación, el rollback es `DISABLE ROW LEVEL SECURITY` + `DROP POLICY`
 tabla por tabla (no destructivo, no toca datos).
 
+#### Aplicación a la base de datos (2026-07-23)
+
+1. **Backup previo**: `pg_dump -F c` (formato custom) de la base completa
+   ANTES de aplicar nada, vía `docker exec classia-postgres pg_dump ...`.
+   Guardado en `docs/planning/backups/pre_rls_backup_20260723.dump` (726KB,
+   gitignored — nunca sube a git). Nota operativa para quien repita esto en
+   git-bash/MSYS en Windows: los paths tipo `/tmp/...` que van DENTRO del
+   contenedor se mangléan a paths de Windows por la auto-conversión de
+   MSYS; hay que prefijar el comando con `MSYS_NO_PATHCONV=1` para que
+   llegue intacto al `docker exec`.
+2. **Aplicado**: `docker exec -i classia-postgres psql -U classia -d
+   classia_saas -f - < migration.sql` — 144 líneas de salida, cero
+   `ERROR`. Confirmado idempotente (re-ejecutado sin efectos adicionales,
+   los `DO $$ ... EXCEPTION WHEN duplicate_object$` y los `ALTER TABLE
+   ... ENABLE/FORCE` no fallan en un segundo run). Marcado como aplicado en
+   Prisma con `prisma migrate resolve --applied
+   20260722110000_rls_enable_force_policies` (el SQL se corrió a mano, no
+   con `prisma migrate deploy`, porque el usuario de esa conexión necesita
+   ser el superuser `classia` para `CREATE POLICY`/`ALTER TABLE ... FORCE`,
+   y `migrate deploy` en este repo usa `DATABASE_URL` que ya apunta a
+   `classia`).
+3. **Sanity checks estructurales** (vía `docker exec ... psql`, vale la pena
+   repetir estos exactos cada vez que se re-aplique en otro entorno):
+   - `pg_class.relrowsecurity`/`relforcerowsecurity` en `t`/`t` para tablas
+     tenant-owned (`students`, `election_votes`, `ticket_comments`,
+     `auth_sessions`, `audit_logs`, `tenant_memberships`) y en `f`/`f` para
+     las 4 globales (`tenants`, `users`, `system_settings`,
+     `notification_preferences`).
+   - Separación de roles funcionando de verdad: `SELECT count(*) FROM
+     students` como `classia_app` (sin contexto) → **0 filas**; la misma
+     query como `classia` (superuser, ignora RLS) → 600 filas. Confirma que
+     el rol de runtime no es accidentalmente un bypass.
+
+#### Hallazgo crítico de la verificación en vivo: `AsyncLocalStorage` + Prisma lazy promises (2026-07-23)
+
+**Este es el hallazgo de mayor severidad de todo el proyecto RLS — más que
+la trampa #0 (superuser).** Con el SQL ya aplicado, el primer intento de
+login real (`rector@demo.classia.com.co`, membership confirmada `ACTIVE`
+en la base con una query directa) devolvió **`401 "Tenant membership is
+not active."`** de forma 100% reproducible, para cualquier usuario, en
+cualquier tenant.
+
+**Causa raíz**: `TenantRlsContextService.runWithTenant(tenantId, callback)`
+usaba `this.als.run({tenantId}, callback)` y devolvía eso tal cual. El
+patrón de uso en `login()` (y en ~15 sitios más del código) era:
+
+```ts
+const membership = await this.tenantRlsContext.runWithTenant(tenant.id, () =>
+  this.prisma.tenantMembership.findUnique({ where: {...} }),
+);
+```
+
+Las queries de Prisma son **lazy** (`PrismaPromise`): `findUnique(...)`
+devuelve un objeto thenable sin disparar ninguna ejecución todavía — recién
+dispara la query real (y con ella, `$allOperations` de la extensión de RLS,
+que lee `tenantRlsContext.getStore()`) cuando algo llama `.then()`/`await`
+sobre ese objeto. En el patrón de arriba, ese `.then()` real ocurre en el
+`await` que está FUERA de `runWithTenant(...)` — es decir, después de que
+`als.run()` ya retornó y su ventana de contexto síncrona ya se cerró.
+Node's `AsyncLocalStorage` solo propaga el contexto a continuaciones que
+quedan enganchadas (via `.then()`/`await`) MIENTRAS el callback de `.run()`
+todavía se está ejecutando; acá no queda enganchado nada, así que
+`getStore()` devuelve `undefined` en el momento real de la query.
+Resultado: la extensión nunca setea `app.tenant_id`, y RLS (correctamente)
+devuelve cero filas — la membership existía y estaba `ACTIVE`, pero la
+query la vio como si no existiera. **Falla cerrado, no es una fuga de
+datos** — pero rompe login/refresh/logout/impersonate para el 100% de los
+usuarios de la app, exactamente el escenario que motivó no aplicar el SQL
+sin una pasada de verificación dedicada.
+
+Confirmado con: (a) reproducción directa vía SQL manual (`BEGIN; SELECT
+set_config(...); SELECT ... FROM tenant_memberships; COMMIT;` como
+`classia_app`) — la fila aparece, ACTIVE, cuando el contexto se setea a
+mano en la misma transacción; (b) instrumentación temporal
+(`console.log` en `$allOperations`, revertida después) que mostró
+`store: undefined` exactamente en la query de `TenantMembership.findUnique`
+dentro de `login()`.
+
+**Por qué el resto de la app SÍ funcionaba** (dashboard, estudiantes,
+profesores, cursos — todos con datos reales tenant-scoped) **antes de este
+fix**: esas rutas pasan por `TenantRlsContextInterceptor`, que envuelve
+`next.handle().subscribe(subscriber)` DENTRO de `als.run()`. `.subscribe()`
+dispara sincrónicamente toda la cadena de RxJS/promesas de Nest, incluido
+el primer `.then()` real sobre la promesa del controller — ese `.then()`
+SÍ queda enganchado dentro de la ventana de `als.run()`, así que el
+contexto se propaga correctamente a través de todos los `await` internos
+de ahí en adelante. El bug era específico de los **~15 sitios que llaman
+`runWithTenant`/`withSessionTenant` a mano** (fuera de cualquier request
+HTTP autenticado: `login`, `refresh`, `logout`, `exitImpersonation`,
+`impersonate`, `createSession`, `users.service#updateMembership`, varios
+en `access-control.service.ts`, `support.service.ts`,
+`reports.service.ts`, y los processors de BullMQ) — exactamente las rutas
+más críticas del sistema, y las que menos se ejercitan con tráfico
+"normal" en un smoke test superficial.
+
+**Fix, en la raíz** (`apps/api/src/core/prisma/tenant-rls-context.service.ts`):
+`runWithTenant`/`runInTransaction` ahora son `async` y hacen `await
+callback()` **adentro** de su propio callback pasado a `als.run()`:
+
+```ts
+async runWithTenant<T>(tenantId: string, callback: () => T | Promise<T>): Promise<T> {
+  return this.als.run({ tenantId }, async () => {
+    return await callback();
+  });
+}
+```
+
+Esto engancha el `.then()` real DENTRO de la ventana de `als.run()` sin
+importar cómo haya escrito su callback quien llama (arrow plano
+`() => prisma.x.y()` o `async () => { await ...; }` — ambos funcionan
+ahora). Es la corrección correcta porque vive en el único punto compartido
+por los ~15 sitios afectados, en vez de tener que auditar y reescribir
+cada callsite individualmente (con el riesgo de que aparezca un sitio #16
+nuevo mañana con el mismo problema).
+
+**Segundo hallazgo, encontrado al re-probar login() después del fix
+anterior**: `auth.service.ts` también llamaba `this.audit.record(...)`
+(escribe en `audit_logs`, con RLS forzado) en 6 puntos de
+`login`/`refresh`/`logout`/`impersonate`/`exitImpersonation` **sin envolver
+la llamada en ningún contexto de tenant** — a diferencia de las queries de
+Prisma de arriba, acá no había NINGÚN `runWithTenant`, ni siquiera el
+patrón roto. Como `audit_logs` permite `tenantId IS NULL` pero estos
+registros sí llevan un `tenantId` real, Postgres rechazaba el `INSERT` con
+`new row violates row-level security policy for table "audit_logs"`
+(42501) — un 500, no un 401 silencioso. Arreglado envolviendo los 6 sitios
+en `withSessionTenant(...)`/`runWithTenant(...)` con el tenant ya conocido
+en ese punto (igual que las queries de Prisma vecinas).
+
+**Verificado en vivo, de punta a punta, después de ambos fixes**
+(`npx tsc --noEmit` en verde en `apps/api` antes de cada prueba):
+- Login (`rector@demo...`, `TENANT_ADMIN`) y login de `SUPER_ADMIN` — 201,
+  tokens válidos, fila en `audit_logs` con el `tenantId` correcto, fila en
+  `auth_sessions` correcta.
+- `refresh()` con el token recién emitido — 201, sesión anterior revocada,
+  nueva sesión creada, ambas con `tenantId` correcto.
+- `logout()` — sesión revocada, auditoría correcta.
+- Flujo de impersonación de punta a punta como `SUPER_ADMIN`: `POST
+  /access-sessions/break-glass` sobre un ticket real del tenant demo →
+  `POST /auth/impersonate` → token de impersonación funcional (probado
+  contra `GET /students`, correctamente bloqueado por `DataScopeGuard` por
+  falta de alcance `DATOS_PERSONALES` — comportamiento esperado, no un bug)
+  → `POST /auth/refresh` de la sesión impersonada (revalida
+  `hasActiveScopeForTicket`) → `POST /auth/exit-impersonation`. Los 4 pasos
+  quedaron en `audit_logs` con el `tenantId` del colegio objetivo, no el
+  del actor.
+- `users.service#updateMembership` (mismo patrón de callback roto que
+  login) — cambio de estado de una membership real (`ACTIVE` →
+  `INACTIVE` → `ACTIVE`), confirmado en la respuesta y revertido.
+- `PATCH /access-sessions/:id/revoke` — revocación real de la sesión de
+  break-glass usada arriba.
+- Navegación real por el frontend como `TENANT_ADMIN`: estudiantes (100),
+  profesores (11), cursos (12), asistencia, calificaciones, pagos,
+  reportes, certificados, soporte, elecciones (esta última había fallado
+  con 401 antes del fix — confirmado que ahora carga) — todas con datos
+  reales y coherentes entre sí. Panel `SUPER_ADMIN` con agregados
+  cross-tenant reales (7 colegios, 240 usuarios) vía
+  `PlatformAdminPrismaService`. Cero errores en los logs de la API en todo
+  el recorrido.
+
+**No verificado en vivo todavía** (el fix en la raíz cubre estos sitios
+por construcción, pero no se disparó cada uno explícitamente): el job
+`sweep` de `access-session-expiry.processor.ts`, `reports.processor.ts`
+(`scheduled-run`), `support.service.ts` (`updateTicketStatus`/
+`addComment`, sí probados en la pasada de auditoría anterior pero no
+re-probados después de este fix específico). Riesgo residual considerado
+bajo: todos siguen el mismo `runWithTenant` ya corregido en la raíz, y los
+call-sites HTTP con el patrón idéntico (login, updateMembership,
+break-glass) sí se re-probaron y funcionaron.
+
+#### Segundo hallazgo crítico: `$queryRaw`/`$executeRaw` no pasan por la extensión de Prisma (2026-07-23)
+
+Encontrado corriendo la suite `jest --config jest.config.cjs --runInBand`
+completa (parte pendiente de la Fase 8) contra la BD con RLS ya forzado —
+**no** por inspección de código, por un test que empezó a fallar de forma
+100% determinista (3 corridas seguidas, mismo resultado): el conteo de
+mensajes no leídos (`GET /conversations`) daba **0 para cualquier usuario**,
+y una entrega de notificación por email no aparecía.
+
+**Causa raíz**: `tenant-rls.extension.ts` declara `query: { $allModels:
+{ $allOperations } }` — esto intercepta operaciones de MODELO
+(`findMany`, `create`, `update`, etc.), pero `$queryRaw`/`$executeRaw` son
+métodos de nivel de CLIENTE, no de modelo, así que la extensión nunca los
+ve. `ConversationsService#unreadCountsFor` usaba `this.prisma.$queryRaw`
+directo para un conteo agregado (`JOIN` + `GROUP BY`, no expresable
+limpiamente con el query builder de Prisma) — esa query corría siempre sin
+`app.tenant_id` seteado, y con RLS forzado en `conversation_messages`/
+`conversation_members`, el resultado es cero filas siempre, sin importar
+qué usuario o colegio. Es el mismo espíritu de la trampa #4 original
+("raw queries no pasan por `$allOperations`"), pero ese punto asumía que
+todo `$queryRaw` vivía dentro de una transacción ya abierta por
+`runInTenantTransaction` (cierto para el único otro caso real,
+`payments.service.ts` con `tx.$queryRaw` para el `FOR UPDATE`) — este caso
+se coló porque corre standalone, fuera de cualquier transacción.
+
+**Por qué agregar `WHERE tenantId = ...` al SQL crudo NO alcanza por sí
+solo** (primer intento, todavía incompleto): RLS actúa sobre el *scan* de
+la tabla en Postgres, antes de que el resultado del `WHERE` del caller
+importe — si `current_setting('app.tenant_id')` no está seteado en esa
+conexión, la política deja pasar cero filas de origen, sin importar cuántos
+filtros adicionales tenga la query. El filtro explícito por `tenantId` es
+buena defensa en profundidad (documenta intención, protege si algún día RLS
+se desactivara por error), pero no sustituye setear la variable de sesión.
+
+**Fix real**: igual que hace la extensión para operaciones de modelo,
+envolver el `$queryRaw` en `this.prisma.$transaction([setConfig,
+queryRaw])` (forma array — misma conexión) manualmente, ya que acá no hay
+extensión que lo haga por nosotros:
+
+```ts
+const [, rows] = await this.prisma.$transaction([
+  this.prisma.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
+  this.prisma.$queryRaw<...>(Prisma.sql`... WHERE m."tenantId" = ${tenantId} ...`),
+]);
+```
+
+**Auditoría de todo el repo para este patrón** (`grep -rn
+"\$queryRaw\|\$executeRaw" apps/api/src`): solo 3 sitios reales, ya
+cubiertos —
+`health.service.ts` (`SELECT 1`, sin datos de tenant, no aplica),
+`payments.service.ts` (`tx.$queryRaw` dentro de `runInTenantTransaction`,
+ya seguro), y este de `conversations.service.ts` (el único roto,
+arreglado). **No quedan `$queryRaw`/`$executeRaw` standalone sin
+contexto en el repo.**
+
+**También se encontraron y arreglaron, en el camino de hacer pasar la
+suite completa, dos gaps de la Fase 1 en el fixture de tests
+(`apps/api/test/backend-v1.e2e-spec.ts`) — pre-existentes, no
+introducidos por este trabajo, solo revelados al dejar de estar tapados
+por el error de RLS**: `prisma.studentGuardian.upsert()` y
+`prisma.attendanceSession.create()` (con `records: { create: [...] }`
+anidado) no pasaban `tenantId` en el `create`, a pesar de que ambos
+modelos lo requieren desde la denormalización de Fase 1
+(2026-07-22). El propio fixture de test nunca se actualizó en ese
+momento. Corregido pasando `tenantId: tenant.id` explícito en los 4
+sitios. Además, el `beforeAll`/fixtures del archivo de test (que llaman a
+`prisma.tenantMembership.upsert`, etc. fuera de cualquier request HTTP)
+se envolvieron en `TenantRlsContextService#runWithTenant`, igual que el
+código de la app — sin esto, la suite entera fallaba en el setup con
+`new row violates row-level security policy` antes de correr un solo test.
+
+**Suite completa verificada en verde después de ambos fixes**:
+`npx jest --config jest.config.cjs --runInBand` → **24/24 tests pasan**,
+3 corridas consecutivas. `npx tsc --noEmit` en verde en `apps/api`
+(`test/` está excluido de ese `tsconfig.json`, por eso estos gaps no los
+agarra el typecheck — son errores de runtime de Prisma, no de tipos).
+
 ### Fase 3 — Script de verificación exhaustivo
 Estado: ⏳ pendiente. `scripts/verify-rls.ts`: lista blanca explícita de lo
 genuinamente global, todo lo demás debe tener RLS forzado. Falla si encuentra
@@ -467,9 +716,23 @@ Estado: ⏳ pendiente. Se agrega a la suite e2e existente
 contra Postgres/Redis reales, no hay que armar infraestructura de test nueva.
 
 ### Fase 8 — Verificación final
-Estado: ⏳ pendiente. `tsc --noEmit` (api + web), jest completo, y verificación
-en vivo: login normal, panel SUPER_ADMIN, un flujo de pagos, una votación, un
-reporte generado — no alcanza con que la suite pase, tiene que verse funcionando.
+Estado: ✅ hecho (2026-07-23). `tsc --noEmit` en verde en `apps/api`;
+`jest --config jest.config.cjs --runInBand` (suite e2e completa contra
+Postgres/Redis reales, con RLS genuinamente forzado) en **24/24 verde**,
+3 corridas consecutivas deterministas; y la verificación en vivo manual
+completa descrita arriba: login/refresh/logout, impersonación de punta a
+punta (break-glass → impersonate → refresh → exit), panel SUPER_ADMIN,
+soporte, estudiantes/profesores/cursos/asistencia/calificaciones/pagos/
+reportes/certificados/elecciones, `updateMembership`. Dos bugs reales de
+RLS encontrados y arreglados en esta pasada (no simulados, ambos
+reproducidos y confirmados contra la app real): el bug de
+`AsyncLocalStorage`+Prisma-lazy-promises en `runWithTenant` (Fase 2) y el
+gap de `$queryRaw` sin contexto en `unreadCountsFor` (arriba). Pendiente,
+de menor prioridad y sin evidencia de que sea un problema real: re-probar
+explícitamente en vivo (no solo por construcción del fix) el job `sweep`
+de expiración de accesos y `reports.processor.ts#scheduled-run` — ambos
+usan `runWithTenant` ya corregido, y la suite jest ejercita
+`reports.processor.ts` (job `generate`) sin problemas.
 
 ## Fuera de alcance (a propósito)
 

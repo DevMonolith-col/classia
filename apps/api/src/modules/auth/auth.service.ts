@@ -92,16 +92,22 @@ export class AuthService {
       request,
     });
 
-    await this.audit.record({
-      tenantId: tenant.id,
-      userId: user.id,
-      actorRole: membership.role,
-      action: "auth.login",
-      entityType: "User",
-      entityId: user.id,
-      ipAddress: request.ip,
-      userAgent: request.headers["user-agent"],
-    });
+    // audit.record() también escribe bajo RLS (audit_logs) y login() corre
+    // sin contexto ambiente (sin JWT todavía) -- se envuelve igual que las
+    // queries de arriba, si no el INSERT viola la política (tenantId no nulo
+    // sin app.tenant_id seteado).
+    await this.tenantRlsContext.runWithTenant(tenant.id, () =>
+      this.audit.record({
+        tenantId: tenant.id,
+        userId: user.id,
+        actorRole: membership.role,
+        action: "auth.login",
+        entityType: "User",
+        entityId: user.id,
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      }),
+    );
 
     return {
       ...tokens,
@@ -149,6 +155,12 @@ export class AuthService {
       throw new UnauthorizedException("Invalid refresh token.");
     }
 
+    // Ligado acá (no `session.tenant.id` repetido): TS no re-angosta
+    // `session.tenant` como no-nulo dentro de los closures de
+    // withSessionTenant() más abajo (narrowing de property access no cruza
+    // límites de función), y ya se validó arriba que existe.
+    const tenantId = session.tenant.id;
+
     // Sesión de impersonación: se re-emite conservando el rol efectivo, el flag
     // y el ticket que la justificó, sin depender de ninguna membership (el
     // supervisor no la tiene en el tenant). Sin el ticketId, tras el primer
@@ -179,17 +191,19 @@ export class AuthService {
           }),
         );
 
-        await this.audit.record({
-          tenantId: session.tenant.id,
-          userId: session.user.id,
-          actorRole: session.impersonatedRole ?? undefined,
-          action: "auth.refresh_denied",
-          entityType: "AuthSession",
-          entityId: session.id,
-          newValues: { reason: "access_session_inactive", ticketId: session.ticketId ?? undefined },
-          ipAddress: request.ip,
-          userAgent: request.headers["user-agent"],
-        });
+        await this.withSessionTenant(tenantId, () =>
+          this.audit.record({
+            tenantId,
+            userId: session.user.id,
+            actorRole: session.impersonatedRole ?? undefined,
+            action: "auth.refresh_denied",
+            entityType: "AuthSession",
+            entityId: session.id,
+            newValues: { reason: "access_session_inactive", ticketId: session.ticketId ?? undefined },
+            ipAddress: request.ip,
+            userAgent: request.headers["user-agent"],
+          }),
+        );
 
         throw new UnauthorizedException("La sesión de acceso para este ticket ya no está activa.");
       }
@@ -214,16 +228,18 @@ export class AuthService {
         request,
       });
 
-      await this.audit.record({
-        tenantId: session.tenant.id,
-        userId: session.user.id,
-        actorRole: impersonatedRole,
-        action: "auth.refresh",
-        entityType: "AuthSession",
-        entityId: session.id,
-        ipAddress: request.ip,
-        userAgent: request.headers["user-agent"],
-      });
+      await this.withSessionTenant(tenantId, () =>
+        this.audit.record({
+          tenantId,
+          userId: session.user.id,
+          actorRole: impersonatedRole,
+          action: "auth.refresh",
+          entityType: "AuthSession",
+          entityId: session.id,
+          ipAddress: request.ip,
+          userAgent: request.headers["user-agent"],
+        }),
+      );
 
       return tokens;
     }
@@ -255,16 +271,18 @@ export class AuthService {
       request,
     });
 
-    await this.audit.record({
-      tenantId: session.tenant.id,
-      userId: session.user.id,
-      actorRole: membership.role,
-      action: "auth.refresh",
-      entityType: "AuthSession",
-      entityId: session.id,
-      ipAddress: request.ip,
-      userAgent: request.headers["user-agent"],
-    });
+    await this.withSessionTenant(tenantId, () =>
+      this.audit.record({
+        tenantId,
+        userId: session.user.id,
+        actorRole: membership.role,
+        action: "auth.refresh",
+        entityType: "AuthSession",
+        entityId: session.id,
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      }),
+    );
 
     return tokens;
   }
@@ -296,16 +314,18 @@ export class AuthService {
         }),
       );
 
-      await this.audit.record({
-        tenantId: session.tenantId ?? undefined,
-        userId: session.userId,
-        actorRole: membership?.role,
-        action: "auth.logout",
-        entityType: "AuthSession",
-        entityId: session.id,
-        ipAddress: request.ip,
-        userAgent: request.headers["user-agent"],
-      });
+      await this.withSessionTenant(session.tenantId, () =>
+        this.audit.record({
+          tenantId: session.tenantId ?? undefined,
+          userId: session.userId,
+          actorRole: membership?.role,
+          action: "auth.logout",
+          entityType: "AuthSession",
+          entityId: session.id,
+          ipAddress: request.ip,
+          userAgent: request.headers["user-agent"],
+        }),
+      );
     }
 
     return {
@@ -389,17 +409,22 @@ export class AuthService {
       request,
     });
 
-    await this.audit.record({
-      tenantId: targetTenant.id,
-      userId: currentUser.id,
-      actorRole: sessionRole,
-      action: "auth.impersonate",
-      entityType: "Tenant",
-      entityId: targetTenant.id,
-      newValues: { ticketId: input.ticketId },
-      ipAddress: request.ip,
-      userAgent: request.headers["user-agent"],
-    });
+    // El actor (soporte) corre con SU PROPIO contexto ambiente (o ninguno),
+    // no el de targetTenant -- se establece explícitamente para este write,
+    // igual que para el resto de las escrituras de impersonate().
+    await this.tenantRlsContext.runWithTenant(targetTenant.id, () =>
+      this.audit.record({
+        tenantId: targetTenant.id,
+        userId: currentUser.id,
+        actorRole: sessionRole,
+        action: "auth.impersonate",
+        entityType: "Tenant",
+        entityId: targetTenant.id,
+        newValues: { ticketId: input.ticketId },
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      }),
+    );
 
     return {
       ...tokens,
@@ -434,16 +459,18 @@ export class AuthService {
         }),
       );
 
-      await this.audit.record({
-        tenantId: session.tenantId ?? undefined,
-        userId: session.userId,
-        actorRole: session.impersonatedRole ?? undefined,
-        action: "auth.impersonate_ended",
-        entityType: "AuthSession",
-        entityId: session.id,
-        ipAddress: request.ip,
-        userAgent: request.headers["user-agent"],
-      });
+      await this.withSessionTenant(session.tenantId, () =>
+        this.audit.record({
+          tenantId: session.tenantId ?? undefined,
+          userId: session.userId,
+          actorRole: session.impersonatedRole ?? undefined,
+          action: "auth.impersonate_ended",
+          entityType: "AuthSession",
+          entityId: session.id,
+          ipAddress: request.ip,
+          userAgent: request.headers["user-agent"],
+        }),
+      );
     }
 
     return { status: "ok" };

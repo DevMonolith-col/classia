@@ -6,6 +6,7 @@ import { Job } from "bullmq";
 import { AppModule } from "../src/app.module";
 import { setupApp } from "../src/app.setup";
 import { PrismaService } from "../src/core/prisma/prisma.service";
+import { TenantRlsContextService } from "../src/core/prisma/tenant-rls-context.service";
 import { NotificationsProcessor } from "../src/modules/notifications/notifications.processor";
 
 const DEMO_TENANT_SLUG = "demo";
@@ -153,8 +154,11 @@ describe("Backend v1 e2e", () => {
     setupApp(app);
     await app.listen(0);
     baseUrl = await app.getUrl();
-    await ensureDemoE2eUsers(app.get(PrismaService));
-    guardianFixtures = await ensureGuardianScopingFixtures(app.get(PrismaService));
+    await ensureDemoE2eUsers(app.get(PrismaService), app.get(TenantRlsContextService));
+    guardianFixtures = await ensureGuardianScopingFixtures(
+      app.get(PrismaService),
+      app.get(TenantRlsContextService),
+    );
   });
 
   afterAll(async () => {
@@ -500,8 +504,14 @@ describe("Backend v1 e2e", () => {
     expect(convAfter?.messages.map((m) => m.id)).not.toContain(messageId);
 
     // ...pero la fila permanece en la BD con deletedAt (retención Ley 1620 / Ley 527).
+    // conversation_messages tiene RLS forzado -- esta lectura corre fuera de
+    // cualquier request HTTP, así que necesita su propio contexto.
     const prisma = app.get(PrismaService);
-    const persisted = await prisma.conversationMessage.findUnique({ where: { id: messageId } });
+    const tenantRlsContext = app.get(TenantRlsContextService);
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: DEMO_TENANT_SLUG } });
+    const persisted = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.conversationMessage.findUnique({ where: { id: messageId } }),
+    );
     expect(persisted).not.toBeNull();
     expect(persisted?.deletedAt).not.toBeNull();
   });
@@ -663,6 +673,8 @@ describe("Backend v1 e2e", () => {
 
   it("creates in-app notifications from events, gates email by preference, and skips email when provider disabled", async () => {
     const prisma = app.get(PrismaService);
+    const tenantRlsContext = app.get(TenantRlsContextService);
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: DEMO_TENANT_SLUG } });
     const teacher = await loginAs(TEACHER_EMAIL);
     const guardian = await loginAs(GUARDIAN_EMAIL);
 
@@ -708,9 +720,13 @@ describe("Backend v1 e2e", () => {
     // de despacho de forma determinista (proveedor deshabilitado → SKIPPED),
     // invocamos el processor directamente sobre la entrega creada.
     const delivery1 = await waitFor(async () => {
-      const rows = await prisma.notificationDelivery.findMany({
-        where: { notificationId: notif1!.id },
-      });
+      // notification_deliveries tiene RLS forzado -- misma razón que el resto
+      // de las lecturas directas por PrismaService en este archivo.
+      const rows = await tenantRlsContext.runWithTenant(tenant.id, () =>
+        prisma.notificationDelivery.findMany({
+          where: { notificationId: notif1!.id },
+        }),
+      );
       return rows.find((r) => r.channel === "EMAIL");
     });
     expect(delivery1?.channel).toBe("EMAIL");
@@ -719,9 +735,11 @@ describe("Backend v1 e2e", () => {
       .get(NotificationsProcessor)
       .process({ data: { deliveryId: delivery1!.id } } as Job<{ deliveryId: string }>);
 
-    const processed1 = await prisma.notificationDelivery.findUnique({
-      where: { id: delivery1!.id },
-    });
+    const processed1 = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.notificationDelivery.findUnique({
+        where: { id: delivery1!.id },
+      }),
+    );
     expect(processed1?.status).toBe("SKIPPED");
 
     // 2) unread-count + mark-read.
@@ -766,9 +784,11 @@ describe("Backend v1 e2e", () => {
 
     // Damos tiempo por si se creara una entrega y confirmamos que NO hay EMAIL.
     await new Promise((resolve) => setTimeout(resolve, 500));
-    const deliveries2 = await prisma.notificationDelivery.findMany({
-      where: { notificationId: notif2!.id },
-    });
+    const deliveries2 = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.notificationDelivery.findMany({
+        where: { notificationId: notif2!.id },
+      }),
+    );
     expect(deliveries2.filter((d) => d.channel === "EMAIL")).toHaveLength(0);
   });
 
@@ -815,7 +835,7 @@ function jsonHeaders(headers: Record<string, string> = {}): Record<string, strin
   };
 }
 
-async function ensureDemoE2eUsers(prisma: PrismaService) {
+async function ensureDemoE2eUsers(prisma: PrismaService, tenantRlsContext: TenantRlsContextService) {
   const tenant = await prisma.tenant.upsert({
     where: { slug: DEMO_TENANT_SLUG },
     update: {
@@ -832,33 +852,39 @@ async function ensureDemoE2eUsers(prisma: PrismaService) {
   });
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 12);
 
-  await ensureUserWithMembership(prisma, {
-    tenantId: tenant.id,
-    email: TENANT_ADMIN_EMAIL,
-    firstName: "Tenant Admin",
-    lastName: "E2E",
-    passwordHash,
-    role: UserRole.TENANT_ADMIN,
-  });
-  await ensureUserWithMembership(prisma, {
-    tenantId: tenant.id,
-    email: TEACHER_EMAIL,
-    firstName: "Teacher",
-    lastName: "E2E",
-    passwordHash,
-    role: UserRole.TEACHER,
-  });
-  // Segunda cuenta de soporte (distinta de la SUPER_ADMIN sembrada por
-  // packages/database/prisma/seed.ts) para poder probar, con dos identidades
-  // reales, la rama "es del equipo de soporte pero no soy yo" del chat de
-  // soporte (ver apps/web/components/support/SupportChatThread.tsx).
-  await ensureUserWithMembership(prisma, {
-    tenantId: tenant.id,
-    email: SUPPORT_AGENT_EMAIL,
-    firstName: "Support Agent",
-    lastName: "E2E",
-    passwordHash,
-    role: UserRole.SUPPORT_AGENT,
+  // `tenant_memberships` tiene RLS forzado (docs/planning/aislamiento-rls-multitenant.md,
+  // Fase 2) -- este setup corre fuera de cualquier request HTTP, así que
+  // necesita establecer el contexto a mano, igual que login()/refresh() en
+  // auth.service.ts.
+  await tenantRlsContext.runWithTenant(tenant.id, async () => {
+    await ensureUserWithMembership(prisma, {
+      tenantId: tenant.id,
+      email: TENANT_ADMIN_EMAIL,
+      firstName: "Tenant Admin",
+      lastName: "E2E",
+      passwordHash,
+      role: UserRole.TENANT_ADMIN,
+    });
+    await ensureUserWithMembership(prisma, {
+      tenantId: tenant.id,
+      email: TEACHER_EMAIL,
+      firstName: "Teacher",
+      lastName: "E2E",
+      passwordHash,
+      role: UserRole.TEACHER,
+    });
+    // Segunda cuenta de soporte (distinta de la SUPER_ADMIN sembrada por
+    // packages/database/prisma/seed.ts) para poder probar, con dos identidades
+    // reales, la rama "es del equipo de soporte pero no soy yo" del chat de
+    // soporte (ver apps/web/components/support/SupportChatThread.tsx).
+    await ensureUserWithMembership(prisma, {
+      tenantId: tenant.id,
+      email: SUPPORT_AGENT_EMAIL,
+      firstName: "Support Agent",
+      lastName: "E2E",
+      passwordHash,
+      role: UserRole.SUPPORT_AGENT,
+    });
   });
 }
 
@@ -924,10 +950,17 @@ async function findOrCreateSubject(prisma: PrismaService, tenantId: string, name
   return prisma.subject.create({ data: { tenantId, name, code: "GUARD-E2E" } });
 }
 
-async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<GuardianScopingFixtures> {
+async function ensureGuardianScopingFixtures(
+  prisma: PrismaService,
+  tenantRlsContext: TenantRlsContextService,
+): Promise<GuardianScopingFixtures> {
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: DEMO_TENANT_SLUG } });
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 12);
 
+  // Todo lo de acá para abajo escribe/lee tablas con RLS forzado
+  // (teachers, guardians, students, homework, marks, attendance...) -- ver
+  // el mismo comentario en ensureDemoE2eUsers.
+  return tenantRlsContext.runWithTenant(tenant.id, async () => {
   const teacherUser = await ensureUserWithMembership(prisma, {
     tenantId: tenant.id,
     email: TEACHER_EMAIL,
@@ -997,7 +1030,13 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
   await prisma.studentGuardian.upsert({
     where: { studentId_guardianId: { studentId: ownChild.id, guardianId: guardian.id } },
     update: {},
-    create: { studentId: ownChild.id, guardianId: guardian.id, relationship: "parent", isPrimary: true },
+    create: {
+      studentId: ownChild.id,
+      guardianId: guardian.id,
+      tenantId: tenant.id,
+      relationship: "parent",
+      isPrimary: true,
+    },
   });
 
   // Un segundo acudiente, del compañero de curso, para probar el fan-out de la difusión.
@@ -1020,6 +1059,7 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
     create: {
       studentId: classmate.id,
       guardianId: classmateGuardian.id,
+      tenantId: tenant.id,
       relationship: "parent",
       isPrimary: true,
     },
@@ -1156,8 +1196,8 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
       isOpen: true,
       records: {
         create: [
-          { studentId: ownChild.id, status: AttendanceStatus.PRESENT },
-          { studentId: classmate.id, status: AttendanceStatus.ABSENT },
+          { tenantId: tenant.id, studentId: ownChild.id, status: AttendanceStatus.PRESENT },
+          { tenantId: tenant.id, studentId: classmate.id, status: AttendanceStatus.ABSENT },
         ],
       },
     },
@@ -1174,7 +1214,7 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
       date: new Date("2026-07-01T00:00:00.000Z"),
       isOpen: true,
       records: {
-        create: [{ studentId: otherChild.id, status: AttendanceStatus.PRESENT }],
+        create: [{ tenantId: tenant.id, studentId: otherChild.id, status: AttendanceStatus.PRESENT }],
       },
     },
   });
@@ -1223,6 +1263,7 @@ async function ensureGuardianScopingFixtures(prisma: PrismaService): Promise<Gua
     sharedGroupId: sharedGroup.id,
     otherGroupId: otherGroup.id,
   };
+  });
 }
 
 async function findOrCreateSchedule(
