@@ -711,9 +711,113 @@ mismo patrón ya validado en los otros tres processors, y `tsc --noEmit`
 está en verde.
 
 ### Fase 7 — Test de regresión de aislamiento cross-tenant
-Estado: ⏳ pendiente. Se agrega a la suite e2e existente
-(`apps/api/test/backend-v1.e2e-spec.ts` o archivo nuevo) — la suite ya corre
-contra Postgres/Redis reales, no hay que armar infraestructura de test nueva.
+Estado: ✅ hecho (2026-07-23). Archivo nuevo,
+`apps/api/test/rls-cross-tenant.e2e-spec.ts` (separado de
+`backend-v1.e2e-spec.ts` a propósito: levanta su propio segundo tenant
+dedicado, y la naturaleza del test es adversarial, no funcional — vale la
+pena poder correrlo/leerlo aislado).
+
+**Por qué esta fase importaba más de lo que parecía**: toda la verificación
+anterior (login, refresh, impersonación, CRUD por módulo, suite e2e
+funcional) prueba "el feature funciona" — ninguna prueba específicamente
+"un actor del Tenant A JAMÁS puede leer/escribir una entidad del Tenant B
+citando su ID". Son cosas distintas: los dos bugs críticos de la Fase 2 se
+encontraron porque rompían funcionalidad visible (login fallaba, un
+contador daba 0), no porque un test buscara fugas activamente. Un bug que
+en cambio *filtrara* datos de otro colegio en vez de bloquearlos con error
+no lo habría agarrado nada de lo anterior.
+
+**Setup**: Tenant A = el tenant "demo" ya sembrado. Tenant B = tenant nuevo
+dedicado (`rls-e2e-tenant-b`), con su propio TENANT_ADMIN, un Teacher, un
+Group y un Student, creados directo por Prisma (bypass del propio setup,
+mismo patrón que `backend-v1.e2e-spec.ts`).
+
+**Casos cubiertos** (todos contra la app real, RLS forzado):
+- `GET /students/:id`, `GET /teachers/:id`, `GET /groups/:id` con el ID de
+  una entidad de tenant B, autenticado como TENANT_ADMIN de tenant A → 404.
+- `GET /students` (listado) de tenant A → nunca contiene el estudiante de
+  tenant B.
+- `PATCH /students/:id` de tenant B, autenticado como tenant A → 404, y se
+  confirma además (leyendo directo con bypass) que el nombre del estudiante
+  de tenant B no cambió — el intento de escritura no dejó rastro.
+- **El caso más importante**: `GET /students/:id` de tenant B, autenticado
+  como **SUPER_ADMIN sin impersonar** → 404. Este es el hueco documentado a
+  propósito en la Fase 2 ("encontrado pero NO arreglado", el patrón de los
+  16 archivos `findUniqueOrThrow` + `isGlobalAdmin`-bypass): el único motivo
+  por el que este caso no filtra datos hoy es que RLS lo bloquea — no hay
+  ningún chequeo de código que lo haga. Este test es la prueba en vivo de
+  que esa garantía efectivamente se sostiene, y quedará en rojo
+  automáticamente el día que deje de hacerlo.
+- Control negativo: TENANT_ADMIN de tenant A sí puede leer su propio
+  listado de estudiantes (descarta un bug de "todo 404 siempre", que
+  haría pasar los tests de arriba por la razón equivocada).
+
+**Dos hallazgos reales durante la implementación de este test** (no
+simulados — el test los encontró exactamente como está diseñado para
+hacerlo):
+
+1. **Los checks de "no encontrado" devolvían 500, no 404.** `findOne()` en
+   `students.service.ts`/`teachers.service.ts`/`groups.service.ts` usa
+   `findUniqueOrThrow({ where: { id } })` sin filtro de tenant (confía
+   enteramente en RLS). Cuando RLS filtra la fila, Prisma lanza
+   `NotFoundError` (`PrismaClientKnownRequestError` código `P2025`) — y el
+   filtro global de excepciones (`http-exception.filter.ts`) no tenía ningún
+   caso para ese tipo de error, así que caía al 500 genérico. No es una
+   fuga (el dato seguía bloqueado), pero es un problema real: (a) un 500 en
+   vez de un 404 limpio confunde al cliente, (b) con RLS forzado este ya no
+   es un caso raro (ID inválido/borrado) sino el camino NORMAL por el que
+   se bloquea CUALQUIER intento de cruzar tenant, así que iba a generar
+   ruido constante en cualquier monitoreo de errores 500. Arreglado
+   mapeando `PrismaClientKnownRequestError` con código `P2025` a 404 en el
+   filtro global, con mensaje genérico "Resource not found." (no revela
+   qué modelo era). Verificado en vivo: la misma request que antes devolvía
+   500 ahora devuelve `{"statusCode":404,"error":"NOT_FOUND","message":"Resource not found."}`.
+
+2. **`TenantsService#list()` (el panel SUPER_ADMIN, `GET /tenants`) mostraba
+   solo los usuarios del colegio del propio SUPER_ADMIN, no el total real
+   de la plataforma — encontrado por el usuario en vivo, no por este test,
+   mientras esta fase estaba en curso.** `list()` usaba `this.prisma`
+   (cliente scopeado al contexto ambiente del actor) con
+   `_count: { select: { memberships: true, students: true } }`. La tabla
+   `tenants` en sí no tiene RLS (correcto, es la lectura de las 7 filas), pero
+   el agregado `_count` corre sobre `tenant_memberships`/`students`, que SÍ
+   tienen RLS forzado — con el contexto ambiente puesto en el tenant de login
+   del SUPER_ADMIN, ese conteo salía en cero para cualquier otro colegio. El
+   panel mostraba "240 usuarios" (los del colegio del propio SUPER_ADMIN)
+   en vez de los ~1459 reales repartidos entre los 6 colegios activos.
+   Arreglado usando `PlatformAdminPrismaService` (bypass) en `list()` —
+   coherente con que `TENANTS_LIST` solo lo tienen SUPER_ADMIN/SUPPORT_AGENT/
+   SUPPORT_SUPERVISOR, todos roles de plataforma que necesitan la vista
+   completa por diseño. Verificado en vivo en el navegador: el panel pasó de
+   "7 colegios · 240 usuarios (todo en un solo colegio, 0 en el resto)" a
+   "7 colegios · 1459 usuarios" con conteos reales y distintos por colegio
+   (251, 247, 244, 242, 239...). Se auditaron los otros 10 archivos del repo
+   con `_count` anidado (`grep -rn "_count:\s*{" apps/api/src`) — todos los
+   demás están correctamente acotados a un tenant ya conocido (el propio del
+   actor, o ya usan el bypass), así que este era el único caso real de este
+   patrón.
+
+**Verificado en vivo**: los 7 casos del archivo nuevo en verde, `tsc
+--noEmit` en verde. Nota operativa para quien vuelva a correr la suite
+completa: `/auth/login` tiene rate-limit (20/min por IP, `ThrottlerStorageRedisService`
+-- el contador vive en Redis, compartido entre CUALQUIER instancia de la
+app que apunte al mismo `REDIS_URL`, incluida la API real en desarrollo) y
+ambos archivos e2e comparten el mismo cupo cuando corren juntos en la misma
+ventana -- `rls-cross-tenant.e2e-spec.ts` reintenta con backoff (hasta
+~85s) ante un 429 en su propio login para tolerarlo.
+
+**Otra interacción encontrada, no relacionada a RLS**: al correr los dos
+archivos e2e en el mismo proceso jest, el test de notificaciones de
+`backend-v1.e2e-spec.ts` falla intermitentemente
+(`NotificationsService: Connection is closed`) porque cada archivo levanta
+su PROPIO `INestApplication` completo (con su propio `BullModule`/worker de
+BullMQ), y ambos apuntan al mismo Redis -- cerrar una app (`afterAll` ->
+`app.close()`) puede interferir con un job todavía en vuelo de la otra.
+Confirmado que es puramente un artefacto de correr dos bootstraps de app
+completos contra el mismo Redis en el mismo proceso: `backend-v1.e2e-spec.ts`
+solo, en aislamiento, pasa 12/12 limpio siempre. No es un bug de RLS ni de
+ninguno de los fixes de esta fase -- queda anotado acá por si alguien lo
+vuelve a pisar y pierde tiempo pensando que es una regresión.
 
 ### Fase 8 — Verificación final
 Estado: ✅ hecho (2026-07-23). `tsc --noEmit` en verde en `apps/api`;
