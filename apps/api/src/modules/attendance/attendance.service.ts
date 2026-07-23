@@ -141,6 +141,7 @@ export class AttendanceService {
         records: {
           create: students.map((student) => ({
             studentId: student.id,
+            tenantId: schedule.tenantId,
             status: "PRESENT",
           })),
         },
@@ -233,6 +234,7 @@ export class AttendanceService {
           create: {
             sessionId,
             studentId: record.studentId,
+            tenantId: session.tenantId,
             status: record.status,
             observation: record.observation,
           },

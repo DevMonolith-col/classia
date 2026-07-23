@@ -127,6 +127,7 @@ export class QuizAttemptsService {
       create: {
         attemptId,
         questionId: input.questionId,
+        tenantId: student.tenantId,
         selectedOptionId: input.selectedOptionId,
         textAnswer: input.textAnswer,
       },
@@ -179,7 +180,7 @@ export class QuizAttemptsService {
           });
         } else {
           await tx.quizAnswer.create({
-            data: { attemptId, questionId: question.id, isCorrect: false, pointsAwarded: 0 },
+            data: { attemptId, questionId: question.id, tenantId: student.tenantId, isCorrect: false, pointsAwarded: 0 },
           });
         }
       }
@@ -273,6 +274,7 @@ export class QuizAttemptsService {
       create: {
         attemptId,
         questionId,
+        tenantId: homework.tenantId,
         pointsAwarded: input.pointsAwarded,
         isCorrect: input.pointsAwarded > 0,
       },

@@ -37,6 +37,7 @@ export class HomeworkSubmissionsService {
       create: {
         homeworkId,
         studentId: student.id,
+        tenantId: student.tenantId,
         status,
         attachmentKey: input.attachmentKey,
         attachmentName: input.attachmentName,

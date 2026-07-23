@@ -179,6 +179,7 @@ export class SupportService {
       const comment = await tx.ticketComment.create({
         data: {
           ticketId,
+          tenantId: ticket.tenantId,
           authorId: userId,
           content: data.content,
           isInternal,
