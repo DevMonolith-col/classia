@@ -3,6 +3,7 @@ import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
+import { PlatformAdminPrismaService } from "../../core/prisma/platform-admin-prisma.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
 import { CreateTenantInput, UpdateTenantInput } from "./tenants.schemas";
 
@@ -11,6 +12,7 @@ export class TenantsService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly platformAdmin: PlatformAdminPrismaService,
   ) {}
 
   findBySlug(slug: string) {
@@ -19,8 +21,20 @@ export class TenantsService {
     });
   }
 
+  // list() solo lo llaman SUPER_ADMIN/SUPPORT_AGENT/SUPPORT_SUPERVISOR
+  // (únicos roles con el permiso TENANTS_LIST) -- es explícitamente la vista
+  // "todos los colegios" del panel de plataforma. `tenants` no tiene RLS,
+  // así que el findMany en sí ya veía las 7 filas con el cliente normal, pero
+  // `_count: { memberships, students }` es un agregado sobre tablas que SÍ
+  // tienen RLS forzado -- con el cliente scopeado al contexto ambiente del
+  // actor (su propio tenantId de login), ese conteo salía en cero para
+  // cualquier colegio que no fuera el suyo. Encontrado en vivo 2026-07-23
+  // (el panel SUPER_ADMIN mostraba "240 usuarios" -- solo los del colegio del
+  // propio SUPER_ADMIN -- en vez de los ~1400 reales de los 6 colegios
+  // activos). Bypass explícito, coherente con el resto de los usos de
+  // PlatformAdminPrismaService en el repo.
   list() {
-    return this.prisma.tenant.findMany({
+    return this.platformAdmin.get().tenant.findMany({
       select: {
         id: true,
         name: true,
