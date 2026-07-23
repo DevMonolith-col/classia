@@ -17,6 +17,20 @@
 -- politicas existirian en el schema pero no harian nada en la app real
 -- (trampa conocida #1 del plan).
 --
+-- CRITICO (trampa #7, verificada en vivo el 2026-07-22): "classia" no solo
+-- es dueno de las tablas -- es SUPERUSER de Postgres (rolsuper=t, porque es
+-- el usuario de bootstrap de la imagen oficial de postgres). Un superuser
+-- SIEMPRE ignora RLS, sin excepcion -- ni FORCE lo cambia (FORCE solo quita
+-- la excepcion de "dueno de tabla", no la de superuser). La app en runtime
+-- DEBE conectarse con DATABASE_URL apuntando al rol "classia_app" (creado en
+-- 20260722120000_rls_app_roles), NUNCA con "classia" -- si no, esta
+-- migracion completa es un no-op silencioso: todo compila, las politicas
+-- existen en el schema, y ninguna fila queda protegida. Confirmado con un
+-- test directo contra Postgres: como "classia" (superuser), una tabla con
+-- FORCE ROW LEVEL SECURITY y sin ningun app.tenant_id seteado devolvio
+-- TODAS las filas; como "classia_app" (no superuser), devolvio cero filas
+-- sin contexto y solo las del tenant correcto con SET LOCAL.
+--
 -- Patron por tabla: ENABLE + FORCE + una sola politica FOR ALL (mismo
 -- USING y WITH CHECK, ya que el criterio de aislamiento es identico para
 -- lectura y escritura). Idempotente via DO/EXCEPTION igual que el resto de
@@ -508,18 +522,8 @@ DO $$ BEGIN
     WITH CHECK ("tenantId" IS NULL OR "tenantId" = current_setting('app.tenant_id', true));
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 
--- Rol de bypass para SUPER_ADMIN/SUPPORT_AGENT en las pocas vistas
--- genuinamente cross-tenant (listado de tenants, dashboards agregados) --
--- trampa conocida #5 del plan: un rol de Postgres nativo, no una variable de
--- sesion custom que cualquier codigo podria setear mal. Se crea SIN LOGIN
--- aca (nada de credenciales en una migracion versionada); habilitar el
--- login real (contraseña vía variable de entorno, fuera de git) y el
--- segundo PrismaClient que lo usa es trabajo de la Fase 4.
-DO $$ BEGIN
-  CREATE ROLE classia_platform_admin WITH NOLOGIN BYPASSRLS;
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO classia_platform_admin;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO classia_platform_admin;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO classia_platform_admin;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO classia_platform_admin;
+-- Los roles de Postgres (classia_app, classia_platform_admin) se crean en
+-- la migracion 20260722120000_rls_app_roles, aplicada por separado y ANTES
+-- que esta -- ver esa migracion y docs/planning/aislamiento-rls-multitenant.md
+-- (trampa #7) para el porque: son seguras de aplicar ya (crear un rol no
+-- rompe nada), mientras que ENABLE+FORCE de esta migracion no lo es.
