@@ -12,6 +12,7 @@ import storageConfig from "./config/storage.config";
 import { APP_INTERCEPTOR } from "@nestjs/core";
 import { AuditCoreModule } from "./core/audit/audit-core.module";
 import { ImpersonationAuditInterceptor } from "./common/interceptors/impersonation-audit.interceptor";
+import { TenantRlsContextInterceptor } from "./common/interceptors/tenant-rls-context.interceptor";
 import { PdfModule } from "./core/pdf/pdf.module";
 import { PrismaModule } from "./core/prisma/prisma.module";
 import { QueueModule } from "./core/queue/queue.module";
@@ -113,6 +114,16 @@ import { AccessControlModule } from "./modules/access-control/access-control.mod
     ReportsModule,
   ],
   providers: [
+    // Orden importa: los interceptors globales se anidan en el orden en que
+    // se registran (el primero es el mas externo). TenantRlsContextInterceptor
+    // va primero para que el contexto de tenant (AsyncLocalStorage) envuelva
+    // TODO lo demas, incluyendo el write de auditoria de
+    // ImpersonationAuditInterceptor -- si fuera al revés, ese write correría
+    // sin contexto de tenant.
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TenantRlsContextInterceptor,
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: ImpersonationAuditInterceptor,

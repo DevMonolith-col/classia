@@ -261,15 +261,13 @@ NO cubre:
    se hizo — es la condición de cierre real de Fase 4/6 antes de poder
    aplicar el SQL de Fase 2 sin romper funcionalidad existente de soporte.
 
-**Orden real de aplicación**: Fase 4, mecanismo central (contexto +
-extensión + wrapper) — validado en vivo el 2026-07-22 contra una tabla
-real con RLS temporal, revertida después → migrar los 18 sitios con
-`$transaction` crudo a `runInTenantTransaction` (ver trampa #3 — **hecho y
-verificado en vivo**, 2026-07-22) → conectar la extensión + interceptor a
-la app real + cliente `classia_platform_admin` real (**pendiente**, ver
-Fase 4 más abajo) → Fase 6 (tenantId en job.data + el job sweep usando el
-cliente bypass) → auditoría de los 26 puntos cross-tenant de
-SUPER_ADMIN/soporte → **recién ahí** aplicar el SQL de esta Fase 2 al
+**Orden real de aplicación**: Fase 4 completa — mecanismo central, los 18
+sitios de `$transaction` migrados, extensión+interceptor conectados a la
+app real, cliente `classia_platform_admin` real levantado (**todo hecho y
+verificado en vivo**, 2026-07-22) → Fase 6 (tenantId en job.data + el job
+sweep usando el cliente bypass — **pendiente**) → auditoría de los 26
+puntos cross-tenant de SUPER_ADMIN/soporte (**pendiente**, la pieza que
+más criterio necesita) → **recién ahí** aplicar el SQL de esta Fase 2 al
 entorno de dev → verificación en vivo (login normal, panel SUPER_ADMIN,
 soporte, un flujo de pagos, una votación, un reporte generado, el sweep de
 accesos). Si algo falla en esa verificación, el rollback es `DISABLE ROW
@@ -283,64 +281,66 @@ un modelo no clasificado — no busca "modelos con tenantId" (ese criterio fue
 exactamente el que dejó pasar las 21 tablas de la Fase 1).
 
 ### Fase 4 — Extensión de Prisma + `runInTenantTransaction`
-Estado: ⏳ en progreso (2026-07-22).
+Estado: ✅ hecho y verificado en vivo (2026-07-22).
 
-Hecho y verificado:
-- `apps/api/src/core/prisma/tenant-rls-context.service.ts` — el
-  `AsyncLocalStorage` (`{tenantId, inTransaction}`). Registrado como
-  provider+export en `PrismaModule` (ya `@Global()`) — sin esto Nest tira
-  `UnknownDependenciesException` al boot (encontrado y corregido en la
-  verificación en vivo).
-- `apps/api/src/core/prisma/tenant-rls.extension.ts` — la extensión
-  (todavía NO conectada al `PrismaService` real).
-- `apps/api/src/core/prisma/run-in-tenant-transaction.ts` — el wrapper. Los
-  18 sitios de la trampa #3 ya lo usan, verificado en vivo (creación de
-  concepto de cobro + 100 facturas, pago con lock `FOR UPDATE`, guardado de
-  periodos académicos) sin errores.
-- `apps/api/src/common/interceptors/tenant-rls-context.interceptor.ts` —
-  arranca el contexto por request HTTP desde `request.user.tenantId`
-  (todavía NO registrado como interceptor global).
+Entregables, todos hechos:
+1. `apps/api/src/core/prisma/tenant-rls-context.service.ts` — el
+   `AsyncLocalStorage` (`{tenantId, inTransaction}`). Registrado como
+   provider+export en `PrismaModule` (ya `@Global()`) — sin esto Nest tira
+   `UnknownDependenciesException` al boot (encontrado y corregido en la
+   verificación en vivo).
+2. `apps/api/src/common/interceptors/tenant-rls-context.interceptor.ts` —
+   arranca el contexto por request HTTP desde `request.user.tenantId`.
+   Registrado como `APP_INTERCEPTOR` global en `app.module.ts`, **primero**
+   en la lista (los interceptors globales se anidan en orden de registro —
+   tiene que ser el más externo para que envuelva también el write de
+   auditoría de `ImpersonationAuditInterceptor`).
+3. `apps/api/src/core/prisma/tenant-rls.extension.ts` — la extensión
+   (`$allModels.$allOperations`). Si hay contexto activo y no está ya
+   dentro de una transacción sancionada, corre `SET LOCAL app.tenant_id`
+   (`SELECT set_config(...)` parametrizado) dentro de
+   `client.$transaction([setConfig, query(args)])` en forma array — misma
+   conexión, validado en vivo. Detecta "ya estoy en una transacción
+   sancionada" vía el flag explícito del store de `AsyncLocalStorage` — NO
+   inspeccionando el cliente Prisma (`this` dentro de `$allOperations` no
+   es el cliente, es un array interno de argumentos, confirmado con prueba
+   directa contra Prisma 5.22).
+4. `apps/api/src/core/prisma/run-in-tenant-transaction.ts` — el wrapper.
+   Los 18 sitios de la trampa #3 (13 archivos) ya lo usan en vez de
+   `prisma.$transaction()` directo.
+5. **`PlatformAdminPrismaService`** (`apps/api/src/core/prisma/platform-admin-prisma.service.ts`)
+   — segundo `PrismaClient` real, conectado a `DATABASE_URL_PLATFORM_ADMIN`
+   (rol `classia_platform_admin`, `BYPASSRLS`, login habilitado en
+   `20260722130000_rls_platform_admin_login`). Expuesto vía un método
+   `.get()` explícito, no como el cliente default inyectado — cada uso deja
+   rastro en el código de quien lo llama. **Todavía no tiene ningún
+   caller** — eso es la Fase 6 (job sweep) y la auditoría de los 26 puntos
+   cross-tenant.
+6. `PrismaModule` reescrito: `PrismaService` ahora se provee vía factory
+   (no `useClass`) que crea un `PrismaClient` real conectado a
+   `DATABASE_URL_APP` (rol `classia_app`, **nunca** `DATABASE_URL` =
+   `classia`, superuser — trampa #0/#7) y le aplica la extensión. El
+   `PrismaClient` base vive en una variable a nivel de módulo (no dentro de
+   la clase `PrismaService`) porque `$extends()` no conserva métodos custom
+   de una subclase (`onModuleInit`/`onModuleDestroy`) — el connect/disconnect
+   ahora lo maneja `PrismaModule` mismo. `PrismaService` sigue siendo el
+   token de inyección en los ~43 archivos que lo usan, sin tocar ninguno
+   (patrón oficial de Prisma para extensiones + NestJS).
+7. Variables de entorno nuevas: `DATABASE_URL_APP`, `DATABASE_URL_PLATFORM_ADMIN`
+   (`.env`, `.env.example`, `env.schema.ts`, `database.config.ts`).
 
-**Siguiente paso real, en orden**: (1) registrar el interceptor global y
-cambiar `PrismaModule` para aplicar la extensión al `PrismaService`
-(factory provider — `PrismaService` sigue siendo el token de inyección en
-los ~43 archivos que lo usan, sin tocarlos, siguiendo el patrón oficial de
-Prisma para extensiones + NestJS), (2) cambiar `PrismaService` a conectar
-con `DATABASE_URL_APP` (rol `classia_app`) en vez de `DATABASE_URL`, (3)
-`classia_platform_admin` real (ver más abajo), (4) verificar en vivo que
-nada se rompió — todavía sin RLS habilitado, así que cualquier fallo acá
-es barato de revertir.
-
-Entregables concretos:
-1. `TenantContextService` — wrapper delgado sobre `AsyncLocalStorage<{tenantId}>`.
-2. Interceptor global (no middleware — el middleware corre antes que los
-   guards, y `request.user` recién existe después de `JwtAuthGuard`) que
-   arranca el contexto desde `request.user.tenantId` para el resto del
-   request.
-3. Prisma Client Extension (`$allModels.$allOperations`) que, si hay
-   contexto activo, corre `SET LOCAL app.tenant_id` (via `SELECT
-   set_config('app.tenant_id', $1, true)` parametrizado, dentro de
-   `client.$transaction([setConfig, query(args)])` en forma array — validado
-   en vivo que ambas comparten conexión) antes de cada operación. Detecta si
-   ya está corriendo dentro de una transacción abierta por
-   `runInTenantTransaction` mediante un **flag explícito en el mismo store
-   de `AsyncLocalStorage`** (`{tenantId, inTransaction}`) — NO inspeccionando
-   el cliente Prisma: `this` dentro de `$allOperations` no es el cliente (es
-   un array interno de argumentos, confirmado con prueba directa), así que
-   cualquier intento de distinguir "estoy en un `tx`" por introspección del
-   cliente no funciona con esta versión de Prisma (5.22).
-4. `runInTenantTransaction(tenantId, callback)` — el único punto sancionado
-   para abrir una transacción de negocio. **Hecho**: los 18 sitios de la
-   trampa #3 (13 archivos) ya lo usan en vez de `prisma.$transaction()`
-   directo, verificado en vivo.
-5. **Cliente `classia_platform_admin` real** (segundo `PrismaClient`,
-   credenciales por variable de entorno, rol `BYPASSRLS` creado en Fase 2) —
-   no estaba en el alcance original de esta fase, pero el hallazgo del sweep
-   job de accesos (Fase 6) y los 26 puntos de lectura cross-tenant de
-   SUPER_ADMIN/soporte (trampa #5) lo necesitan de verdad, no como algo
-   especulativo. Se expone detrás de un método de servicio con nombre
-   explícito (p. ej. `PlatformAdminPrismaService`), nunca como el cliente
-   default inyectado.
+**Verificado en vivo de punta a punta** (API + web reales, con el
+mecanismo completo conectado — cada Prisma call de la app ahora pasa por
+la extensión): login normal y SUPER_ADMIN, dashboard con stats reales,
+calificaciones, creación de elección con candidato anidado, concepto de
+cobro con 100 facturas via `createMany` dentro de una transacción, pago
+con lock `FOR UPDATE`, guardado de periodos académicos
+(`deleteMany`+`createMany`), listado de conversaciones, dashboard
+SUPER_ADMIN con agregados cross-tenant (funciona hoy porque RLS todavía no
+está forzado — se rompería sin el bypass una vez se aplique la Fase 2,
+exactamente el trabajo pendiente de la auditoría de los 26 puntos). Cero
+errores en los logs de la API en todo el recorrido. `tsc --noEmit` en
+verde.
 
 ### Fase 5 — Lint/CI contra `$transaction` crudo
 Estado: ⏳ pendiente. Nota (2026-07-22): la migración de los 18 sitios
