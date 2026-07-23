@@ -4,6 +4,7 @@ import { MembershipStatus, Prisma, UserRole, UserStatus } from "@prisma/client"
 import { Request } from "express"
 import { RequestUser } from "../../common/types/request-context"
 import { AuditService } from "../../core/audit/audit.service"
+import { PlatformAdminPrismaService } from "../../core/prisma/platform-admin-prisma.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
 import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction"
 import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service"
@@ -24,6 +25,7 @@ export class SupportService {
     private readonly eventEmitter: EventEmitter2,
     private readonly audit: AuditService,
     private readonly tenantRlsContext: TenantRlsContextService,
+    private readonly platformAdmin: PlatformAdminPrismaService,
   ) {}
 
   async createTicket(tenantId: string, userId: string, data: CreateTicketDto, actor: RequestUser, request: Request) {
@@ -76,7 +78,9 @@ export class SupportService {
   }
 
   async getAllTicketsForSuperAdmin() {
-    return this.prisma.supportTicket.findMany({
+    // Genuinamente cross-tenant: la bandeja de soporte muestra tickets de
+    // TODOS los colegios a la vez -- bypass explícito, no un olvido de filtro.
+    return this.platformAdmin.get().supportTicket.findMany({
       orderBy: { updatedAt: "desc" },
       take: TICKET_LIST_PAGE_SIZE,
       include: {
@@ -96,7 +100,11 @@ export class SupportService {
   }
 
   async getTicketDetails(ticketId: string, isSuperAdmin: boolean, tenantId?: string) {
-    const ticket = await this.prisma.supportTicket.findUnique({
+    // El ticket puede ser de cualquier colegio -- todavía no se sabe cuál
+    // hasta leerlo, así que la lectura en sí necesita bypass. La
+    // autorización real (¿puede este actor ver ESTE ticket?) se aplica
+    // después, comparando ticket.tenantId, exactamente como antes.
+    const ticket = await this.platformAdmin.get().supportTicket.findUnique({
       where: { id: ticketId },
       include: {
         author: { select: { id: true, firstName: true, lastName: true } },
@@ -133,16 +141,22 @@ export class SupportService {
   }
 
   async updateTicketStatus(ticketId: string, data: UpdateTicketStatusDto, actor: RequestUser, request: Request) {
-    const previous = await this.prisma.supportTicket.findUniqueOrThrow({
+    // Solo personal de soporte llega acá (gateado en el controller) -- el
+    // ticket puede ser de cualquier colegio. Bypass para descubrir de cuál
+    // es, después el write corre scopeado a ESE tenant (no con bypass), así
+    // que el WITH CHECK de RLS lo sigue validando normalmente.
+    const previous = await this.platformAdmin.get().supportTicket.findUniqueOrThrow({
       where: { id: ticketId },
       select: { status: true, tenantId: true },
     })
 
-    const ticket = await this.prisma.supportTicket.update({
-      where: { id: ticketId },
-      data: { status: data.status },
-      include: { tenant: true }
-    })
+    const ticket = await this.tenantRlsContext.runWithTenant(previous.tenantId, () =>
+      this.prisma.supportTicket.update({
+        where: { id: ticketId },
+        data: { status: data.status },
+        include: { tenant: true },
+      }),
+    )
 
     await this.audit.record({
       tenantId: ticket.tenantId,
@@ -166,7 +180,10 @@ export class SupportService {
     // tenant; el personal de soporte (isSuperAdmin) puede comentar en cualquiera.
     // Sin este check, cualquier usuario autenticado podía inyectar comentarios en
     // el hilo de soporte de otro colegio conociendo su id (IDOR cross-tenant).
-    const ticket = await this.prisma.supportTicket.findUnique({
+    // Igual que getTicketDetails: no se sabe de qué colegio es el ticket
+    // hasta leerlo (puede ser de cualquiera si es personal de soporte), así
+    // que la lectura usa bypass y la autorización se aplica después.
+    const ticket = await this.platformAdmin.get().supportTicket.findUnique({
       where: { id: ticketId },
       select: { tenantId: true },
     })
@@ -220,8 +237,12 @@ export class SupportService {
   }
 
   async assignTicket(ticketId: string, assigneeId: string | null, actor: RequestUser, request: Request) {
+    // Personal de soporte no tiene un "tenant" propio en el sentido normal
+    // (TenantMembership de rol de soporte puede estar en cualquier colegio,
+    // o ninguno) -- verificar que el asignado sea staff es, por diseño, una
+    // búsqueda sin tenant. Bypass explícito.
     if (assigneeId) {
-      const membership = await this.prisma.tenantMembership.findFirst({
+      const membership = await this.platformAdmin.get().tenantMembership.findFirst({
         where: { userId: assigneeId, role: { in: SUPPORT_STAFF_ROLES }, status: MembershipStatus.ACTIVE },
         select: { id: true },
       })
@@ -230,16 +251,21 @@ export class SupportService {
       }
     }
 
-    const previous = await this.prisma.supportTicket.findUniqueOrThrow({
+    // Solo supervisor/soporte llega acá (gateado en el controller) -- el
+    // ticket puede ser de cualquier colegio. Bypass para descubrir de cuál
+    // es, después el write corre scopeado a ESE tenant.
+    const previous = await this.platformAdmin.get().supportTicket.findUniqueOrThrow({
       where: { id: ticketId },
       select: { assigneeId: true, tenantId: true },
     })
 
-    const ticket = await this.prisma.supportTicket.update({
-      where: { id: ticketId },
-      data: { assigneeId },
-      include: { tenant: true }
-    })
+    const ticket = await this.tenantRlsContext.runWithTenant(previous.tenantId, () =>
+      this.prisma.supportTicket.update({
+        where: { id: ticketId },
+        data: { assigneeId },
+        include: { tenant: true },
+      }),
+    )
 
     await this.audit.record({
       tenantId: ticket.tenantId,
@@ -261,8 +287,9 @@ export class SupportService {
   async getSupportAgents() {
     // Role vive en TenantMembership, no en User (RBAC es por-tenant); un mismo
     // usuario puede tener membership SUPER_ADMIN/SUPPORT_SUPERVISOR/SUPPORT_AGENT
-    // en más de un tenant, así que se deduplica por userId.
-    const memberships = await this.prisma.tenantMembership.findMany({
+    // en más de un tenant, así que se deduplica por userId. Bypass explícito:
+    // el roster de soporte es plataforma-wide, no de un colegio.
+    const memberships = await this.platformAdmin.get().tenantMembership.findMany({
       where: {
         role: { in: SUPPORT_STAFF_ROLES },
         status: MembershipStatus.ACTIVE,

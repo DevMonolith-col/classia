@@ -25,8 +25,22 @@ export class PlatformAdminPrismaService implements OnModuleInit, OnModuleDestroy
       );
       return;
     }
-    this.client = new PrismaClient({ datasources: { db: { url } } });
-    await this.client.$connect();
+    // No debe tirar abajo el boot de TODA la app si esta conexión en
+    // particular falla (Postgres momentáneamente inalcanzable, credenciales
+    // mal puestas): el resto de la app (todo lo que no sea el puñado de
+    // lecturas cross-tenant que dependen de este cliente) debe poder seguir
+    // funcionando. Se degrada a "lanza recién cuando alguien intente usarlo"
+    // en vez de crashear el proceso entero -- encontrado en vivo cuando
+    // Postgres no estaba levantado todavía al arrancar la API.
+    try {
+      const client = new PrismaClient({ datasources: { db: { url } } });
+      await client.$connect();
+      this.client = client;
+    } catch (error) {
+      this.logger.error(
+        `No se pudo conectar PlatformAdminPrismaService (classia_platform_admin) — las lecturas cross-tenant fallarán hasta que se resuelva: ${(error as Error).message}`,
+      );
+    }
   }
 
   async onModuleDestroy() {
@@ -39,7 +53,7 @@ export class PlatformAdminPrismaService implements OnModuleInit, OnModuleDestroy
   get(): PrismaClient {
     if (!this.client) {
       throw new Error(
-        "PlatformAdminPrismaService no está inicializado (falta DATABASE_URL_PLATFORM_ADMIN). No se puede hacer una lectura cross-tenant sin este cliente.",
+        "PlatformAdminPrismaService no está disponible (sin conexión a classia_platform_admin). No se puede hacer una lectura cross-tenant sin este cliente.",
       );
     }
     return this.client;

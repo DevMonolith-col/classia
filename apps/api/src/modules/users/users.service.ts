@@ -3,7 +3,9 @@ import { MembershipStatus, Prisma, UserRole } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { Request } from "express";
 import { AuditService } from "../../core/audit/audit.service";
+import { PlatformAdminPrismaService } from "../../core/prisma/platform-admin-prisma.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { RequestUser } from "../../common/types/request-context";
 import {
   CreateMembershipInput,
@@ -30,6 +32,8 @@ export class UsersService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly platformAdmin: PlatformAdminPrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   findByEmail(email: string) {
@@ -54,7 +58,11 @@ export class UsersService {
   }
 
   findMyMemberships(userId: string) {
-    return this.prisma.tenantMembership.findMany({
+    // Bypass explícito y seguro: un usuario puede pertenecer a varios
+    // colegios (TenantMembership por cada uno) y necesita ver TODAS las
+    // suyas para el selector de colegio -- el filtro real de seguridad acá
+    // es userId (siempre el propio caller, nunca otro), no el tenant.
+    return this.platformAdmin.get().tenantMembership.findMany({
       where: { userId },
       select: {
         id: true,
@@ -274,7 +282,11 @@ export class UsersService {
     actor: RequestUser,
     request: Request,
   ) {
-    const previous = await this.prisma.tenantMembership.findUniqueOrThrow({
+    // PLATFORM_ROLES (SUPER_ADMIN/SUPPORT_SUPERVISOR/SUPPORT_AGENT) pueden
+    // gestionar membresías de cualquier colegio -- assertCanAccessTenant más
+    // abajo los deja pasar sin importar el tenant. Bypass para esta lectura
+    // inicial (no se sabe el tenant hasta encontrar la membership).
+    const previous = await this.platformAdmin.get().tenantMembership.findUniqueOrThrow({
       where: { id: membershipId },
       select: this.membershipSelect(),
     });
@@ -289,11 +301,13 @@ export class UsersService {
       this.assertCanAssignRole(actor, input.role);
     }
 
-    const membership = await this.prisma.tenantMembership.update({
-      where: { id: membershipId },
-      data: input,
-      select: this.membershipSelect(),
-    });
+    const membership = await this.tenantRlsContext.runWithTenant(previous.tenant.id, () =>
+      this.prisma.tenantMembership.update({
+        where: { id: membershipId },
+        data: input,
+        select: this.membershipSelect(),
+      }),
+    );
 
     await this.audit.record({
       tenantId: membership.tenant.id,

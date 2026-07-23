@@ -125,15 +125,19 @@ que dejó de tener huecos. Quedan documentados para que nadie los reintroduzca:
    cuanto el punto 3 esté bien hecho: como corre dentro de la transacción que ya
    hizo `SET LOCAL`, hereda el contexto sin necesitar su propia lógica.
 
-5. **SUPER_ADMIN/SUPPORT_AGENT necesitan lectura cross-tenant** (26 archivos
-   dependen de esto: paneles, soporte, impersonación). No es un flag de sesión
+5. **SUPER_ADMIN/SUPPORT_AGENT necesitan lectura cross-tenant** (paneles,
+   soporte, impersonación, login/refresh de sesión). No es un flag de sesión
    que cualquier código podría setear mal — es un **rol de Postgres aparte**
    (`classia_platform_admin`) con el atributo nativo `BYPASSRLS`, usado solo
    desde un método de servicio con nombre explícito, gateado por chequeo de rol
-   en código. La mayoría de esos 26 casos en realidad no necesitan bypass: solo
-   necesitan que se les setee `app.tenant_id` al tenant que el admin global
-   *eligió* operar — el bypass real es para las pocas vistas genuinamente
-   cross-tenant (listado de tenants, dashboards agregados).
+   en código. Auditado y arreglado (2026-07-22, ver Fase 2 más abajo para el
+   detalle completo): la mayoría de los casos reales no necesitaban bypass,
+   solo que se les setee `app.tenant_id` al tenant ya conocido en ese punto
+   del código (`runWithTenant`) — el bypass real quedó reservado para el
+   puñado de casos genuinamente cross-tenant (bandeja de triage, roster de
+   soporte, dashboard de salud, y — el hallazgo más importante de toda esta
+   auditoría — el login/refresh/logout de sesión, que corre sin ningún JWT
+   y por lo tanto sin ningún tenant conocido de antemano).
 
 6. **Nada de esto cierra bugs de "resolví el tenant equivocado" río arriba**
    (JWT/sesión). RLS defiende contra "me olvidé el filtro", no contra "filtré
@@ -249,31 +253,91 @@ NO cubre:
    de necesitar el rol `classia_platform_admin` (`BYPASSRLS`), no un
    contexto de tenant.
 
-3. **Función abierta, todavía sin auditar**: el hallazgo original de este
-   documento (trampa #5) ya anticipaba "26 archivos dependen de" lectura
-   cross-tenant para SUPER_ADMIN/soporte (bandeja de triage entre colegios,
-   dashboards agregados, listado de tenants). Cada uno de esos 26 puntos
-   necesita decidirse caso a caso: ¿de verdad necesita ver TODOS los
-   colegios (→ `classia_platform_admin`), o solo necesita que se le setee
-   `app.tenant_id` al colegio que el admin *eligió* operar (→ contexto
-   normal, sin bypass)? Aplicar bypass de más reabriría exactamente el
-   agujero que este proyecto existe para cerrar. Esta auditoría todavía no
-   se hizo — es la condición de cierre real de Fase 4/6 antes de poder
-   aplicar el SQL de Fase 2 sin romper funcionalidad existente de soporte.
+3. **Auditoría de lecturas cross-tenant: hecha para las rutas que importan de
+   verdad (2026-07-22).** El hallazgo original de este documento (trampa #5)
+   anticipaba "26 archivos dependen de" lectura cross-tenant para
+   SUPER_ADMIN/soporte. Metodología: dos búsquedas exhaustivas por agente
+   (una para `findMany`/`count`/`aggregate`/`groupBy`/`findFirst`, otra para
+   `findUnique`/`findUniqueOrThrow` — la primera pasada **no** cubría estas
+   últimas, y ahí aparecieron 3 casos que la primera pasada se perdió; ojo
+   con este punto ciego si alguien repite el ejercicio). Cada hallazgo se
+   decidió caso a caso: ¿de verdad necesita ver TODOS los colegios (→
+   `classia_platform_admin`), o solo necesita que se le setee `app.tenant_id`
+   al colegio ya conocido en ese punto del código (→ `runWithTenant`, sin
+   bypass)? Aplicar bypass de más reabriría exactamente el agujero que este
+   proyecto existe para cerrar — por eso cada sitio usa lo mínimo necesario,
+   nunca bypass "por si acaso".
 
-**Orden real de aplicación**: Fase 4 completa (mecanismo central, los 18
-sitios de `$transaction`, extensión+interceptor conectados, cliente
-`classia_platform_admin` real) → Fase 6 completa (tenantId en job.data de
-los 4 processors, `reconcileSchedulers` y el sweep de accesos usando el
-cliente bypass) — **ambas hechas y verificadas en vivo**, 2026-07-22 →
-auditoría de los 26 puntos cross-tenant de SUPER_ADMIN/soporte
-(**pendiente — el único paso que falta antes de aplicar el SQL**, y el que
-más criterio necesita, no es mecánico) → **recién ahí** aplicar el SQL de
-esta Fase 2 al entorno de dev → verificación en vivo (login normal, panel
-SUPER_ADMIN, soporte, un flujo de pagos, una votación, un reporte
-generado, el sweep de accesos). Si algo falla en esa verificación, el
-rollback es `DISABLE ROW LEVEL SECURITY` + `DROP POLICY` tabla por tabla
-(no destructivo, no toca datos).
+   **Arreglado y verificado en vivo** (login, refresh, logout, triage de
+   soporte, asignación de tickets, comentarios, cambio de estado,
+   aprobar/negar/revocar/solicitar acceso, break-glass, dashboard
+   SUPER_ADMIN, stats de salud — todo probado contra la app real, no solo
+   `tsc`):
+   - `apps/api/src/modules/support/support.service.ts` — `getAllTicketsForSuperAdmin`,
+     `getTicketDetails`, `updateTicketStatus`, `addComment`, `assignTicket`,
+     `getSupportAgents`.
+   - `apps/api/src/modules/users/users.service.ts` — `findMyMemberships`
+     (bypass seguro: filtrado por `userId` propio, no por tenant elegido por
+     otro), `updateMembership`.
+   - `apps/api/src/modules/health/health.service.ts` — `getStats`.
+   - `apps/api/src/modules/access-control/access-control.service.ts` —
+     `revokeAllForTicket`, `listForTicket`, `hasActiveScopeForTicket`,
+     `requestAccess`, `breakGlass`, `revoke`, `getSolicitado` (usada por
+     `approve`/`deny`).
+   - `apps/api/src/modules/auth/auth.service.ts` — **el hallazgo más
+     crítico de esta pasada**: `login()`, `refresh()`, `logout()`,
+     `exitImpersonation()`, `impersonate()` y el `createSession()` privado
+     compartido por los tres. `refresh()`/`logout()`/`exitImpersonation()`
+     corren off la cookie de refresh token, **sin ningún JWT Bearer** — es
+     decir, sin contexto de tenant ambiente del interceptor HTTP en
+     absoluto. Sin este fix, **el login y el refresh de token de TODA la
+     app se habrían roto** al aplicar el SQL de Fase 2, no solo un rincón
+     de SUPER_ADMIN — el hallazgo de mayor impacto de toda esta auditoría.
+     Verificado en vivo llamando `/auth/login`, `/auth/refresh` y
+     `/auth/logout` directo (no solo por la UI) y confirmando en
+     `auth_sessions` que cada sesión quedó revocada en el momento correcto.
+   - `apps/api/src/core/prisma/platform-admin-prisma.service.ts` —
+     hardening encontrado en el camino: si `DATABASE_URL_PLATFORM_ADMIN`
+     apunta a un Postgres inalcanzable al boot, **tumbaba el arranque de
+     toda la API** (no solo esta funcionalidad). Ahora degrada a "lanza
+     recién cuando alguien use `.get()`", con el resto de la app funcionando
+     normal.
+
+   **Encontrado pero NO arreglado — pendiente, de menor prioridad**: un
+   patrón sistémico repetido en ~16 archivos (`academic`, `attendance`,
+   `events`, `grading`, `groups`, `guardians`, `homework`,
+   `homework-submissions`, `marks`, `questions`, `quiz-attempts`,
+   `report-cards`, `schedules`, `students`, `subjects`, `teachers` —
+   service.ts en cada uno) — un `findUniqueOrThrow(where:{id})` sin
+   `tenantId`, seguido de un helper `assertTenant`/`assertCanAccessTenant`
+   que no-opea para `isGlobalAdmin(actor)` (SUPER_ADMIN/SUPPORT_AGENT).
+   **Por qué se dejó para después, con evidencia, no solo por agotamiento**:
+   se confirmó que `impersonate()` (ya arreglado arriba) emite el JWT de
+   impersonación con `tenantId: targetTenant.id` — es decir, el flujo
+   *real* soportado por el producto (SUPER_ADMIN entra a un colegio
+   citando un ticket con acceso aprobado, y RECIÉN AHÍ opera sobre notas/
+   asistencia/etc.) ya deja el contexto ambiente correctamente alineado con
+   el tenant objetivo, porque `actor.tenantId` durante la impersonación ES
+   el tenant objetivo. El hueco real es solo para un SUPER_ADMIN operando
+   estos 16 módulos SIN impersonar primero — que bajo RLS fallaría cerrado
+   (404/"no encontrado") en vez de silenciosamente funcionar cruzando
+   tenants. Fallar cerrado es la dirección correcta del lado de la
+   seguridad (no es una fuga), aunque rompa una funcionalidad que hoy
+   "funciona" solo porque nada la protege. Si se decide cerrar esto de
+   todas formas (por completitud, no por apuro), el patrón a aplicar es
+   idéntico al ya usado 20+ veces en esta sesión: bypass para el
+   `findUnique` inicial + `runWithTenant` para cualquier write subsecuente.
+
+**Orden real de aplicación**: Fase 4 completa → Fase 6 completa → auditoría
+de lecturas cross-tenant completa para las rutas críticas (login/refresh/
+soporte/access-control) — **las tres hechas y verificadas en vivo**,
+2026-07-22 → (opcional, menor prioridad: cerrar el patrón de los 16
+archivos de arriba) → **recién ahí** aplicar el SQL de esta Fase 2 al
+entorno de dev → verificación en vivo (login normal, panel SUPER_ADMIN,
+soporte, un flujo de pagos, una votación, un reporte generado, el sweep de
+accesos, un `impersonate()` real de punta a punta). Si algo falla en esa
+verificación, el rollback es `DISABLE ROW LEVEL SECURITY` + `DROP POLICY`
+tabla por tabla (no destructivo, no toca datos).
 
 ### Fase 3 — Script de verificación exhaustivo
 Estado: ⏳ pendiente. `scripts/verify-rls.ts`: lista blanca explícita de lo
