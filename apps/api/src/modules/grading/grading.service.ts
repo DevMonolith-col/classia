@@ -45,7 +45,7 @@ export class GradingService {
           passingValue: input.passingValue,
           isDefault: input.isDefault ?? false,
           bands: input.bands
-            ? { create: input.bands.map((b) => ({ label: b.label, minValue: b.minValue, maxValue: b.maxValue, order: b.order })) }
+            ? { create: input.bands.map((b) => ({ tenantId, label: b.label, minValue: b.minValue, maxValue: b.maxValue, order: b.order })) }
             : undefined,
         },
         select: this.scaleSelect(),
@@ -74,7 +74,15 @@ export class GradingService {
           maxValue: input.maxValue,
           passingValue: input.passingValue,
           bands: input.bands
-            ? { create: input.bands.map((b) => ({ label: b.label, minValue: b.minValue, maxValue: b.maxValue, order: b.order })) }
+            ? {
+                create: input.bands.map((b) => ({
+                  tenantId: previous.tenantId,
+                  label: b.label,
+                  minValue: b.minValue,
+                  maxValue: b.maxValue,
+                  order: b.order,
+                })),
+              }
             : undefined,
         },
         select: this.scaleSelect(),

@@ -60,6 +60,7 @@ export class StudentsService {
           ? {
               create: input.guardianIds.map((guardianId) => ({
                 guardianId,
+                tenantId,
               })),
             }
           : undefined,
@@ -110,7 +111,7 @@ export class StudentsService {
           ? {
               guardians: {
                 deleteMany: {},
-                create: input.guardianIds.map((guardianId) => ({ guardianId })),
+                create: input.guardianIds.map((guardianId) => ({ guardianId, tenantId: previous.tenant.id })),
               },
             }
           : {}),

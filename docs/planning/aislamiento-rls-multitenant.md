@@ -113,24 +113,39 @@ Estado: ✅ hecho (2026-07-19). Rama: `feature/rls-aislamiento-multitenant`
 y la remediación de seguridad de `docs/planning/auditoria-seguridad-2026-07.md`).
 
 ### Fase 1 — Denormalizar `tenantId` en las tablas indirectas
-Estado: ⏳ en progreso.
+Estado: ✅ hecho (2026-07-22).
 
-Modelos sin `tenantId` directo hoy (verificar contra `schema.prisma` actual —
-esta lista puede haberse movido si otra sesión tocó el schema):
-`StudentGuardian`, `AttendanceRecord`, `GradingScaleBand`, `ReportCardLine`,
-`Question`, `QuestionOption`, `QuizAnswer`, `HomeworkSubmission`,
-`ConversationMember`, `ConversationMessage`, `AnnouncementRead`,
-`NotificationDelivery`, `TicketComment`, `ElectionCandidate`, `ElectionVote`,
-`ElectionVoter`.
+Los 15 modelos que no tenían `tenantId` directo ya lo tienen, con `tenant
+Tenant @relation(...)` y `@@index([tenantId])`: `StudentGuardian`,
+`AttendanceRecord`, `GradingScaleBand`, `ReportCardLine`, `Question`,
+`QuestionOption`, `QuizAnswer`, `HomeworkSubmission`, `ConversationMember`,
+`ConversationMessage`, `AnnouncementRead`, `NotificationDelivery`,
+`TicketComment`, `ElectionCandidate`, `ElectionVote`, `ElectionVoter`.
 
-`NotificationPreference` queda **pendiente de decisión, no de implementación**:
-está scopeada por `userId`, y `User` no tiene `tenantId` propio (un usuario
-puede pertenecer a varios colegios vía `TenantMembership`). Antes de
-denormalizar hay que decidir si la preferencia es por-colegio o global al
-usuario — no asumir.
+Migración: `packages/database/prisma/migrations/20260722100000_rls_denormalize_tenant_id/migration.sql`
+— columna nullable → `UPDATE ... FROM <padre>` (en orden de dependencia:
+`questions` antes que `question_options`, que backfillea desde `questions`,
+no desde `homework` directamente) → `SET NOT NULL` → FK con `ON DELETE
+RESTRICT` → índice. Aplicada a la BD de dev y confirmada: las 16 tablas
+quedaron con `tenantId` `NOT NULL` sin filas huérfanas (cada `UPDATE`
+reportó exactamente las filas esperadas, `SET NOT NULL` no falló en ninguna).
 
-Para cada tabla: columna `tenantId` nullable → `UPDATE` con backfill desde el
-padre → `NOT NULL`. Migración idempotente, mismo estilo que el resto del repo.
+`NotificationPreference` sigue **pendiente de decisión de producto, no de
+implementación** (ver razón original más abajo) — no se tocó.
+
+**Efecto colateral esperado, ya resuelto**: el `tenantId` ahora requerido
+rompió el build en cada `create`/`upsert`/`createMany` de estos 15 modelos
+que antes no lo pasaba (`tsc` lo marcó solo, exactamente el tipo de bug que
+este plan busca prevenir río abajo). Se corrigieron los 13 archivos de
+servicio afectados (`announcements`, `attendance`, `conversations`,
+`elections`, `grading`, `homework-submissions`, `notifications`,
+`questions`, `quiz-attempts`, `report-cards`, `students`, `support`),
+pasando siempre el `tenantId` ya resuelto en ese punto del código (del actor,
+de la entidad padre ya cargada, o del `tenant` de la entidad propietaria) —
+nunca un valor nuevo o adivinado. `npx tsc --noEmit` queda en verde en
+`apps/api` y `apps/web` (el error inicial de `apps/web` era caché stale de
+`.next/types` de rutas ya renombradas por otra sesión, no relacionado a este
+cambio — confirmado limpiando `.next` y reconstruyendo).
 
 ### Fase 2 — RLS: `ENABLE` + `FORCE` en todas las tablas tenant-owned
 Estado: ⏳ pendiente (depende de Fase 1).

@@ -31,6 +31,7 @@ export class QuestionsService {
     const question = await this.prisma.question.create({
       data: {
         homeworkId,
+        tenantId: homework.tenantId,
         type: input.type,
         text: input.text,
         points: input.points ?? 1,
@@ -40,6 +41,7 @@ export class QuestionsService {
         options: input.options
           ? {
               create: input.options.map((option, index) => ({
+                tenantId: homework.tenantId,
                 text: option.text,
                 isCorrect: option.isCorrect,
                 feedback: option.feedback,
@@ -76,6 +78,7 @@ export class QuestionsService {
         await tx.questionOption.createMany({
           data: input.options.map((option, index) => ({
             questionId,
+            tenantId: homework.tenantId,
             text: option.text,
             isCorrect: option.isCorrect,
             feedback: option.feedback,

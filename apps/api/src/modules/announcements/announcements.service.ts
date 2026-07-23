@@ -142,7 +142,7 @@ export class AnnouncementsService {
     await this.prisma.announcementRead.upsert({
       where: { announcementId_userId: { announcementId, userId: actor.id } },
       update: {},
-      create: { announcementId, userId: actor.id },
+      create: { announcementId, userId: actor.id, tenantId: actor.tenantId },
     });
 
     return { status: "ok" as const };

@@ -199,7 +199,7 @@ export class ConversationsService {
       );
       const [message] = await this.prisma.$transaction([
         this.prisma.conversationMessage.create({
-          data: { conversationId, fromId: actor.id, body: input.body },
+          data: { conversationId, tenantId: actor.tenantId, fromId: actor.id, body: input.body },
           select: { id: true },
         }),
         this.prisma.conversation.update({
@@ -257,7 +257,7 @@ export class ConversationsService {
         type: ConversationType.DIRECT,
         createdById: userIdA,
         directKey,
-        members: { create: [{ userId: userIdA }, { userId: userIdB }] },
+        members: { create: [{ userId: userIdA, tenantId }, { userId: userIdB, tenantId }] },
       },
       select: { id: true },
     });
@@ -277,6 +277,7 @@ export class ConversationsService {
       this.prisma.conversationMessage.create({
         data: {
           conversationId,
+          tenantId: actor.tenantId,
           fromId: actor.id,
           body: input.body,
           attachmentKey: input.attachmentKey,

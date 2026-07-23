@@ -99,6 +99,25 @@ model Tenant {
   reportSchedules   ReportSchedule[]
   accessSessions    AccessSession[]
 
+  // Aislamiento RLS (docs/planning/aislamiento-rls-multitenant.md, Fase 1):
+  // denormalizado en tablas que antes solo se scopeaban por un padre.
+  studentGuardians     StudentGuardian[]
+  attendanceRecords    AttendanceRecord[]
+  gradingScaleBands    GradingScaleBand[]
+  reportCardLines      ReportCardLine[]
+  questions            Question[]
+  questionOptions      QuestionOption[]
+  quizAnswers          QuizAnswer[]
+  homeworkSubmissions  HomeworkSubmission[]
+  conversationMembers  ConversationMember[]
+  conversationMessages ConversationMessage[]
+  announcementReads    AnnouncementRead[]
+  notificationDeliveries NotificationDelivery[]
+  ticketComments       TicketComment[]
+  electionCandidates   ElectionCandidate[]
+  electionVotes        ElectionVote[]
+  electionVoters       ElectionVoter[]
+
   @@map("tenants")
 }
 
@@ -270,13 +289,16 @@ model Guardian {
 model StudentGuardian {
   studentId    String
   guardianId   String
+  tenantId     String
   relationship String  @default("parent")
   isPrimary    Boolean @default(true)
 
   student  Student  @relation(fields: [studentId], references: [id])
   guardian Guardian @relation(fields: [guardianId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
 
   @@id([studentId, guardianId])
+  @@index([tenantId])
   @@map("student_guardians")
 }
 
@@ -338,13 +360,16 @@ model AttendanceRecord {
   id          String           @id @default(uuid())
   sessionId   String
   studentId   String
+  tenantId    String
   status      AttendanceStatus
   observation String?
 
   session AttendanceSession @relation(fields: [sessionId], references: [id])
   student Student           @relation(fields: [studentId], references: [id])
+  tenant  Tenant            @relation(fields: [tenantId], references: [id])
 
   @@unique([sessionId, studentId])
+  @@index([tenantId])
   @@map("attendance_records")
 }
 
@@ -453,14 +478,17 @@ model GradingScale {
 model GradingScaleBand {
   id       String @id @default(uuid())
   scaleId  String
+  tenantId String
   label    String
   minValue Float
   maxValue Float
   order    Int
 
-  scale GradingScale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+  scale  GradingScale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+  tenant Tenant       @relation(fields: [tenantId], references: [id])
 
   @@index([scaleId])
+  @@index([tenantId])
   @@map("grading_scale_bands")
 }
 
@@ -530,6 +558,7 @@ model ReportCardLine {
   id           String  @id @default(uuid())
   reportCardId String
   subjectId    String
+  tenantId     String
   subjectName  String
   final        Float
   label        String
@@ -537,8 +566,10 @@ model ReportCardLine {
 
   reportCard ReportCard @relation(fields: [reportCardId], references: [id], onDelete: Cascade)
   subject    Subject    @relation(fields: [subjectId], references: [id])
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
 
   @@index([reportCardId])
+  @@index([tenantId])
   @@map("report_card_lines")
 }
 
@@ -579,6 +610,7 @@ model Homework {
 model Question {
   id         String   @id @default(uuid())
   homeworkId String
+  tenantId   String
   type       String
   text       String
   points     Float    @default(1)
@@ -588,23 +620,28 @@ model Question {
   createdAt  DateTime @default(now())
 
   homework Homework         @relation(fields: [homeworkId], references: [id])
+  tenant   Tenant           @relation(fields: [tenantId], references: [id])
   options  QuestionOption[]
   answers  QuizAnswer[]
 
+  @@index([tenantId])
   @@map("questions")
 }
 
 model QuestionOption {
   id         String  @id @default(uuid())
   questionId String
+  tenantId   String
   text       String
   isCorrect  Boolean @default(false)
   feedback   String?
   order      Int     @default(0)
 
   question Question     @relation(fields: [questionId], references: [id])
+  tenant   Tenant       @relation(fields: [tenantId], references: [id])
   answers  QuizAnswer[] @relation("SelectedOption")
 
+  @@index([tenantId])
   @@map("question_options")
 }
 
@@ -631,6 +668,7 @@ model QuizAnswer {
   id               String   @id @default(uuid())
   attemptId        String
   questionId       String
+  tenantId         String
   selectedOptionId String?
   textAnswer       String?
   isCorrect        Boolean?
@@ -638,9 +676,11 @@ model QuizAnswer {
 
   attempt        QuizAttempt     @relation(fields: [attemptId], references: [id])
   question       Question        @relation(fields: [questionId], references: [id])
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
   selectedOption QuestionOption? @relation("SelectedOption", fields: [selectedOptionId], references: [id])
 
   @@unique([attemptId, questionId])
+  @@index([tenantId])
   @@map("quiz_answers")
 }
 
@@ -648,6 +688,7 @@ model HomeworkSubmission {
   id              String    @id @default(uuid())
   homeworkId      String
   studentId       String
+  tenantId        String
   status          String    @default("PENDING")
   attachmentKey   String?
   attachmentName  String?
@@ -659,8 +700,10 @@ model HomeworkSubmission {
 
   homework Homework @relation(fields: [homeworkId], references: [id])
   student  Student  @relation(fields: [studentId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
 
   @@unique([homeworkId, studentId])
+  @@index([tenantId])
   @@map("homework_submissions")
 }
 
@@ -696,22 +739,26 @@ model Conversation {
 model ConversationMember {
   id             String    @id @default(uuid())
   conversationId String
+  tenantId       String
   userId         String
   joinedAt       DateTime  @default(now())
   lastReadAt     DateTime?
   mutedAt        DateTime? // "quiet hours" estilo ClassDojo, a nivel de miembro
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
   user         User         @relation(fields: [userId], references: [id])
 
   @@unique([conversationId, userId])
   @@index([userId])
+  @@index([tenantId])
   @@map("conversation_members")
 }
 
 model ConversationMessage {
   id             String    @id @default(uuid())
   conversationId String
+  tenantId       String
   fromId         String
   body           String
   attachmentKey  String?
@@ -720,9 +767,11 @@ model ConversationMessage {
   deletedAt      DateTime? // soft-delete: oculta al usuario pero NUNCA se borra de la BD (Ley 1620 / Ley 527)
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
   from         User         @relation(fields: [fromId], references: [id])
 
   @@index([conversationId, createdAt])
+  @@index([tenantId])
   @@map("conversation_messages")
 }
 
@@ -763,13 +812,16 @@ model Announcement {
 model AnnouncementRead {
   id             String   @id @default(uuid())
   announcementId String
+  tenantId       String
   userId         String
   readAt         DateTime @default(now())
 
   announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
   user         User         @relation(fields: [userId], references: [id])
 
   @@unique([announcementId, userId])
+  @@index([tenantId])
   @@map("announcement_reads")
 }
 
@@ -819,6 +871,7 @@ model Notification {
 model NotificationDelivery {
   id             String                     @id @default(uuid())
   notificationId String
+  tenantId       String
   channel        NotificationChannel
   status         NotificationDeliveryStatus @default(PENDING)
   attempts       Int                        @default(0)
@@ -827,8 +880,10 @@ model NotificationDelivery {
   createdAt      DateTime                   @default(now())
 
   notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
 
   @@index([status])
+  @@index([tenantId])
   @@map("notification_deliveries")
 }
 
@@ -963,18 +1018,21 @@ model AccessSession {
 model TicketComment {
   id          String        @id @default(uuid())
   ticketId    String
+  tenantId       String
   authorId    String        // Puede ser SuperAdmin o el cliente
   content        String
   isInternal     Boolean       @default(false)
   attachmentKey  String?
   attachmentName String?
-  
+
   createdAt      DateTime      @default(now())
 
   ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
   author      User          @relation("TicketCommentAuthor", fields: [authorId], references: [id])
-  
+
   @@index([ticketId])
+  @@index([tenantId])
   @@map("ticket_comments")
 }
 
@@ -1025,16 +1083,19 @@ model Election {
 model ElectionCandidate {
   id              String  @id @default(uuid())
   electionId      String
+  tenantId        String
   studentId       String? // null = representa el voto en blanco
   candidateNumber Int // número en el tarjetón (ej. 01, 02)
   slogan          String?
   photoUrl        String?
 
   election Election       @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  tenant   Tenant         @relation(fields: [tenantId], references: [id])
   student  Student?       @relation(fields: [studentId], references: [id])
   votes    ElectionVote[]
 
   @@unique([electionId, candidateNumber])
+  @@index([tenantId])
   @@map("election_candidates")
 }
 
@@ -1042,16 +1103,21 @@ model ElectionCandidate {
 model ElectionVote {
   id          String @id @default(uuid())
   electionId  String
+  tenantId    String
   candidateId String
   // Sin timestamp a propósito: el voto es anónimo. Si guardáramos createdAt, al
   // insertarse en la misma transacción que ElectionVoter.votedAt ambos quedarían
   // con el MISMO valor (now() es constante dentro de una transacción en Postgres)
   // y únicos entre votantes, permitiendo un JOIN por timestamp que revela por
   // quién votó cada estudiante. Sin createdAt, esa correlación es imposible.
+  // tenantId es seguro de agregar sin romper el anonimato: identifica el colegio,
+  // no al votante.
 
   election  Election          @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  tenant    Tenant            @relation(fields: [tenantId], references: [id])
   candidate ElectionCandidate @relation(fields: [candidateId], references: [id])
 
+  @@index([tenantId])
   @@map("election_votes")
 }
 
@@ -1062,14 +1128,17 @@ model ElectionVote {
 model ElectionVoter {
   id         String   @id @default(uuid())
   electionId String
+  tenantId   String
   studentId  String
   votedAt    DateTime @default(now())
   ipAddress  String?
 
   election Election @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
   student  Student  @relation(fields: [studentId], references: [id])
 
   @@unique([electionId, studentId])
+  @@index([tenantId])
   @@map("election_voters")
 }
 

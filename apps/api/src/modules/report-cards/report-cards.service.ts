@@ -251,6 +251,7 @@ export class ReportCardsService {
               create: computed.lines
                 .filter((l) => l.final !== null)
                 .map((l) => ({
+                  tenantId: student.tenantId,
                   subjectId: l.subjectId,
                   subjectName: l.subjectName,
                   final: l.final as number,

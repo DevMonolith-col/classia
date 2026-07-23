@@ -42,7 +42,11 @@ export class ElectionsService {
         // null), creado aquí mismo para que exista desde el principio en
         // vez de improvisarlo al momento de votar.
         ...(data.allowBlank
-          ? { candidates: { create: [{ studentId: null, candidateNumber: 0, slogan: "Voto en blanco" }] } }
+          ? {
+              candidates: {
+                create: [{ tenantId: actor.tenantId, studentId: null, candidateNumber: 0, slogan: "Voto en blanco" }],
+              },
+            }
           : {}),
       },
     })
@@ -151,6 +155,7 @@ export class ElectionsService {
       candidate = await this.prisma.electionCandidate.create({
         data: {
           electionId,
+          tenantId: actor.tenantId,
           studentId: data.studentId,
           candidateNumber: data.candidateNumber,
           slogan: data.slogan,
@@ -296,10 +301,10 @@ export class ElectionsService {
       // condición de carrera resuelta a medias en la aplicación.
       await this.prisma.$transaction([
         this.prisma.electionVoter.create({
-          data: { electionId, studentId: student.id, ipAddress: request.ip },
+          data: { electionId, tenantId: actor.tenantId, studentId: student.id, ipAddress: request.ip },
         }),
         this.prisma.electionVote.create({
-          data: { electionId, candidateId: resolvedCandidateId! },
+          data: { electionId, tenantId: actor.tenantId, candidateId: resolvedCandidateId! },
         }),
       ])
     } catch (e) {

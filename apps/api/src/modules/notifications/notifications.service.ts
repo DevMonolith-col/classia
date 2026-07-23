@@ -65,7 +65,7 @@ export class NotificationsService {
 
       const deliveryRows = notifRows
         .filter((n) => !emailDisabled.has(n.userId))
-        .map((n) => ({ id: randomUUID(), notificationId: n.id, channel: NotificationChannel.EMAIL }));
+        .map((n) => ({ id: randomUUID(), notificationId: n.id, tenantId: n.tenantId, channel: NotificationChannel.EMAIL }));
 
       if (deliveryRows.length > 0) {
         await this.prisma.notificationDelivery.createMany({ data: deliveryRows });
