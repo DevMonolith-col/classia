@@ -6,7 +6,9 @@ import { Queue } from "bullmq"
 import { Request } from "express"
 import { AuditService } from "../../core/audit/audit.service"
 import { buildJobId } from "../../core/queue/job-id"
+import { PlatformAdminPrismaService } from "../../core/prisma/platform-admin-prisma.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service"
 import { NotificationsService } from "../notifications/notifications.service"
 import { RequestUser } from "../../common/types/request-context"
 import {
@@ -45,6 +47,8 @@ export class AccessControlService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly platformAdmin: PlatformAdminPrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
     @InjectQueue(ACCESS_SESSION_EXPIRY_QUEUE) private readonly expiryQueue: Queue,
   ) {}
 
@@ -53,37 +57,41 @@ export class AccessControlService {
       throw new ForbiddenException("Solo el personal de soporte puede solicitar acceso.")
     }
 
-    const ticket = await this.prisma.supportTicket.findUnique({ where: { id: input.ticketId } })
+    // Gateado solo por rol de soporte, no por tenant -- el ticket puede ser
+    // de cualquier colegio. Bypass para encontrarlo.
+    const ticket = await this.platformAdmin.get().supportTicket.findUnique({ where: { id: input.ticketId } })
     if (!ticket) throw new NotFoundException("Ticket no encontrado.")
     if (ticket.status === "RESOLVED" || ticket.status === "CLOSED") {
       throw new ForbiddenException("El ticket ya está cerrado; el acceso solo aplica a tickets activos.")
     }
 
-    const session = await this.prisma.accessSession.create({
-      data: {
-        ticketId: ticket.id,
+    return this.tenantRlsContext.runWithTenant(ticket.tenantId, async () => {
+      const session = await this.prisma.accessSession.create({
+        data: {
+          ticketId: ticket.id,
+          tenantId: ticket.tenantId,
+          requestedById: user.id,
+          scope: input.scope,
+          reason: input.reason,
+          requestedDurationMinutes: input.durationMinutes,
+          status: AccessSessionStatus.SOLICITADO,
+        },
+      })
+
+      await this.audit.record({
         tenantId: ticket.tenantId,
-        requestedById: user.id,
-        scope: input.scope,
-        reason: input.reason,
-        requestedDurationMinutes: input.durationMinutes,
-        status: AccessSessionStatus.SOLICITADO,
-      },
-    })
+        userId: user.id,
+        actorRole: user.role,
+        action: "support.access.requested",
+        entityType: "AccessSession",
+        entityId: session.id,
+        newValues: { scope: session.scope, reason: session.reason, ticketId: ticket.id },
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      })
 
-    await this.audit.record({
-      tenantId: ticket.tenantId,
-      userId: user.id,
-      actorRole: user.role,
-      action: "support.access.requested",
-      entityType: "AccessSession",
-      entityId: session.id,
-      newValues: { scope: session.scope, reason: session.reason, ticketId: ticket.id },
-      ipAddress: request.ip,
-      userAgent: request.headers["user-agent"],
+      return session
     })
-
-    return session
   }
 
   async approve(id: string, input: ApproveAccessInput, user: RequestUser, request: Request) {
@@ -93,56 +101,62 @@ export class AccessControlService {
 
     const session = await this.getSolicitado(id)
 
-    // El aprobador puede ajustar la duración; si no la manda, se respeta la
-    // solicitada. El techo efectivo es el del colegio si lo configuró, si no
-    // el absoluto del sistema — nunca al revés (un colegio no puede fijar un
-    // techo por encima del absoluto; eso ya lo valida updateTenantSchema al
-    // guardarlo). Esto RECHAZA en vez de recortar en silencio: si el
-    // supervisor pide una duración por encima del techo, se entera con un 400
-    // en vez de recibir una ventana más corta sin avisar.
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({
-      where: { id: session.tenantId },
-      select: { maxAccessDurationMinutes: true },
+    // El resto de este flujo (el write real) corre scopeado al tenant de
+    // ESTA sesión particular, no con bypass -- el supervisor puede estar
+    // aprobando una solicitud de cualquier colegio, pero la escritura en sí
+    // debe pasar por el WITH CHECK normal de RLS.
+    return this.tenantRlsContext.runWithTenant(session.tenantId, async () => {
+      // El aprobador puede ajustar la duración; si no la manda, se respeta la
+      // solicitada. El techo efectivo es el del colegio si lo configuró, si no
+      // el absoluto del sistema — nunca al revés (un colegio no puede fijar un
+      // techo por encima del absoluto; eso ya lo valida updateTenantSchema al
+      // guardarlo). Esto RECHAZA en vez de recortar en silencio: si el
+      // supervisor pide una duración por encima del techo, se entera con un 400
+      // en vez de recibir una ventana más corta sin avisar.
+      const tenant = await this.prisma.tenant.findUniqueOrThrow({
+        where: { id: session.tenantId },
+        select: { maxAccessDurationMinutes: true },
+      })
+      const effectiveCap = tenant.maxAccessDurationMinutes ?? MAX_ACCESS_DURATION_MINUTES
+      const grantedDurationMinutes = input.durationMinutes ?? session.requestedDurationMinutes
+
+      if (grantedDurationMinutes > effectiveCap) {
+        throw new BadRequestException(
+          `La duración concedida no puede exceder el techo de este colegio (${effectiveCap} minutos).`,
+        )
+      }
+
+      const grantedAt = new Date()
+      const expiresAt = new Date(grantedAt.getTime() + grantedDurationMinutes * 60_000)
+
+      const updated = await this.prisma.accessSession.update({
+        where: { id },
+        data: { status: AccessSessionStatus.CONCEDIDO, approvedById: user.id, grantedAt, expiresAt },
+      })
+
+      // Job diferido puntual además del barrido periódico — dispara justo cuando
+      // vence en vez de tolerar hasta EXPIRY_SWEEP_INTERVAL_MS de desfase.
+      await this.scheduleExpiryJob(updated.id, expiresAt, session.tenantId)
+
+      await this.audit.record({
+        tenantId: session.tenantId,
+        userId: user.id,
+        actorRole: user.role,
+        action: "support.access.approved",
+        entityType: "AccessSession",
+        entityId: session.id,
+        newValues: {
+          scope: session.scope,
+          expiresAt: expiresAt.toISOString(),
+          requestedDurationMinutes: session.requestedDurationMinutes,
+          grantedDurationMinutes,
+        },
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      })
+
+      return updated
     })
-    const effectiveCap = tenant.maxAccessDurationMinutes ?? MAX_ACCESS_DURATION_MINUTES
-    const grantedDurationMinutes = input.durationMinutes ?? session.requestedDurationMinutes
-
-    if (grantedDurationMinutes > effectiveCap) {
-      throw new BadRequestException(
-        `La duración concedida no puede exceder el techo de este colegio (${effectiveCap} minutos).`,
-      )
-    }
-
-    const grantedAt = new Date()
-    const expiresAt = new Date(grantedAt.getTime() + grantedDurationMinutes * 60_000)
-
-    const updated = await this.prisma.accessSession.update({
-      where: { id },
-      data: { status: AccessSessionStatus.CONCEDIDO, approvedById: user.id, grantedAt, expiresAt },
-    })
-
-    // Job diferido puntual además del barrido periódico — dispara justo cuando
-    // vence en vez de tolerar hasta EXPIRY_SWEEP_INTERVAL_MS de desfase.
-    await this.scheduleExpiryJob(updated.id, expiresAt)
-
-    await this.audit.record({
-      tenantId: session.tenantId,
-      userId: user.id,
-      actorRole: user.role,
-      action: "support.access.approved",
-      entityType: "AccessSession",
-      entityId: session.id,
-      newValues: {
-        scope: session.scope,
-        expiresAt: expiresAt.toISOString(),
-        requestedDurationMinutes: session.requestedDurationMinutes,
-        grantedDurationMinutes,
-      },
-      ipAddress: request.ip,
-      userAgent: request.headers["user-agent"],
-    })
-
-    return updated
   }
 
   async deny(id: string, input: DenyAccessInput, user: RequestUser, request: Request) {
@@ -152,24 +166,26 @@ export class AccessControlService {
 
     const session = await this.getSolicitado(id)
 
-    const updated = await this.prisma.accessSession.update({
-      where: { id },
-      data: { status: AccessSessionStatus.REVOCADO, approvedById: user.id, denialReason: input.reason, revokedAt: new Date() },
-    })
+    return this.tenantRlsContext.runWithTenant(session.tenantId, async () => {
+      const updated = await this.prisma.accessSession.update({
+        where: { id },
+        data: { status: AccessSessionStatus.REVOCADO, approvedById: user.id, denialReason: input.reason, revokedAt: new Date() },
+      })
 
-    await this.audit.record({
-      tenantId: session.tenantId,
-      userId: user.id,
-      actorRole: user.role,
-      action: "support.access.denied",
-      entityType: "AccessSession",
-      entityId: session.id,
-      newValues: { reason: input.reason },
-      ipAddress: request.ip,
-      userAgent: request.headers["user-agent"],
-    })
+      await this.audit.record({
+        tenantId: session.tenantId,
+        userId: user.id,
+        actorRole: user.role,
+        action: "support.access.denied",
+        entityType: "AccessSession",
+        entityId: session.id,
+        newValues: { reason: input.reason },
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      })
 
-    return updated
+      return updated
+    })
   }
 
   // deny() opera sobre SOLICITADO -> REVOCADO y no tiene otro escritor
@@ -182,39 +198,43 @@ export class AccessControlService {
       throw new ForbiddenException("Solo un supervisor puede revocar un acceso.")
     }
 
-    const session = await this.prisma.accessSession.findUnique({ where: { id } })
+    // Gateado solo por rol de supervisor, no por tenant -- la sesión puede
+    // ser de cualquier colegio. Bypass para encontrarla.
+    const session = await this.platformAdmin.get().accessSession.findUnique({ where: { id } })
     if (!session) throw new NotFoundException("Sesión de acceso no encontrada.")
     if (session.status !== AccessSessionStatus.CONCEDIDO && session.status !== AccessSessionStatus.EMERGENCIA) {
       throw new ForbiddenException("Solo se puede revocar un acceso activo.")
     }
 
-    const won = await this.transitionAccessSession(session, {
-      status: AccessSessionStatus.REVOCADO,
-      revokedAt: new Date(),
-      revokedReason: input.reason,
+    return this.tenantRlsContext.runWithTenant(session.tenantId, async () => {
+      const won = await this.transitionAccessSession(session, {
+        status: AccessSessionStatus.REVOCADO,
+        revokedAt: new Date(),
+        revokedReason: input.reason,
+      })
+      if (!won) {
+        // Alguien más (el barrido, el job diferido de esta misma sesión, o la
+        // resolución perezosa de otro request) ganó la transición entre que se
+        // leyó esta fila y este intento — la sesión ya no está activa.
+        throw new ConflictException("Esta sesión ya no está activa; probablemente expiró justo ahora.")
+      }
+
+      await this.cancelExpiryJob(session.id)
+
+      await this.audit.record({
+        tenantId: session.tenantId,
+        userId: user.id,
+        actorRole: user.role,
+        action: "support.access.revoked",
+        entityType: "AccessSession",
+        entityId: session.id,
+        newValues: { reason: input.reason },
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      })
+
+      return this.prisma.accessSession.findUniqueOrThrow({ where: { id } })
     })
-    if (!won) {
-      // Alguien más (el barrido, el job diferido de esta misma sesión, o la
-      // resolución perezosa de otro request) ganó la transición entre que se
-      // leyó esta fila y este intento — la sesión ya no está activa.
-      throw new ConflictException("Esta sesión ya no está activa; probablemente expiró justo ahora.")
-    }
-
-    await this.cancelExpiryJob(session.id)
-
-    await this.audit.record({
-      tenantId: session.tenantId,
-      userId: user.id,
-      actorRole: user.role,
-      action: "support.access.revoked",
-      entityType: "AccessSession",
-      entityId: session.id,
-      newValues: { reason: input.reason },
-      ipAddress: request.ip,
-      userAgent: request.headers["user-agent"],
-    })
-
-    return this.prisma.accessSession.findUniqueOrThrow({ where: { id } })
   }
 
   // Escucha el mismo evento que ya emite support.service.ts en cada cambio de
@@ -229,28 +249,35 @@ export class AccessControlService {
 
   // Revoca todas las sesiones activas de un ticket. Se llama al cerrar/resolver el
   // ticket (ver support.service.ts). No falla el flujo de cierre si no hay nada que revocar.
+  // Disparado por un evento (onTicketUpdated) que puede correr sin el
+  // contexto de tenant del ticket activo (el emit() de quien lo dispara
+  // pasa fuera de su propio runWithTenant) -- bypass para encontrar las
+  // sesiones de cualquier colegio, después cada write corre scopeada al
+  // tenant de ESA sesión particular.
   async revokeAllForTicket(ticketId: string, reason: string) {
-    const active = await this.prisma.accessSession.findMany({
+    const active = await this.platformAdmin.get().accessSession.findMany({
       where: { ticketId, status: { in: [AccessSessionStatus.CONCEDIDO, AccessSessionStatus.EMERGENCIA] } },
     })
     if (active.length === 0) return
 
     for (const session of active) {
-      const won = await this.transitionAccessSession(session, {
-        status: AccessSessionStatus.REVOCADO,
-        revokedAt: new Date(),
-        revokedReason: reason,
-      })
-      if (!won) continue
+      await this.tenantRlsContext.runWithTenant(session.tenantId, async () => {
+        const won = await this.transitionAccessSession(session, {
+          status: AccessSessionStatus.REVOCADO,
+          revokedAt: new Date(),
+          revokedReason: reason,
+        })
+        if (!won) return
 
-      await this.cancelExpiryJob(session.id)
+        await this.cancelExpiryJob(session.id)
 
-      await this.audit.record({
-        tenantId: session.tenantId,
-        action: "support.access.revoked",
-        entityType: "AccessSession",
-        entityId: session.id,
-        newValues: { reason },
+        await this.audit.record({
+          tenantId: session.tenantId,
+          action: "support.access.revoked",
+          entityType: "AccessSession",
+          entityId: session.id,
+          newValues: { reason },
+        })
       })
     }
   }
@@ -264,44 +291,48 @@ export class AccessControlService {
       throw new ForbiddenException("Solo un supervisor puede usar el acceso de emergencia.")
     }
 
-    const ticket = await this.prisma.supportTicket.findUnique({ where: { id: input.ticketId } })
+    // Gateado solo por rol de supervisor, no por tenant -- bypass para
+    // encontrar el ticket de cualquier colegio.
+    const ticket = await this.platformAdmin.get().supportTicket.findUnique({ where: { id: input.ticketId } })
     if (!ticket) throw new NotFoundException("Ticket no encontrado.")
 
-    const grantedAt = new Date()
-    const expiresAt = new Date(grantedAt.getTime() + input.durationMinutes * 60_000)
+    return this.tenantRlsContext.runWithTenant(ticket.tenantId, async () => {
+      const grantedAt = new Date()
+      const expiresAt = new Date(grantedAt.getTime() + input.durationMinutes * 60_000)
 
-    const session = await this.prisma.accessSession.create({
-      data: {
-        ticketId: ticket.id,
+      const session = await this.prisma.accessSession.create({
+        data: {
+          ticketId: ticket.id,
+          tenantId: ticket.tenantId,
+          requestedById: user.id,
+          approvedById: user.id,
+          scope: input.scope,
+          reason: input.reason,
+          requestedDurationMinutes: input.durationMinutes,
+          status: AccessSessionStatus.EMERGENCIA,
+          grantedAt,
+          expiresAt,
+        },
+      })
+
+      await this.scheduleExpiryJob(session.id, expiresAt, ticket.tenantId)
+
+      await this.audit.record({
         tenantId: ticket.tenantId,
-        requestedById: user.id,
-        approvedById: user.id,
-        scope: input.scope,
-        reason: input.reason,
-        requestedDurationMinutes: input.durationMinutes,
-        status: AccessSessionStatus.EMERGENCIA,
-        grantedAt,
-        expiresAt,
-      },
+        userId: user.id,
+        actorRole: user.role,
+        action: "support.access.emergency_granted",
+        entityType: "AccessSession",
+        entityId: session.id,
+        newValues: { scope: session.scope, reason: session.reason, expiresAt: expiresAt.toISOString() },
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      })
+
+      await this.notifyTenantOfEmergencyAccess(ticket.tenantId, session.id, user, input.reason)
+
+      return session
     })
-
-    await this.scheduleExpiryJob(session.id, expiresAt)
-
-    await this.audit.record({
-      tenantId: ticket.tenantId,
-      userId: user.id,
-      actorRole: user.role,
-      action: "support.access.emergency_granted",
-      entityType: "AccessSession",
-      entityId: session.id,
-      newValues: { scope: session.scope, reason: session.reason, expiresAt: expiresAt.toISOString() },
-      ipAddress: request.ip,
-      userAgent: request.headers["user-agent"],
-    })
-
-    await this.notifyTenantOfEmergencyAccess(ticket.tenantId, session.id, user, input.reason)
-
-    return session
   }
 
   private async notifyTenantOfEmergencyAccess(tenantId: string, sessionId: string, actor: RequestUser, reason: string) {
@@ -350,7 +381,9 @@ export class AccessControlService {
     if (!isSupportStaff(user.role)) {
       throw new ForbiddenException("Solo el personal de soporte puede ver el historial de accesos.")
     }
-    const sessions = await this.prisma.accessSession.findMany({
+    // El ticket (y sus AccessSession) pueden ser de cualquier colegio -- el
+    // actor solo está gateado por rol de soporte, no por tenant. Bypass.
+    const sessions = await this.platformAdmin.get().accessSession.findMany({
       where: { ticketId },
       orderBy: { requestedAt: "desc" },
       include: {
@@ -358,7 +391,12 @@ export class AccessControlService {
         approvedBy: { select: { id: true, firstName: true, lastName: true } },
       },
     })
-    return Promise.all(sessions.map((s) => this.resolveExpiration(s)))
+    // resolveExpiration() puede escribir (expira al vuelo) -- cada sesión
+    // corre en el contexto de SU tenant, no el del actor que está mirando
+    // el historial (support staff puede estar viendo el ticket de otro colegio).
+    return Promise.all(
+      sessions.map((s) => this.tenantRlsContext.runWithTenant(s.tenantId, () => this.resolveExpiration(s))),
+    )
   }
 
   // Usado por auth.service#impersonate para decidir si emitir el JWT de
@@ -372,22 +410,32 @@ export class AccessControlService {
     tenantId: string,
     requiredScope: AccessScope,
   ): Promise<boolean> {
-    const session = await this.prisma.accessSession.findFirst({
-      where: {
-        requestedById: userId,
-        ticketId,
-        tenantId,
-        status: { in: [AccessSessionStatus.CONCEDIDO, AccessSessionStatus.EMERGENCIA] },
-        expiresAt: { gt: new Date() },
-        ...(requiredScope === AccessScope.DATOS_PERSONALES ? { scope: AccessScope.DATOS_PERSONALES } : {}),
-      },
-      select: { id: true },
-    })
+    // Se llama desde el refresh de token (auth.service.ts), que corre con
+    // el refresh token en cookie, no con el Bearer JWT normal -- no hay
+    // contexto de tenant ambiente del interceptor HTTP en ese punto. Se
+    // establece acá explícitamente con el tenantId ya recibido (el tenant
+    // objetivo de la impersonación, exactamente el que hace falta).
+    const session = await this.tenantRlsContext.runWithTenant(tenantId, () =>
+      this.prisma.accessSession.findFirst({
+        where: {
+          requestedById: userId,
+          ticketId,
+          tenantId,
+          status: { in: [AccessSessionStatus.CONCEDIDO, AccessSessionStatus.EMERGENCIA] },
+          expiresAt: { gt: new Date() },
+          ...(requiredScope === AccessScope.DATOS_PERSONALES ? { scope: AccessScope.DATOS_PERSONALES } : {}),
+        },
+        select: { id: true },
+      }),
+    )
     return session !== null
   }
 
   private async getSolicitado(id: string) {
-    const session = await this.prisma.accessSession.findUnique({ where: { id } })
+    // approve()/deny() la llaman gateadas solo por rol de supervisor, no por
+    // tenant -- la solicitud puede ser de cualquier colegio. Bypass acá; el
+    // resto del flujo (el write) corre scopeado al tenant de ESTA sesión.
+    const session = await this.platformAdmin.get().accessSession.findUnique({ where: { id } })
     if (!session) throw new NotFoundException("Sesión de acceso no encontrada.")
     if (session.status !== AccessSessionStatus.SOLICITADO) {
       throw new ForbiddenException("Esta solicitud ya fue resuelta.")
@@ -521,17 +569,26 @@ export class AccessControlService {
   // persistir, etc.). Cada candidata se procesa vía expireSessionById(), que
   // ya es idempotente por diseño.
   async expireOverdueSessions(): Promise<{ expiredSessions: number }> {
-    const candidates = await this.prisma.accessSession.findMany({
+    // Barrido genuinamente cross-tenant a propósito (no hay un solo colegio
+    // al que asociar este job) -- usa el cliente de bypass solo para
+    // DESCUBRIR las candidatas de todos los colegios. El trabajo real de
+    // cada una (expireSessionById: transición, revocar AuthSession,
+    // auditar) corre scopeado al tenant de ESA sesión particular, no con
+    // bypass -- el bypass solo abre la puerta a encontrarlas.
+    const candidates = await this.platformAdmin.get().accessSession.findMany({
       where: {
         status: { in: [AccessSessionStatus.CONCEDIDO, AccessSessionStatus.EMERGENCIA] },
         expiresAt: { lte: new Date() },
       },
-      select: { id: true },
+      select: { id: true, tenantId: true },
     })
 
     let expiredSessions = 0
     for (const candidate of candidates) {
-      if (await this.expireSessionById(candidate.id)) expiredSessions++
+      const won = await this.tenantRlsContext.runWithTenant(candidate.tenantId, () =>
+        this.expireSessionById(candidate.id),
+      )
+      if (won) expiredSessions++
     }
 
     return { expiredSessions }
@@ -549,11 +606,11 @@ export class AccessControlService {
   // approve() nunca re-programa la misma sesión dos veces (cada sesión solo
   // se concede una vez), pero el jobId estable de todas formas dobla como
   // protección barata si algo llegara a llamarlo dos veces.
-  private async scheduleExpiryJob(accessSessionId: string, expiresAt: Date) {
+  private async scheduleExpiryJob(accessSessionId: string, expiresAt: Date, tenantId: string) {
     const delay = Math.max(0, expiresAt.getTime() - Date.now())
     await this.expiryQueue.add(
       "expire-one",
-      { accessSessionId },
+      { accessSessionId, tenantId },
       { jobId: this.expiryJobId(accessSessionId), delay, removeOnComplete: true, removeOnFail: true },
     )
   }

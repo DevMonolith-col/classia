@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { PlatformAdminPrismaService } from "../../core/prisma/platform-admin-prisma.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
 import { RedisService } from "../../core/redis/redis.service";
 
@@ -7,6 +8,7 @@ export class HealthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly platformAdmin: PlatformAdminPrismaService,
   ) {}
 
   async check() {
@@ -42,7 +44,9 @@ export class HealthService {
     let closedTickets = 0;
     if (dbStatus === "up") {
       try {
-        const counts = await this.prisma.supportTicket.groupBy({
+        // Genuinamente cross-tenant: el conteo de tickets es plataforma-wide
+        // (solo lo ve SUPER_ADMIN, gateado en el controller). Bypass explícito.
+        const counts = await this.platformAdmin.get().supportTicket.groupBy({
           by: ['status'],
           _count: { status: true }
         });

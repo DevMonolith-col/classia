@@ -4,6 +4,8 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import {
   CreateScaleInput,
   ListCategoriesQuery,
@@ -16,6 +18,7 @@ export class GradingService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   // ── Escalas ────────────────────────────────────────────────────────────────
@@ -32,7 +35,7 @@ export class GradingService {
     const tenantId = this.resolveTenantScope(actor, input.tenantId);
     if (!tenantId) throw new ForbiddenException("Tenant is required for grading scales.");
 
-    const scale = await this.prisma.$transaction(async (tx) => {
+    const scale = await runInTenantTransaction(this.prisma, this.tenantRlsContext, tenantId, async (tx) => {
       if (input.isDefault) {
         await tx.gradingScale.updateMany({ where: { tenantId, isDefault: true }, data: { isDefault: false } });
       }
@@ -45,7 +48,7 @@ export class GradingService {
           passingValue: input.passingValue,
           isDefault: input.isDefault ?? false,
           bands: input.bands
-            ? { create: input.bands.map((b) => ({ label: b.label, minValue: b.minValue, maxValue: b.maxValue, order: b.order })) }
+            ? { create: input.bands.map((b) => ({ tenantId, label: b.label, minValue: b.minValue, maxValue: b.maxValue, order: b.order })) }
             : undefined,
         },
         select: this.scaleSelect(),
@@ -62,7 +65,7 @@ export class GradingService {
     });
     this.assertTenant(previous.tenantId, actor);
 
-    const scale = await this.prisma.$transaction(async (tx) => {
+    const scale = await runInTenantTransaction(this.prisma, this.tenantRlsContext, previous.tenantId, async (tx) => {
       if (input.bands) {
         await tx.gradingScaleBand.deleteMany({ where: { scaleId } });
       }
@@ -74,7 +77,15 @@ export class GradingService {
           maxValue: input.maxValue,
           passingValue: input.passingValue,
           bands: input.bands
-            ? { create: input.bands.map((b) => ({ label: b.label, minValue: b.minValue, maxValue: b.maxValue, order: b.order })) }
+            ? {
+                create: input.bands.map((b) => ({
+                  tenantId: previous.tenantId,
+                  label: b.label,
+                  minValue: b.minValue,
+                  maxValue: b.maxValue,
+                  order: b.order,
+                })),
+              }
             : undefined,
         },
         select: this.scaleSelect(),
@@ -122,11 +133,11 @@ export class GradingService {
 
     const teacherId = await this.resolveClassTeacher(actor, input, period.tenantId);
 
-    await this.prisma.$transaction([
-      this.prisma.gradingCategory.deleteMany({
+    await runInTenantTransaction(this.prisma, this.tenantRlsContext, period.tenantId, async (tx) => {
+      await tx.gradingCategory.deleteMany({
         where: { groupId: input.groupId, subjectId: input.subjectId, periodId: input.periodId, teacherId },
-      }),
-      this.prisma.gradingCategory.createMany({
+      });
+      await tx.gradingCategory.createMany({
         data: input.categories.map((c) => ({
           tenantId: period.tenantId,
           groupId: input.groupId,
@@ -136,8 +147,8 @@ export class GradingService {
           name: c.name,
           weight: c.weight,
         })),
-      }),
-    ]);
+      });
+    });
     await this.record(actor, request, "grading_categories.set", "GradingCategory", input.periodId, undefined, {
       groupId: input.groupId,
       subjectId: input.subjectId,

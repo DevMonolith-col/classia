@@ -4,6 +4,8 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import {
   CreateAcademicYearInput,
   SetPeriodsInput,
@@ -15,6 +17,7 @@ export class AcademicService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   listYears(actor: RequestUser, tenantId?: string) {
@@ -61,13 +64,13 @@ export class AcademicService {
   // Marca este año como el vigente y desactiva los demás del tenant, en transacción.
   async activateYear(yearId: string, actor: RequestUser, request: Request) {
     const year = await this.findYear(yearId, actor);
-    await this.prisma.$transaction([
-      this.prisma.academicYear.updateMany({
+    await runInTenantTransaction(this.prisma, this.tenantRlsContext, year.tenantId, async (tx) => {
+      await tx.academicYear.updateMany({
         where: { tenantId: year.tenantId, isActive: true },
         data: { isActive: false },
-      }),
-      this.prisma.academicYear.update({ where: { id: yearId }, data: { isActive: true } }),
-    ]);
+      });
+      await tx.academicYear.update({ where: { id: yearId }, data: { isActive: true } });
+    });
     await this.record(actor, request, "academic_year.activated", "AcademicYear", yearId, undefined, undefined);
     return this.findYear(yearId, actor);
   }
@@ -95,9 +98,9 @@ export class AcademicService {
       throw new ForbiddenException("No se pueden reconfigurar los periodos: hay periodos cerrados.");
     }
 
-    await this.prisma.$transaction([
-      this.prisma.academicPeriod.deleteMany({ where: { academicYearId: yearId } }),
-      this.prisma.academicPeriod.createMany({
+    await runInTenantTransaction(this.prisma, this.tenantRlsContext, year.tenantId, async (tx) => {
+      await tx.academicPeriod.deleteMany({ where: { academicYearId: yearId } });
+      await tx.academicPeriod.createMany({
         data: input.periods.map((p) => ({
           tenantId: year.tenantId,
           academicYearId: yearId,
@@ -107,8 +110,8 @@ export class AcademicService {
           startDate: p.startDate,
           endDate: p.endDate,
         })),
-      }),
-    ]);
+      });
+    });
     await this.record(actor, request, "academic_periods.set", "AcademicYear", yearId, undefined, {
       count: input.periods.length,
     });
