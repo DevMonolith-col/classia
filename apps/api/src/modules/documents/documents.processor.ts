@@ -6,6 +6,7 @@ import QRCode from "qrcode"
 import { DocumentStatus, DocumentType } from "@prisma/client"
 import { PdfRendererService } from "../../core/pdf/pdf-renderer.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service"
 import { StorageService } from "../../core/storage/storage.service"
 import { DocumentsService, DOCUMENTS_QUEUE } from "./documents.service"
 import { renderTemplate } from "./documents.templates"
@@ -27,11 +28,18 @@ export class DocumentsProcessor extends WorkerHost {
     private readonly documents: DocumentsService,
     private readonly config: ConfigService,
     private readonly pdfRenderer: PdfRendererService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {
     super()
   }
 
-  async process(job: Job<{ issuanceId: string }>) {
+  // Ver reports.processor.ts: los jobs de BullMQ corren fuera de cualquier
+  // request HTTP, así que el tenantId viaja en job.data desde que se encola.
+  async process(job: Job<{ issuanceId: string; tenantId: string }>) {
+    return this.tenantRlsContext.runWithTenant(job.data.tenantId, () => this.processIssuance(job))
+  }
+
+  private async processIssuance(job: Job<{ issuanceId: string; tenantId: string }>) {
     const { issuanceId } = job.data
 
     const issuance = await this.prisma.documentIssuance.findUnique({

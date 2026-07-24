@@ -5,6 +5,8 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import {
   MarkPublishedEvent,
   NOTIFICATION_EVENTS,
@@ -62,6 +64,7 @@ export class MarksService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   private emitMarkPublished(mark: PublishableMark) {
@@ -353,8 +356,9 @@ export class MarksService {
 
     const activeYear = await this.resolveActiveYear(tenantId);
 
-    const created = await this.prisma.$transaction(
-      input.records.map((record) => {
+    const created = await runInTenantTransaction(this.prisma, this.tenantRlsContext, tenantId, async (tx) => {
+      const results = [];
+      for (const record of input.records) {
         const data = {
           tenantId,
           studentId: record.studentId,
@@ -373,26 +377,30 @@ export class MarksService {
         // Idempotente por (alumno, tarea) cuando la carga es de una tarea; así
         // recalificar un grupo entero no genera notas duplicadas.
         if (input.homeworkId) {
-          return this.prisma.mark.upsert({
-            where: { studentId_homeworkId: { studentId: record.studentId, homeworkId: input.homeworkId } },
-            create: data,
-            update: {
-              teacherId,
-              academicYearId: activeYear.id,
-              categoryId: input.categoryId,
-              title: input.title,
-              value: record.value,
-              maxValue: input.maxValue,
-              period: input.period,
-              date: input.date,
-              isPublished: input.isPublished,
-            },
-            select: this.markSelect(),
-          });
+          results.push(
+            await tx.mark.upsert({
+              where: { studentId_homeworkId: { studentId: record.studentId, homeworkId: input.homeworkId } },
+              create: data,
+              update: {
+                teacherId,
+                academicYearId: activeYear.id,
+                categoryId: input.categoryId,
+                title: input.title,
+                value: record.value,
+                maxValue: input.maxValue,
+                period: input.period,
+                date: input.date,
+                isPublished: input.isPublished,
+              },
+              select: this.markSelect(),
+            }),
+          );
+        } else {
+          results.push(await tx.mark.create({ data, select: this.markSelect() }));
         }
-        return this.prisma.mark.create({ data, select: this.markSelect() });
-      }),
-    );
+      }
+      return results;
+    });
 
     await this.audit.record({
       tenantId,

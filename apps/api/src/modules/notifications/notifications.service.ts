@@ -65,14 +65,14 @@ export class NotificationsService {
 
       const deliveryRows = notifRows
         .filter((n) => !emailDisabled.has(n.userId))
-        .map((n) => ({ id: randomUUID(), notificationId: n.id, channel: NotificationChannel.EMAIL }));
+        .map((n) => ({ id: randomUUID(), notificationId: n.id, tenantId: n.tenantId, channel: NotificationChannel.EMAIL }));
 
       if (deliveryRows.length > 0) {
         await this.prisma.notificationDelivery.createMany({ data: deliveryRows });
         await this.queue.addBulk(
           deliveryRows.map((d) => ({
             name: "dispatch",
-            data: { deliveryId: d.id },
+            data: { deliveryId: d.id, tenantId: params.tenantId },
             opts: {
               // d.id ya es un randomUUID(), nunca trae ":" — se pasa por
               // buildJobId() igual que el resto de las colas para que todo

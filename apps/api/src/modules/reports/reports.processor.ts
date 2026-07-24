@@ -4,13 +4,14 @@ import { Job } from "bullmq"
 import { ReportFormat, ReportStatus } from "@prisma/client"
 import { PdfRendererService } from "../../core/pdf/pdf-renderer.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service"
 import { StorageService } from "../../core/storage/storage.service"
 import { EmailService } from "../notifications/email/email.service"
 import { REPORTS_QUEUE, ReportsService } from "./reports.service"
 import { toCsv, toReportHtml } from "./reports.templates"
 
-type GenerateJobData = { reportId: string }
-type ScheduledRunJobData = { scheduleId: string; scheduledFor?: string }
+type GenerateJobData = { reportId: string; tenantId: string }
+type ScheduledRunJobData = { scheduleId: string; scheduledFor?: string; tenantId: string }
 
 @Processor(REPORTS_QUEUE)
 export class ReportsProcessor extends WorkerHost {
@@ -22,15 +23,23 @@ export class ReportsProcessor extends WorkerHost {
     private readonly pdfRenderer: PdfRendererService,
     private readonly reports: ReportsService,
     private readonly email: EmailService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {
     super()
   }
 
+  // Los jobs de BullMQ corren fuera de cualquier request HTTP -- no hay
+  // contexto de tenant del que la extensión de Prisma pueda leer
+  // app.tenant_id (docs/planning/aislamiento-rls-multitenant.md, Fase 6).
+  // El tenantId viaja en job.data desde que se encola (siempre lo tiene a
+  // mano quien encola) y acá se establece ANTES de la primera query.
   async process(job: Job<GenerateJobData | ScheduledRunJobData>) {
-    if (job.name === "scheduled-run") {
-      return this.processScheduledRun(job as Job<ScheduledRunJobData>)
-    }
-    return this.processGenerate(job as Job<GenerateJobData>)
+    return this.tenantRlsContext.runWithTenant(job.data.tenantId, () => {
+      if (job.name === "scheduled-run") {
+        return this.processScheduledRun(job as Job<ScheduledRunJobData>)
+      }
+      return this.processGenerate(job as Job<GenerateJobData>)
+    })
   }
 
   private async processGenerate(job: Job<GenerateJobData>) {

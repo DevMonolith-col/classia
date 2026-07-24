@@ -4,6 +4,8 @@ import { Request } from "express"
 import { RequestUser } from "../../common/types/request-context"
 import { AuditService } from "../../core/audit/audit.service"
 import { PrismaService } from "../../core/prisma/prisma.service"
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction"
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service"
 import { CreateFeeConceptInput, FinancialSummaryQuery, ListInvoicesQuery, RecordPaymentInput } from "./payments.schemas"
 
 const FEE_CONCEPT_LIST_PAGE_SIZE = 200
@@ -19,6 +21,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) { }
 
   // ─── Conceptos de cobro ──────────────────────────────────────────────────────
@@ -44,7 +47,7 @@ export class PaymentsService {
 
     // El concepto y sus facturas se crean atómicamente: sin transacción, si el
     // createMany fallaba quedaba un concepto de cobro sin facturas (estado parcial).
-    const feeConcept = await this.prisma.$transaction(async (tx) => {
+    const feeConcept = await runInTenantTransaction(this.prisma, this.tenantRlsContext, actor.tenantId!, async (tx) => {
       const created = await tx.feeConcept.create({
         data: {
           tenantId: actor.tenantId!,
@@ -148,7 +151,7 @@ export class PaymentsService {
     // pagos simultáneos no pueden ambos pasar la validación de sobrepago ni dejar
     // el estado/monto inconsistente (antes: pago > saldo dejaba totalPending
     // negativo y collectionRate > 100%).
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const updated = await runInTenantTransaction(this.prisma, this.tenantRlsContext, actor.tenantId!, async (tx) => {
       await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId} FOR UPDATE`
 
       const agg = await tx.payment.aggregate({ where: { invoiceId }, _sum: { amount: true } })

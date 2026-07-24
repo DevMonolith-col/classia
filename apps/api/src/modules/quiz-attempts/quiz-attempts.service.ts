@@ -4,6 +4,8 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { GradeAnswerInput, SaveAnswerInput } from "./quiz-attempts.schemas";
 
 @Injectable()
@@ -11,6 +13,7 @@ export class QuizAttemptsService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   async getQuiz(homeworkId: string, actor: RequestUser) {
@@ -127,6 +130,7 @@ export class QuizAttemptsService {
       create: {
         attemptId,
         questionId: input.questionId,
+        tenantId: student.tenantId,
         selectedOptionId: input.selectedOptionId,
         textAnswer: input.textAnswer,
       },
@@ -163,7 +167,7 @@ export class QuizAttemptsService {
     const answers = await this.prisma.quizAnswer.findMany({ where: { attemptId } });
     const answersByQuestion = new Map(answers.map((answer) => [answer.questionId, answer]));
 
-    await this.prisma.$transaction(async (tx) => {
+    await runInTenantTransaction(this.prisma, this.tenantRlsContext, student.tenantId, async (tx) => {
       for (const question of homework.questions) {
         if (question.type === "SHORT_ANSWER") continue;
 
@@ -179,7 +183,7 @@ export class QuizAttemptsService {
           });
         } else {
           await tx.quizAnswer.create({
-            data: { attemptId, questionId: question.id, isCorrect: false, pointsAwarded: 0 },
+            data: { attemptId, questionId: question.id, tenantId: student.tenantId, isCorrect: false, pointsAwarded: 0 },
           });
         }
       }
@@ -273,6 +277,7 @@ export class QuizAttemptsService {
       create: {
         attemptId,
         questionId,
+        tenantId: homework.tenantId,
         pointsAwarded: input.pointsAwarded,
         isCorrect: input.pointsAwarded > 0,
       },

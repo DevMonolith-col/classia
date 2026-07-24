@@ -4,6 +4,8 @@ import { Request } from "express";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { CreateQuestionInput, UpdateQuestionInput } from "./questions.schemas";
 
 @Injectable()
@@ -11,6 +13,7 @@ export class QuestionsService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   async list(homeworkId: string, actor: RequestUser) {
@@ -31,6 +34,7 @@ export class QuestionsService {
     const question = await this.prisma.question.create({
       data: {
         homeworkId,
+        tenantId: homework.tenantId,
         type: input.type,
         text: input.text,
         points: input.points ?? 1,
@@ -40,6 +44,7 @@ export class QuestionsService {
         options: input.options
           ? {
               create: input.options.map((option, index) => ({
+                tenantId: homework.tenantId,
                 text: option.text,
                 isCorrect: option.isCorrect,
                 feedback: option.feedback,
@@ -70,12 +75,13 @@ export class QuestionsService {
     const previous = await this.findQuestionOrThrow(questionId);
     const homework = await this.assertCanAuthor(previous.homeworkId, actor);
 
-    const question = await this.prisma.$transaction(async (tx) => {
+    const question = await runInTenantTransaction(this.prisma, this.tenantRlsContext, homework.tenantId, async (tx) => {
       if (input.options) {
         await tx.questionOption.deleteMany({ where: { questionId } });
         await tx.questionOption.createMany({
           data: input.options.map((option, index) => ({
             questionId,
+            tenantId: homework.tenantId,
             text: option.text,
             isCorrect: option.isCorrect,
             feedback: option.feedback,
