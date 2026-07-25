@@ -1,0 +1,22 @@
+-- Complemento de 20260722120000_rls_app_roles: esa migración concede
+-- privilegios sobre TABLAS y SECUENCIAS a classia_app y
+-- classia_platform_admin, pero nunca sobre el SCHEMA que las contiene.
+--
+-- Funciona igual en una base recién creada por initdb porque el schema
+-- "public" trae de fábrica un GRANT USAGE implícito a PUBLIC. Pero ese
+-- grant NO sobrevive a un `DROP SCHEMA public CASCADE; CREATE SCHEMA
+-- public;` -- que es exactamente lo que hace `prisma migrate reset`, y
+-- tampoco existe en una base endurecida a mano (la recomendación estándar
+-- desde PG15). En cualquiera de esos casos el ACL del schema queda vacío y
+-- los dos roles nuevos fallan con:
+--
+--   ERROR 42501: permission denied for schema public
+--
+-- reventando el arranque completo del API (ReportsModule#onModuleInit es
+-- el primero en pegarle, vía PlatformAdminPrismaService). Detectado en vivo
+-- el 2026-07-24 al aplicar estas migraciones sobre una base de dev que
+-- había pasado por un reset.
+--
+-- Idempotente: si el USAGE ya estaba, este GRANT no cambia nada.
+GRANT USAGE ON SCHEMA public TO classia_app;
+GRANT USAGE ON SCHEMA public TO classia_platform_admin;
