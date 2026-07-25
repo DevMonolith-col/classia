@@ -733,7 +733,10 @@ describe("Backend v1 e2e", () => {
 
     await app
       .get(NotificationsProcessor)
-      .process({ data: { deliveryId: delivery1!.id } } as Job<{ deliveryId: string }>);
+      .process({ data: { deliveryId: delivery1!.id, tenantId: tenant.id } } as Job<{
+        deliveryId: string;
+        tenantId: string;
+      }>);
 
     const processed1 = await tenantRlsContext.runWithTenant(tenant.id, () =>
       prisma.notificationDelivery.findUnique({
@@ -804,10 +807,21 @@ describe("Backend v1 e2e", () => {
     });
   }
 
-  async function api<T>(path: string, init?: RequestInit): Promise<ApiResponse<T>> {
+  async function api<T>(path: string, init?: RequestInit, attempt = 1): Promise<ApiResponse<T>> {
     const response = await fetch(`${baseUrl}${path}`, init);
     const text = await response.text();
     const body = text ? (JSON.parse(text) as T) : (undefined as T);
+
+    // /auth/login está gateado por ThrottlerGuard (20/min por IP) y esta suite
+    // sola hace 19 logins. Corriendo junto con rls-cross-tenant.e2e-spec.ts
+    // (mismo proceso jest, misma IP) el cupo se agota y todo lo que venga
+    // después cae en cascada con 401 por no tener token. Mismo backoff que usa
+    // loginAs() en esa suite: acumulado hasta ~85s, suficiente para cruzar la
+    // ventana completa de 60s del throttle.
+    if (response.status === 429 && path === "/auth/login" && attempt < 8) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * 4000));
+      return api<T>(path, init, attempt + 1);
+    }
 
     return {
       status: response.status,
