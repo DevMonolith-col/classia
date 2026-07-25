@@ -26,9 +26,12 @@ const TENANT_A_ADMIN_EMAIL = "rls-e2e-tenant-a-admin@classia.test";
 const TENANT_B_SLUG = "rls-e2e-tenant-b";
 const TENANT_B_ADMIN_EMAIL = "rls-e2e-tenant-b-admin@classia.test";
 const TENANT_B_TEACHER_EMAIL = "rls-e2e-tenant-b-teacher@classia.test";
-// Sembrado por packages/database/prisma/seed.ts -- ya confirmado ACTIVE en
-// vivo durante la verificación de Fase 2/8 de este mismo día.
-const SUPER_ADMIN_EMAIL = "admin@classia.com.co";
+// Identidad propia de la suite, creada por ensureFixtures() igual que las tres
+// de arriba. Antes apuntaba a admin@classia.com.co, el SUPER_ADMIN que siembra
+// packages/database/prisma/seed.ts: funciona en cualquier base de dev (donde el
+// seed ya corrió alguna vez) pero no en CI, que solo aplica migraciones y nunca
+// siembra -- ahí el login daba 401 y se llevaba puesto el beforeAll entero.
+const SUPER_ADMIN_EMAIL = "rls-e2e-super-admin@classia.test";
 
 type LoginResponse = {
   accessToken: string;
@@ -243,6 +246,17 @@ async function ensureFixtures(
       status: UserStatus.ACTIVE,
     },
   });
+  const superAdminUser = await prisma.user.upsert({
+    where: { email: SUPER_ADMIN_EMAIL },
+    update: { status: UserStatus.ACTIVE, passwordHash },
+    create: {
+      email: SUPER_ADMIN_EMAIL,
+      passwordHash,
+      firstName: "Super Admin",
+      lastName: "RLS E2E",
+      status: UserStatus.ACTIVE,
+    },
+  });
   const tenantBTeacherUser = await prisma.user.upsert({
     where: { email: TENANT_B_TEACHER_EMAIL },
     update: { status: UserStatus.ACTIVE, passwordHash },
@@ -262,6 +276,14 @@ async function ensureFixtures(
       where: { tenantId_userId: { tenantId: tenantA.id, userId: tenantAAdminUser.id } },
       update: { role: UserRole.TENANT_ADMIN, status: "ACTIVE" },
       create: { tenantId: tenantA.id, userId: tenantAAdminUser.id, role: UserRole.TENANT_ADMIN },
+    });
+    // El SUPER_ADMIN se loguea contra el tenant A (igual que el seed lo cuelga
+    // del tenant demo). El punto del test es justamente que ese rol de
+    // plataforma, sin impersonar, no alcance los datos del tenant B.
+    await prisma.tenantMembership.upsert({
+      where: { tenantId_userId: { tenantId: tenantA.id, userId: superAdminUser.id } },
+      update: { role: UserRole.SUPER_ADMIN, status: "ACTIVE" },
+      create: { tenantId: tenantA.id, userId: superAdminUser.id, role: UserRole.SUPER_ADMIN },
     });
   });
 
