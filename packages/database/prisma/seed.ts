@@ -337,12 +337,14 @@ async function main() {
   await prisma.studentGuardian.createMany({
     data: [
       {
+        tenantId: tenant.id,
         studentId: studentMaria.id,
         guardianId: guardianProfile.id,
         relationship: "mother",
         isPrimary: true,
       },
       {
+        tenantId: tenant.id,
         studentId: studentDiego.id,
         guardianId: guardianProfile.id,
         relationship: "guardian",
@@ -450,10 +452,10 @@ async function main() {
         isDefault: true,
         bands: {
           create: [
-            { label: "Bajo", minValue: 1.0, maxValue: 2.99, order: 0 },
-            { label: "Básico", minValue: 3.0, maxValue: 3.99, order: 1 },
-            { label: "Alto", minValue: 4.0, maxValue: 4.59, order: 2 },
-            { label: "Superior", minValue: 4.6, maxValue: 5.0, order: 3 },
+            { tenantId: tenant.id, label: "Bajo", minValue: 1.0, maxValue: 2.99, order: 0 },
+            { tenantId: tenant.id, label: "Básico", minValue: 3.0, maxValue: 3.99, order: 1 },
+            { tenantId: tenant.id, label: "Alto", minValue: 4.0, maxValue: 4.59, order: 2 },
+            { tenantId: tenant.id, label: "Superior", minValue: 4.6, maxValue: 5.0, order: 3 },
           ],
         },
       },
@@ -537,6 +539,7 @@ async function main() {
     // Boletines FINAL por periodo.
     for (let p = 0; p < 4; p++) {
       const lines = rows.map((r) => ({
+        tenantId: tenant.id,
         subjectId: r.subject.id,
         subjectName: r.subject.name,
         final: r.finals[p],
@@ -562,6 +565,7 @@ async function main() {
     const yearLines = rows.map((r) => {
       const final = round1(r.finals.reduce((s, v) => s + v, 0) / r.finals.length);
       return {
+        tenantId: tenant.id,
         subjectId: r.subject.id,
         subjectName: r.subject.name,
         final,

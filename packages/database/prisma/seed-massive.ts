@@ -104,10 +104,10 @@ async function seedTenant(tenantOptions: { slug: string, name: string, studentCo
         isDefault: true,
         bands: {
           create: [
-            { label: "Bajo", minValue: 1.0, maxValue: 2.99, order: 0 },
-            { label: "Básico", minValue: 3.0, maxValue: 3.99, order: 1 },
-            { label: "Alto", minValue: 4.0, maxValue: 4.59, order: 2 },
-            { label: "Superior", minValue: 4.6, maxValue: 5.0, order: 3 },
+            { tenantId: tenant.id, label: "Bajo", minValue: 1.0, maxValue: 2.99, order: 0 },
+            { tenantId: tenant.id, label: "Básico", minValue: 3.0, maxValue: 3.99, order: 1 },
+            { tenantId: tenant.id, label: "Alto", minValue: 4.0, maxValue: 4.59, order: 2 },
+            { tenantId: tenant.id, label: "Superior", minValue: 4.6, maxValue: 5.0, order: 3 },
           ],
         },
       },
@@ -274,6 +274,7 @@ async function seedTenant(tenantOptions: { slug: string, name: string, studentCo
       },
       update: {},
       create: {
+        tenantId: tenant.id,
         studentId: student.id,
         guardianId: guardian.id,
         relationship: "parent",
