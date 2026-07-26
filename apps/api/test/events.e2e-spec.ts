@@ -60,6 +60,8 @@ type Fixtures = {
   /** Grupo del profesor 2 — el que el profesor 1 NO debe poder tocar. */
   groupTwoId: string;
   teacher1UserId: string;
+  /** Horario del profesor 1 en el grupo uno — para abrir sesiones de asistencia. */
+  scheduleOneId: string;
   tenantBEventId: string;
 };
 
@@ -117,6 +119,15 @@ describe("Calendario (events)", () => {
   // del skill rls-multitenant, y esta suite la pisó en tres tests antes de esto.
   function inTenant<T>(tenantId: string, work: () => Promise<T>): Promise<T> {
     return rls.runWithTenant(tenantId, work);
+  }
+
+  // Una AttendanceSession nace con un AttendanceRecord por estudiante activo del grupo, así
+  // que borrarla directo viola attendance_records_sessionId_fkey. Los hijos primero.
+  function deleteAttendanceSession(sessionId: string) {
+    return inTenant(fixtures.tenantAId, async () => {
+      await prisma.attendanceRecord.deleteMany({ where: { sessionId } });
+      await prisma.attendanceSession.deleteMany({ where: { id: sessionId } });
+    });
   }
 
   async function api<T>(path: string, init?: RequestInit): Promise<{ status: number; body: T }> {
@@ -633,6 +644,80 @@ describe("Calendario (events)", () => {
     expect(row?.deletedAt).not.toBeNull();
   });
 
+  // ─── isSchoolDayOff consumido por asistencia (§9.3) ─────────────────────────
+
+  describe("día no lectivo y asistencia", () => {
+    // La decisión fue **advertir, no bloquear**: asistencia ya está en producción y un sábado
+    // de recuperación es un caso real. Lo que se prueba es que la sesión se crea Y que la
+    // advertencia viene con ella.
+    it("advierte al abrir asistencia en un día marcado como no lectivo, sin bloquear", async () => {
+      const dayOff = await createEvent(adminA, {
+        title: "Jornada pedagógica (sin clases)",
+        type: CalendarEventType.INSTITUCIONAL,
+        startsAt: "2026-10-05T00:00:00.000Z",
+        endsAt: "2026-10-05T00:00:00.000Z",
+        allDay: true,
+        isSchoolDayOff: true,
+      });
+      expect(dayOff.status).toBe(201);
+
+      const res = await api<{ id: string; schoolDayOffWarning: { eventId: string; title: string } | null }>(
+        "/attendance/sessions",
+        {
+          method: "POST",
+          headers: headers(teacher1, true),
+          body: JSON.stringify({ scheduleId: fixtures.scheduleOneId, date: "2026-10-05" }),
+        },
+      );
+
+      // No bloquea: la sesión existe.
+      expect(res.status).toBe(201);
+      expect(res.body.id).toBeTruthy();
+      // Y advierte, citando el evento que lo causó.
+      expect(res.body.schoolDayOffWarning).not.toBeNull();
+      expect(res.body.schoolDayOffWarning?.eventId).toBe(dayOff.body.id);
+      expect(res.body.schoolDayOffWarning?.title).toBe("Jornada pedagógica (sin clases)");
+
+      await deleteAttendanceSession(res.body.id);
+    });
+
+    it("no advierte en un día lectivo normal", async () => {
+      const res = await api<{ id: string; schoolDayOffWarning: unknown }>("/attendance/sessions", {
+        method: "POST",
+        headers: headers(teacher1, true),
+        body: JSON.stringify({ scheduleId: fixtures.scheduleOneId, date: "2026-10-06" }),
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.schoolDayOffWarning).toBeNull();
+
+      await deleteAttendanceSession(res.body.id);
+    });
+
+    // Un evento no lectivo de OTRO grupo no puede advertir sobre este: si advirtiera, la
+    // salida pedagógica de 6B apagaría la asistencia de 5A.
+    it("no advierte si el día no lectivo es de otro grupo", async () => {
+      const otherGroupDayOff = await createEvent(adminA, {
+        title: "Salida del grupo dos (sin clases para ellos)",
+        startsAt: "2026-10-07T00:00:00.000Z",
+        endsAt: "2026-10-07T00:00:00.000Z",
+        allDay: true,
+        isSchoolDayOff: true,
+        groupId: fixtures.groupTwoId,
+      });
+      expect(otherGroupDayOff.status).toBe(201);
+
+      const res = await api<{ id: string; schoolDayOffWarning: unknown }>("/attendance/sessions", {
+        method: "POST",
+        headers: headers(teacher1, true),
+        body: JSON.stringify({ scheduleId: fixtures.scheduleOneId, date: "2026-10-07" }),
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.schoolDayOffWarning).toBeNull();
+
+      await deleteAttendanceSession(res.body.id);
+    });
+  });
+
   // ─── Permisos de ruta ───────────────────────────────────────────────────────
 
   it("EVENTS_READ quedó cableado a una ruta real", async () => {
@@ -729,7 +814,7 @@ async function ensureFixtures(
     // El grupo de un profesor se deriva de sus Schedule (AudienceScopeService), así que sin
     // horario el profesor no tiene grupos y todos los tests de alcance darían 403 por la
     // razón equivocada.
-    await upsertSchedule(prisma, tenantA.id, groupOne.id, subject.id, teacher1.id, 1);
+    const scheduleOne = await upsertSchedule(prisma, tenantA.id, groupOne.id, subject.id, teacher1.id, 1);
     await upsertSchedule(prisma, tenantA.id, groupTwo.id, subject.id, teacher2.id, 2);
 
     const guardian = await prisma.guardian.upsert({
@@ -756,7 +841,7 @@ async function ensureFixtures(
       create: { studentId: student.id, guardianId: guardian.id, tenantId: tenantA.id },
     });
 
-    return { groupOneId: groupOne.id, groupTwoId: groupTwo.id };
+    return { groupOneId: groupOne.id, groupTwoId: groupTwo.id, scheduleOneId: scheduleOne.id };
   });
 
   const tenantBEventId = await tenantRlsContext.runWithTenant(tenantB.id, async () => {
@@ -797,6 +882,7 @@ async function ensureFixtures(
     groupOneId: scoped.groupOneId,
     groupTwoId: scoped.groupTwoId,
     teacher1UserId: teacher1User.id,
+    scheduleOneId: scoped.scheduleOneId,
     tenantBEventId,
   };
 }

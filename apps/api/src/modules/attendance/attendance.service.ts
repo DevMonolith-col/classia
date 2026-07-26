@@ -2,6 +2,8 @@ import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/commo
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { AttendanceStatus, Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
+import { resolveTenantTimezone } from "../../common/time/tenant-timezone";
+import { zonedDayBounds } from "../../common/time/zoned-time";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
@@ -119,13 +121,22 @@ export class AttendanceService {
 
     const date = this.normalizeDate(input.date);
 
+    // §9.3 del plan de calendario: si el día está marcado como no lectivo se **advierte**,
+    // no se bloquea. Se eligió advertir porque asistencia ya está en producción y los sábados
+    // de recuperación son un caso real, no un error del usuario.
+    const schoolDayOffWarning = await this.resolveSchoolDayOffWarning(
+      schedule.tenantId,
+      schedule.groupId,
+      date,
+    );
+
     const existing = await this.prisma.attendanceSession.findFirst({
       where: { scheduleId: schedule.id, date },
       select: this.sessionSelect(),
     });
 
     if (existing) {
-      return existing;
+      return { ...existing, schoolDayOffWarning };
     }
 
     const students = await this.prisma.student.findMany({
@@ -164,7 +175,48 @@ export class AttendanceService {
       userAgent: request.headers["user-agent"],
     });
 
-    return session;
+    return { ...session, schoolDayOffWarning };
+  }
+
+  /**
+   * Busca un evento de calendario que marque esa fecha como no lectiva para ese grupo.
+   *
+   * Se compara contra los límites del día **en la zona del colegio**, no en UTC: un festivo
+   * de todo el día está guardado de 05:00Z a 04:59:59.999Z del día siguiente (Bogotá, UTC-5),
+   * así que un rango calculado en UTC lo pierde o gana en los bordes.
+   *
+   * `groupId: null` en el evento significa todo el colegio; un evento de otro grupo no
+   * advierte sobre este.
+   */
+  private async resolveSchoolDayOffWarning(tenantId: string, groupId: string, date: Date) {
+    const timezone = await resolveTenantTimezone(this.prisma, tenantId);
+    const { start, end } = zonedDayBounds(date, timezone);
+
+    const event = await this.prisma.event.findFirst({
+      where: {
+        tenantId,
+        isSchoolDayOff: true,
+        deletedAt: null,
+        // Solapamiento con el día, no igualdad: un rango de varios días (semana de
+        // desarrollo institucional) tiene que advertir en cada uno de sus días.
+        startsAt: { lte: end },
+        endsAt: { gte: start },
+        OR: [{ groupId: null }, { groupId }],
+      },
+      select: { id: true, title: true, type: true },
+      orderBy: { startsAt: "asc" },
+    });
+
+    if (!event) {
+      return null;
+    }
+
+    return {
+      eventId: event.id,
+      title: event.title,
+      type: event.type,
+      message: `Este día está marcado como no lectivo (${event.title}). La sesión de asistencia se abrió igual.`,
+    };
   }
 
   async updateSession(

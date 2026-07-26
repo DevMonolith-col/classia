@@ -116,10 +116,12 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
   `/attendance/sessions?from&to`), y `useUpcomingEvents` trae los próximos eventos de
   `/events?limit=4`. Lo que sigue pendiente es el fan-out de 4 requests y que la asistencia se
   agrega en el cliente.
-- `calendario`: la **página** sigue siendo mock (`mockEvents`, "hoy" congelado en
-  febrero de 2024, botones sin `onClick`), pero el backend ya existe y es real desde el
-  2026-07-26: modelo `Event` completo, rango `from`/`to`, `PATCH`, audiencia por rol y grupo,
-  soft-delete y 28 tests e2e. Conectarla es la Fase 2 de `calendario.md`.
+- `calendario`: **conectado** el 2026-07-26 (Fases 1 y 2 de `calendario.md`). Backend real
+  (modelo `Event` completo, rango `from`/`to`, `PATCH`, audiencia por rol y grupo,
+  soft-delete, 18 tests e2e) y página real: crea, edita y borra contra la API, con la grilla
+  extraída a `components/shared/calendar/` para que la reusen los portales de familia,
+  profesor y alumno. Lo que falta del módulo es la agregación multi-fuente (Fase 3), los tres
+  portales (Fase 4) y el feed ICS (Fase 5).
 - `configuracion`, `plugins`, `plugins/desarrolladores`: sin backend ni conexión.
 - (`reportes` y `pagos` ya se conectaron el 2026-07-18/19 — ver §2.)
 - `mensajes/nuevo`: **página muerta** ("Próximamente...") — el módulo de mensajería lleva conectado desde `eda38c4` y la composición vive dentro del panel. Los quick-actions del dashboard todavía apuntan a esa ruta muerta.

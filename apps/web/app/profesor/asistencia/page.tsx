@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
   CalendarClock,
+  CalendarOff,
   CheckCircle2,
   Loader2,
   Lock,
@@ -309,6 +310,27 @@ function AsistenciaProfesorPageContent() {
             <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <p>{sessionError}</p>
+            </div>
+          )}
+
+          {/*
+            Día no lectivo según el calendario (calendario.md §9.3). Advierte y no bloquea:
+            un sábado de recuperación o una jornada extraordinaria son casos reales, no
+            errores. Se muestra arriba de la lista para que se vea antes de calificar.
+          */}
+          {session?.schoolDayOffWarning && (
+            <div
+              role="status"
+              className="mb-5 flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/40 dark:text-orange-200"
+            >
+              <CalendarOff className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">{session.schoolDayOffWarning.message}</p>
+                <p className="mt-0.5 text-xs opacity-90">
+                  Si es una jornada de recuperación o una clase extraordinaria, puedes
+                  continuar. Si no, revisa la fecha antes de registrar la asistencia.
+                </p>
+              </div>
             </div>
           )}
 

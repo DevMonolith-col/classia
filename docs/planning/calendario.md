@@ -540,7 +540,27 @@ aislamiento que pasa igual con el filtro de tenant quitado no está probando nad
 
 ---
 
-### Fase 2 — UI de admin conectada + componente compartido · **M** (~3-4 días)
+### Fase 2 — UI de admin conectada + componente compartido · **M** (~3-4 días) · ✅ hecha el 2026-07-26
+
+> `components/shared/calendar/` (grilla + tipos) y `components/admin/event-form-dialog.tsx`.
+> Verificado en el navegador contra la app corriendo, no solo con tests: se creó un evento,
+> se recargó y seguía ahí; se editó; se borró y desapareció de la grilla mientras la fila
+> quedaba en la base con `deletedAt`. Consola sin errores.
+>
+> Notas de implementación:
+>
+> - **El color no se persiste**, se deriva de `type` en `calendar-types.ts`. Un color en la
+>   base es presentación en la capa equivocada y garantizaría que web, el futuro móvil y el
+>   ICS se contradigan.
+> - **Un evento de varios días aparece en todos sus días** (`groupEventsByDay`), no solo en el
+>   primero. Sin eso, "semana de desarrollo institucional" se veía como un evento de un lunes.
+> - **La navegación de mes fija el día 1 antes de mover el mes.** Sin eso, estando en un 31 el
+>   botón "anterior" salta dos meses, porque JS desborda al mes siguiente cuando el destino
+>   tiene 30 días.
+> - **El fetch depende del rango, no de `currentDate`.** Navegar del 3 al 10 de agosto no
+>   cambia el mes consultado, y sin esa distinción cada clic disparaba una consulta nueva.
+> - El selector de audiencia usa un centinela `__any__`: Radix no admite `value=""`, y
+>   "todo el colegio" es una opción real, no la ausencia de valor.
 
 1. Extraer la grilla mes/semana de `admin/calendario/page.tsx` a
    `components/shared/calendar/` con props de datos. **Esto es un requisito, no una
@@ -662,12 +682,18 @@ consulta Prisma directamente; y la suite E2E prueba cada fuente con cada rol.
 `AttendanceSession` en un día no lectivo se bloquea o solo se advierte — es una decisión
 de producto (§9) con impacto en un módulo que ya está en producción.
 
-**Decidido (§9.3): solo advertir. Todavía no implementado.** La Fase 1 dejó el campo
-`isSchoolDayOff` escrito, validado (solo la administración puede marcarlo) y sembrado en los
-19 días no lectivos del demo, pero **asistencia no lo consume todavía**: no hay advertencia
-al abrir una sesión en un día marcado. Es trabajo del módulo `attendance`, no del calendario,
-y no estaba entre los nueve puntos de la Fase 1 — se deja anotado acá en vez de darlo por
-hecho. Hasta que se haga, el campo es informativo.
+**Decidido (§9.3) e implementado el 2026-07-26: advierte, no bloquea.**
+`AttendanceService#createOrGetSession` devuelve `schoolDayOffWarning` (id, título y mensaje
+del evento) cuando la fecha cae en un día marcado, y `/profesor/asistencia` lo muestra arriba
+de la lista antes de calificar. Tres detalles que importan:
+
+- El solapamiento se calcula contra los límites del día **en la zona del colegio**, no en UTC:
+  un festivo de todo el día vive de 05:00Z a 04:59:59.999Z del día siguiente en Bogotá, y un
+  rango en UTC lo pierde en los bordes.
+- Es solapamiento y no igualdad de fecha, así que una semana de desarrollo institucional
+  advierte en cada uno de sus días.
+- Un evento no lectivo **de otro grupo no advierte** sobre este: si advirtiera, la salida
+  pedagógica de 6B apagaría la asistencia de 5A. Tiene test propio, y falla al revertirlo.
 
 ### 7.5 Volumen
 Un colegio genera decenas de eventos por año; nada preocupante. La agregación es lo que

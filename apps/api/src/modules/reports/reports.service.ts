@@ -3,6 +3,7 @@ import { InjectQueue } from "@nestjs/bullmq"
 import { Queue } from "bullmq"
 import { AttendanceStatus, ReportFrequencyType, ReportType, UserRole } from "@prisma/client"
 import { Request } from "express"
+import { resolveTenantTimezone } from "../../common/time/tenant-timezone"
 import { RequestUser } from "../../common/types/request-context"
 import { AuditService } from "../../core/audit/audit.service"
 import { buildJobId } from "../../core/queue/job-id"
@@ -309,9 +310,8 @@ export class ReportsService {
     return buildJobId("schedule", scheduleId, runAt.getTime())
   }
 
-  private async tenantTimezone(tenantId: string): Promise<string> {
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { timezone: true } })
-    return tenant?.timezone || "America/Bogota"
+  private tenantTimezone(tenantId: string): Promise<string> {
+    return resolveTenantTimezone(this.prisma, tenantId)
   }
 
   // ─── Builders por tipo (usados por preview() y por el worker) ────────────────
