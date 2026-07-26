@@ -6,6 +6,7 @@ import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
 import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
 import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
+import { MarksService } from "../marks/marks.service";
 import { GradeSubmissionInput, SubmitHomeworkInput } from "./homework-submissions.schemas";
 
 @Injectable()
@@ -14,6 +15,7 @@ export class HomeworkSubmissionsService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly tenantRlsContext: TenantRlsContextService,
+    private readonly marks: MarksService,
   ) {}
 
   async upsertMine(
@@ -108,47 +110,53 @@ export class HomeworkSubmissionsService {
 
     const maxValue = input.maxValue ?? 100;
 
-    const submission = await runInTenantTransaction(this.prisma, this.tenantRlsContext, homework.tenantId, async (tx) => {
-      const updated = await tx.homeworkSubmission.update({
-        where: { id: submissionId },
-        data: {
-          status: "GRADED",
-          feedbackComment: input.feedbackComment,
-          feedbackKey: input.feedbackKey,
-          feedbackName: input.feedbackName,
-          gradedAt: new Date(),
-        },
-        select: this.submissionSelect(),
-      });
-
-      const existingMark = await tx.mark.findFirst({
-        where: { studentId: previous.studentId, homeworkId },
-        select: { id: true },
-      });
-
-      if (existingMark) {
-        await tx.mark.update({
-          where: { id: existingMark.id },
-          data: { value: input.value, maxValue, comment: input.feedbackComment },
-        });
-      } else {
-        await tx.mark.create({
+    // La nota se escribe por el writer único, que dentro de una transacción exige la
+    // variante `InTransaction`: `upsertMark()` escribe por `this.prisma` y ahí adentro
+    // tomaría otra conexión del pool, sin `app.tenant_id`. Ver el skill `rls-multitenant`,
+    // trampa #3. El `publish()` que devuelve se invoca DESPUÉS del commit.
+    const { submission, publishMark } = await runInTenantTransaction(
+      this.prisma,
+      this.tenantRlsContext,
+      homework.tenantId,
+      async (tx) => {
+        const updated = await tx.homeworkSubmission.update({
+          where: { id: submissionId },
           data: {
+            status: "GRADED",
+            feedbackComment: input.feedbackComment,
+            feedbackKey: input.feedbackKey,
+            feedbackName: input.feedbackName,
+            gradedAt: new Date(),
+          },
+          select: this.submissionSelect(),
+        });
+
+        const { publish } = await this.marks.upsertMarkInTransaction(
+          {
             tenantId: homework.tenantId,
             studentId: previous.studentId,
             subjectId: homework.subjectId,
             teacherId: homework.teacherId,
             homeworkId,
+            // El año de la TAREA, no el activo: una tarea de un año ya cerrado que se
+            // califica tarde pertenece a su año, o la nota caería en el boletín del
+            // año equivocado. Si la tarea no lo tiene, upsertMark cae al año activo.
+            academicYearId: homework.academicYearId,
             title: homework.title,
             value: input.value,
             maxValue,
             comment: input.feedbackComment,
           },
-        });
-      }
+          { userId: actor.id, role: actor.role, ipAddress: request.ip, userAgent: request.headers["user-agent"] },
+          tx,
+        );
 
-      return updated;
-    });
+        return { submission: updated, publishMark: publish };
+      },
+    );
+
+    // Recién acá el alumno se entera: la nota ya está comiteada.
+    publishMark();
 
     await this.audit.record({
       tenantId: homework.tenantId,
@@ -206,7 +214,7 @@ export class HomeworkSubmissionsService {
   private async getHomeworkForTeacherCheck(homeworkId: string, actor: RequestUser) {
     const homework = await this.prisma.homework.findUniqueOrThrow({
       where: { id: homeworkId },
-      select: { id: true, tenantId: true, teacherId: true, subjectId: true, title: true },
+      select: { id: true, tenantId: true, teacherId: true, subjectId: true, title: true, academicYearId: true },
     });
 
     if (!this.isGlobalAdmin(actor) && actor.tenantId !== homework.tenantId) {

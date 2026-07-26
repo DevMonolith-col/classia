@@ -18,6 +18,14 @@ import {
   UpdateMarkInput,
 } from "./marks.schemas";
 
+/**
+ * Cliente por el que se escribe una nota: `this.prisma` fuera de transacción, o el `tx`
+ * de `runInTenantTransaction()` adentro. Dentro de una transacción, una query por
+ * `this.prisma` toma otra conexión del pool y pierde `app.tenant_id` — con RLS forzado
+ * eso no falla ruidosamente, devuelve cero filas. Ver el skill `rls-multitenant`.
+ */
+type MarkWriteClient = Pick<Prisma.TransactionClient, "mark" | "academicYear" | "auditLog">;
+
 type PublishableMark = {
   id: string;
   tenantId: string;
@@ -42,6 +50,14 @@ export type MarkWriteInput = {
   teacherId: string;
   homeworkId?: string | null;
   categoryId?: string | null;
+  /**
+   * Año al que se ancla la nota. Si se omite, se usa el año activo del tenant.
+   * Los llamantes que califican una tarea **deben** mandar el año del `Homework`:
+   * una tarea de un año cerrado calificada tarde pertenece a SU año, no al activo,
+   * o la nota aparecería en el boletín del año equivocado. Sin este campo la nota
+   * queda invisible para todas las lecturas — ver el skill `calificaciones`.
+   */
+  academicYearId?: string | null;
   title: string;
   value: number;
   maxValue?: number;
@@ -81,15 +97,17 @@ export class MarksService {
   }
 
   /**
-   * Fuente única de verdad para escribir una nota. Idempotente para notas ligadas
-   * a una tarea vía el índice único [studentId, homeworkId]: reescribir la misma
-   * tarea+alumno actualiza en vez de duplicar, cerrando la carrera de los tres
-   * writers históricos. Las notas manuales (sin homeworkId) siempre se crean.
-   * Registra auditoría y emite MARK_PUBLISHED de forma consistente para cualquier
-   * llamante — por eso los otros módulos deben enrutar aquí.
+   * Escribe la nota y su auditoría a través de `client`, y devuelve si corresponde
+   * emitir MARK_PUBLISHED — sin emitirlo. Separar el efecto secundario es lo que
+   * permite usar esto dentro de una transacción: emitir antes del commit podría
+   * notificarle al alumno una nota que después se revierte.
    */
-  async upsertMark(input: MarkWriteInput, actor: MarkWriteActor) {
-    const activeYear = await this.resolveActiveYear(input.tenantId);
+  private async writeMark(input: MarkWriteInput, actor: MarkWriteActor, client: MarkWriteClient) {
+    // El año explícito manda; solo se cae al activo del tenant si el llamante no lo
+    // sabe (nota manual suelta). resolveActiveYear() lanza si no hay ninguno activo,
+    // que es preferible a escribir la nota con año nulo y que nadie la vea.
+    const academicYearId =
+      input.academicYearId ?? (await this.resolveActiveYear(input.tenantId, client)).id;
 
     const data = {
       tenantId: input.tenantId,
@@ -98,7 +116,7 @@ export class MarksService {
       teacherId: input.teacherId,
       homeworkId: input.homeworkId ?? null,
       categoryId: input.categoryId ?? null,
-      academicYearId: activeYear.id,
+      academicYearId,
       title: input.title,
       value: input.value,
       maxValue: input.maxValue,
@@ -109,19 +127,21 @@ export class MarksService {
     };
 
     const previous = input.homeworkId
-      ? await this.prisma.mark.findUnique({
+      ? await client.mark.findUnique({
           where: { studentId_homeworkId: { studentId: input.studentId, homeworkId: input.homeworkId } },
           select: this.markSelect(),
         })
       : null;
 
     const mark = input.homeworkId
-      ? await this.prisma.mark.upsert({
+      ? await client.mark.upsert({
           where: { studentId_homeworkId: { studentId: input.studentId, homeworkId: input.homeworkId } },
           create: data,
           update: {
             teacherId: input.teacherId,
-            academicYearId: activeYear.id,
+            // También en el update: sana una nota que quedó con año nulo antes del
+            // arreglo del 2026-07-25, en cuanto se recalifica.
+            academicYearId,
             // undefined = no cambiar; solo se reasigna si el llamante manda un valor.
             categoryId: input.categoryId,
             title: input.title,
@@ -134,27 +154,77 @@ export class MarksService {
           },
           select: this.markSelect(),
         })
-      : await this.prisma.mark.create({ data, select: this.markSelect() });
+      : await client.mark.create({ data, select: this.markSelect() });
 
-    await this.audit.record({
-      tenantId: input.tenantId,
-      userId: actor.userId,
-      actorRole: actor.role,
-      action: previous ? "mark.updated" : "mark.created",
-      entityType: "Mark",
-      entityId: mark.id,
-      oldValues: previous ? this.toAuditJson(previous) : undefined,
-      newValues: this.toAuditJson(mark),
-      ipAddress: actor.ipAddress,
-      userAgent: actor.userAgent,
-    });
+    await this.audit.record(
+      {
+        tenantId: input.tenantId,
+        userId: actor.userId,
+        actorRole: actor.role,
+        action: previous ? "mark.updated" : "mark.created",
+        entityType: "Mark",
+        entityId: mark.id,
+        oldValues: previous ? this.toAuditJson(previous) : undefined,
+        newValues: this.toAuditJson(mark),
+        ipAddress: actor.ipAddress,
+        userAgent: actor.userAgent,
+      },
+      client,
+    );
 
     // Notifica solo cuando la nota queda publicada y antes no lo estaba.
-    if (mark.isPublished && !previous?.isPublished) {
-      this.emitMarkPublished(mark);
-    }
+    return { mark, shouldPublish: mark.isPublished && !previous?.isPublished };
+  }
 
+  /**
+   * Fuente única de verdad para escribir una nota. Idempotente para notas ligadas
+   * a una tarea vía el índice único [studentId, homeworkId]: reescribir la misma
+   * tarea+alumno actualiza en vez de duplicar, cerrando la carrera de los tres
+   * writers históricos. Las notas manuales (sin homeworkId) siempre se crean.
+   * Registra auditoría y emite MARK_PUBLISHED de forma consistente para cualquier
+   * llamante — por eso los otros módulos deben enrutar aquí.
+   *
+   * Si ya estás dentro de una transacción, usa `upsertMarkInTransaction()`: esta
+   * versión escribe por `this.prisma` y perdería el contexto de tenant.
+   *
+   * `notifyStudent: false` escribe y audita la nota sin avisarle al alumno. Es para
+   * cuando el alumno ya está viendo el resultado — la autocalificación de un quiz que
+   * él mismo acaba de enviar — donde la notificación llegaría a alguien que ya sabe.
+   */
+  async upsertMark(
+    input: MarkWriteInput,
+    actor: MarkWriteActor,
+    options: { notifyStudent?: boolean } = {},
+  ) {
+    const { mark, shouldPublish } = await this.writeMark(input, actor, this.prisma);
+    if (shouldPublish && (options.notifyStudent ?? true)) this.emitMarkPublished(mark);
     return mark;
+  }
+
+  /**
+   * Igual que `upsertMark()` pero escribiendo por el `tx` de una transacción ya
+   * abierta con `runInTenantTransaction()`. **El llamante debe invocar el `publish()`
+   * devuelto después de que la transacción haga commit** — ahí es donde se emite
+   * MARK_PUBLISHED. Emitirlo adentro notificaría notas que un rollback deshace.
+   *
+   * `notifyStudent: false` escribe la nota y la audita sin avisarle al alumno; sirve
+   * para el caso en que el alumno ya está viendo el resultado (autocalificación de un
+   * quiz que él mismo acaba de enviar), donde la notificación sería redundante.
+   */
+  async upsertMarkInTransaction(
+    input: MarkWriteInput,
+    actor: MarkWriteActor,
+    tx: Prisma.TransactionClient,
+    options: { notifyStudent?: boolean } = {},
+  ) {
+    const { mark, shouldPublish } = await this.writeMark(input, actor, tx);
+    const notify = options.notifyStudent ?? true;
+    return {
+      mark,
+      publish: () => {
+        if (shouldPublish && notify) this.emitMarkPublished(mark);
+      },
+    };
   }
 
   async list(actor: RequestUser, query: ListMarksQuery) {
@@ -445,10 +515,19 @@ export class MarksService {
     return inputTeacherId;
   }
 
-  // Toda escritura de Mark queda anclada al año académico activo del tenant; sin
-  // año activo no se puede calificar (los históricos viven en años archivados).
-  private async resolveActiveYear(tenantId: string) {
-    const activeYear = await this.prisma.academicYear.findFirst({
+  /**
+   * Fallback de año para una nota cuyo llamante no sabe a qué año pertenece (una nota
+   * manual suelta). Los que califican una tarea mandan `input.academicYearId` con el
+   * año de la tarea: **el año de la tarea manda cuando se conoce**, porque `Mark.date`
+   * tiene default `now()` y guiarse por la fecha archivaría en el año equivocado una
+   * tarea del año pasado calificada tarde.
+   *
+   * Lanza si no hay año activo, a propósito: es mejor que escribir la nota con
+   * `academicYearId = null`, que la vuelve invisible para todas las lecturas —
+   * incluida la del boletín (`report-cards.service.ts`).
+   */
+  private async resolveActiveYear(tenantId: string, client: MarkWriteClient = this.prisma) {
+    const activeYear = await client.academicYear.findFirst({
       where: { tenantId, isActive: true },
       select: { id: true },
     });
