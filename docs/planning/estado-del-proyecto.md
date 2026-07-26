@@ -122,8 +122,10 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
   extraída a `components/shared/calendar/` para que la reusen los portales de familia,
   profesor y alumno. Incluye el **feed ICS suscribible** (Fase 5): `GET /calendar/feed/:token.ics`
   sin sesión, con token por usuario revocable, y el botón "Suscribir a mi calendario" con QR.
-  Lo que falta del módulo es la agregación multi-fuente (Fase 3) y los tres portales de lectura
-  con recordatorios (Fase 4).
+  Incluye también la **agregación multi-fuente** (Fase 3): `GET /calendar?from&to&sources=` junta
+  eventos, entregas, periodos, cartera, elecciones y clases en una sola respuesta, aplicando los
+  permisos de cada módulo por separado. Lo único que falta del módulo son los tres portales de
+  lectura con recordatorios (Fase 4).
 - `configuracion`, `plugins`, `plugins/desarrolladores`: sin backend ni conexión.
 - (`reportes` y `pagos` ya se conectaron el 2026-07-18/19 — ver §2.)
 - `mensajes/nuevo`: **página muerta** ("Próximamente...") — el módulo de mensajería lleva conectado desde `eda38c4` y la composición vive dentro del panel. Los quick-actions del dashboard todavía apuntan a esa ruta muerta.

@@ -10,5 +10,7 @@ import { ElectionsService } from "./elections.service"
   imports: [AuditCoreModule, DataScopeModule],
   controllers: [ElectionsController],
   providers: [JwtAuthGuard, PermissionsGuard, ElectionsService],
+  // Lo consume CalendarModule para proyectar las jornadas de votación.
+  exports: [ElectionsService],
 })
 export class ElectionsModule {}

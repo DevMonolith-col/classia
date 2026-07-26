@@ -20,6 +20,7 @@ export const ADMIN_A_EMAIL = "events-e2e-admin-a@classia.test";
 export const TEACHER_1_EMAIL = "events-e2e-teacher-1@classia.test";
 export const TEACHER_2_EMAIL = "events-e2e-teacher-2@classia.test";
 export const GUARDIAN_EMAIL = "events-e2e-guardian@classia.test";
+export const STUDENT_EMAIL = "events-e2e-student@classia.test";
 export const ADMIN_B_EMAIL = "events-e2e-admin-b@classia.test";
 
 export type Fixtures = {
@@ -33,6 +34,11 @@ export type Fixtures = {
   /** Fila Teacher (no User) del profesor 1 — la que referencia Homework. */
   teacher1Id: string;
   subjectId: string;
+  /** Hijo del acudiente, en el grupo uno. */
+  studentId: string;
+  /** Estudiante del MISMO grupo pero sin vínculo con el acudiente (test de fuga de cartera). */
+  otherStudentId: string;
+  academicYearId: string;
   /** Horario del profesor 1 en el grupo uno — para abrir sesiones de asistencia. */
   scheduleOneId: string;
   tenantBEventId: string;
@@ -79,6 +85,7 @@ export async function ensureFixtures(
   const teacher1User = await upsertUser(TEACHER_1_EMAIL, "Profesor Uno");
   const teacher2User = await upsertUser(TEACHER_2_EMAIL, "Profesor Dos");
   const guardianUser = await upsertUser(GUARDIAN_EMAIL, "Acudiente");
+  const studentUser = await upsertUser(STUDENT_EMAIL, "Alumno");
   const adminBUser = await upsertUser(ADMIN_B_EMAIL, "Rector B");
 
   // Todo lo de acá para abajo toca tablas con RLS forzado, así que va dentro de
@@ -89,6 +96,7 @@ export async function ensureFixtures(
       [teacher1User, UserRole.TEACHER],
       [teacher2User, UserRole.TEACHER],
       [guardianUser, UserRole.GUARDIAN],
+      [studentUser, UserRole.STUDENT],
     ] as const) {
       await prisma.tenantMembership.upsert({
         where: { tenantId_userId: { tenantId: tenantA.id, userId: user.id } },
@@ -125,15 +133,18 @@ export async function ensureFixtures(
       create: { userId: guardianUser.id, tenantId: tenantA.id },
     });
 
+    // El hijo del acudiente tiene además su propia cuenta: hace falta para probar lo que solo
+    // se ve desde el rol STUDENT (por ejemplo que un borrador de elección no le aparezca).
     const student = await prisma.student.upsert({
       where: { tenantId_documentId: { tenantId: tenantA.id, documentId: "EVENTS-E2E-STU-1" } },
-      update: { groupId: groupOne.id },
+      update: { groupId: groupOne.id, userId: studentUser.id },
       create: {
         tenantId: tenantA.id,
         documentId: "EVENTS-E2E-STU-1",
         firstName: "Estudiante",
         lastName: "Events E2E",
         groupId: groupOne.id,
+        userId: studentUser.id,
       },
     });
 
@@ -143,12 +154,49 @@ export async function ensureFixtures(
       create: { studentId: student.id, guardianId: guardian.id, tenantId: tenantA.id },
     });
 
+    // Segundo estudiante en EL MISMO grupo y SIN vínculo con el acudiente. Es la pieza que
+    // hace válido el test de fuga de cartera: si la proyección de facturas filtrara por grupo
+    // en vez de por acudiente —el error que §7.3 marca como el caso crítico— el acudiente
+    // vería la deuda de esta otra familia. Mismo grupo a propósito.
+    const otherStudent = await prisma.student.upsert({
+      where: { tenantId_documentId: { tenantId: tenantA.id, documentId: "EVENTS-E2E-STU-2" } },
+      update: { groupId: groupOne.id },
+      create: {
+        tenantId: tenantA.id,
+        documentId: "EVENTS-E2E-STU-2",
+        firstName: "Estudiante Ajeno",
+        lastName: "Events E2E",
+        groupId: groupOne.id,
+      },
+    });
+
+    // Invoice exige academicYearId. En dev el seed ya sembró un año, pero CI solo aplica
+    // migraciones y nunca siembra.
+    const existingYear = await prisma.academicYear.findFirst({
+      where: { tenantId: tenantA.id },
+      select: { id: true },
+    });
+    const academicYear =
+      existingYear ??
+      (await prisma.academicYear.create({
+        data: {
+          tenantId: tenantA.id,
+          name: "EVENTS-E2E-YEAR",
+          startDate: new Date("2026-01-27"),
+          endDate: new Date("2026-11-27"),
+        },
+        select: { id: true },
+      }));
+
     return {
       groupOneId: groupOne.id,
       groupTwoId: groupTwo.id,
       scheduleOneId: scheduleOne.id,
       teacher1Id: teacher1.id,
       subjectId: subject.id,
+      studentId: student.id,
+      otherStudentId: otherStudent.id,
+      academicYearId: academicYear.id,
     };
   });
 
@@ -192,6 +240,9 @@ export async function ensureFixtures(
     teacher1UserId: teacher1User.id,
     teacher1Id: scoped.teacher1Id,
     subjectId: scoped.subjectId,
+    studentId: scoped.studentId,
+    otherStudentId: scoped.otherStudentId,
+    academicYearId: scoped.academicYearId,
     scheduleOneId: scoped.scheduleOneId,
     tenantBEventId,
   };
