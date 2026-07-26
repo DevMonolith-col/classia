@@ -39,6 +39,8 @@ export interface Conversation {
   unreadCount: number
   online?: boolean
   typing?: boolean
+  /** Hasta cuándo leyeron los demás; determina los checks azules de los mensajes propios. */
+  otherLastReadAt?: Date | null
   messages: Message[]
   role?: string
 }

@@ -9,6 +9,7 @@ import { PrismaService } from "../../core/prisma/prisma.service";
 import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
 import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import {
+  type ConversationReadEvent,
   MessageReceivedEvent,
   NOTIFICATION_EVENTS,
 } from "../notifications/notifications.events";
@@ -359,10 +360,26 @@ export class ConversationsService {
   async markRead(actor: RequestUser, conversationId: string) {
     await this.assertMember(actor, conversationId);
 
+    const lastReadAt = new Date();
     await this.prisma.conversationMember.update({
       where: { conversationId_userId: { conversationId, userId: actor.id } },
-      data: { lastReadAt: new Date() },
+      data: { lastReadAt },
     });
+
+    // Para que al otro se le pongan azules los checks sin recargar. Se avisa solo a los demás
+    // miembros: quien acaba de leer ya lo sabe.
+    const others = await this.prisma.conversationMember.findMany({
+      where: { conversationId, userId: { not: actor.id } },
+      select: { userId: true },
+    });
+    if (others.length > 0) {
+      this.events.emit(NOTIFICATION_EVENTS.CONVERSATION_READ, {
+        conversationId,
+        readerUserId: actor.id,
+        lastReadAt,
+        recipientUserIds: others.map((other) => other.userId),
+      } satisfies ConversationReadEvent);
+    }
 
     return { status: "ok" as const };
   }
@@ -641,6 +658,21 @@ export class ConversationsService {
     }));
     const otherParticipants = participants.filter((participant) => participant.id !== actor.id);
 
+    /**
+     * Hasta cuándo leyeron **los demás**. Es lo que vuelve azules los checks de los mensajes
+     * propios, y hasta ahora no se exponía: el frontend ponía `status: "read"` en todos los
+     * mensajes, así que todo se veía leído siempre.
+     *
+     * En un hilo de grupo se toma el **mínimo**: un mensaje está leído cuando lo leyó todo el
+     * mundo, no cuando lo leyó el primero. Si algún miembro nunca abrió el hilo (`null`), no
+     * hay nada leído por todos y el valor es null.
+     */
+    const otherMembers = conversation.members.filter((member) => member.userId !== actor.id);
+    const otherLastReadAt =
+      otherMembers.length > 0 && otherMembers.every((member) => member.lastReadAt !== null)
+        ? new Date(Math.min(...otherMembers.map((member) => member.lastReadAt!.getTime())))
+        : null;
+
     return {
       id: conversation.id,
       type: conversation.type,
@@ -648,6 +680,7 @@ export class ConversationsService {
       participants,
       otherParticipants,
       unreadCount,
+      otherLastReadAt,
       lastMessageAt: conversation.lastMessageAt,
       // Se piden en orden desc (los MESSAGE_PAGE_SIZE más recientes) y se
       // revierten aquí para mostrarlos en orden cronológico.

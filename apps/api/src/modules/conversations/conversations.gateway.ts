@@ -17,6 +17,7 @@ import { RequestUser } from "../../common/types/request-context";
 import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { ConversationsService } from "./conversations.service";
 import {
+  type ConversationReadEvent,
   MessageReceivedEvent,
   NOTIFICATION_EVENTS,
   type NotificationCreatedEvent,
@@ -156,6 +157,23 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
         conversationId,
         userId: actor.id,
         isTyping,
+      });
+    }
+  }
+
+  /**
+   * Alguien leyó el hilo: al otro se le vuelven azules los checks sin recargar.
+   *
+   * Va con el `lastReadAt` porque el cliente lo compara contra la fecha de cada mensaje propio
+   * para decidir cuáles están leídos — no alcanza con "leyó algo".
+   */
+  @OnEvent(NOTIFICATION_EVENTS.CONVERSATION_READ)
+  handleConversationRead(event: ConversationReadEvent) {
+    for (const userId of event.recipientUserIds) {
+      this.server.to(this.userRoom(userId)).emit("conversation:read", {
+        conversationId: event.conversationId,
+        userId: event.readerUserId,
+        lastReadAt: event.lastReadAt,
       });
     }
   }
