@@ -202,6 +202,52 @@ describe("Mensajería en tiempo real", () => {
     socket.disconnect();
   });
 
+  // ─── Contador de no leídos en vivo (Fase 2, ítem 14) ────────────────────────
+
+  // Reversión verificada: quitando el `@OnEvent(NOTIFICATION_CREATED)` del gateway, este test
+  // falla por timeout — la campanita se quedaría quieta hasta recargar la página.
+  it("avisa por socket que el contador de no leídos cambió", async () => {
+    const socket = connect(guardian.accessToken);
+    await waitFor(socket, "connect");
+
+    const pinged = waitFor(socket, "notification:new");
+    await sendAs(teacher, "Mensaje que dispara la campanita");
+    // Resuelve `undefined` porque el evento va **sin payload**: lo que se afirma es que llega,
+    // no qué trae. El número se pide a la API, que es la única fuente de verdad.
+    await expect(pinged).resolves.toBeUndefined();
+
+    socket.disconnect();
+  });
+
+  // El aviso va sin número a propósito: el cliente vuelve a pedir el contador a la API, que es
+  // la única fuente de verdad y ya aplica el scoping del actor.
+  //
+  // Se espera el ping del socket antes de leer el contador, y no es un adorno: la notificación
+  // la escribe un listener de EventEmitter2 que corre **desacoplado del POST**, así que el
+  // request responde antes de que exista la fila. Leer el contador de inmediato lo encuentra
+  // igual que antes — pasó al escribir este test. El ping se emite después del `createMany`,
+  // así que sirve de punto de sincronización.
+  it("el contador de la API sube con el mensaje nuevo", async () => {
+    const socket = connect(guardian.accessToken);
+    await waitFor(socket, "connect");
+
+    const before = await api<{ count: number }>("/notifications/unread-count", {
+      headers: authHeaders(guardian),
+    });
+    expect(before.status).toBe(200);
+
+    const pinged = waitFor(socket, "notification:new");
+    await sendAs(teacher, "Otro mensaje para el contador");
+    await pinged;
+
+    const after = await api<{ count: number }>("/notifications/unread-count", {
+      headers: authHeaders(guardian),
+    });
+    expect(after.body.count).toBeGreaterThan(before.body.count);
+
+    socket.disconnect();
+  });
+
   // ─── Aislamiento del socket ─────────────────────────────────────────────────
 
   // Salas `user:{id}`: el emisor no está en `recipientUserIds`, así que no recibe su propio

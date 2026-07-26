@@ -367,8 +367,19 @@ sin eso no se está probando nada de lo que esta feature promete.
 
 **Fase 2 — Entrega en vivo** (el corazón: aquí deja de hacer falta el F5) · ✅ ítems 12-13 hechos el 2026-07-26
 
-> `conversations.gateway.ts`, `apps/web/lib/realtime.ts` y la inserción en `MessagingPanel`.
-> Falta el ítem 14 (badge de no leídos en vivo en los tres sidebars).
+> `conversations.gateway.ts`, `apps/web/lib/realtime.ts`, la inserción en `MessagingPanel` y
+> `components/shared/unread-bell.tsx`. **Fase 2 completa.**
+>
+> El badge (ítem 14) se resolvió por `NotificationsService#notify`, no por el chat: el gateway
+> escucha un evento genérico `NOTIFICATION_CREATED` que se emite después de persistir. Así el
+> contador sube igual con una nota, una tarea, una inasistencia, un comunicado o un evento — no
+> solo con un mensaje. El aviso va **sin número**: el cliente vuelve a pedir
+> `/notifications/unread-count`, que ya aplica el scoping del actor, en vez de tener dos
+> fuentes de verdad para el mismo dato.
+>
+> `lib/realtime.ts` mantiene **un solo socket por pestaña** con contador de suscriptores, como
+> pide §7: el panel de mensajes y la campanita conviven en el mismo árbol y una conexión por
+> hook serían dos WebSockets por usuario haciendo lo mismo.
 >
 > - **El mensaje viaja dentro del evento** (`MessageReceivedEvent.message`) en vez de que el
 >   gateway lo relea de la base. Un `@OnEvent` puede resolverse fuera del contexto de tenant

@@ -10,7 +10,11 @@ import {
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 import { WsJwtGuard, verifyAndDecodeToken } from "../../common/guards/ws-jwt.guard";
-import { MessageReceivedEvent, NOTIFICATION_EVENTS } from "../notifications/notifications.events";
+import {
+  MessageReceivedEvent,
+  NOTIFICATION_EVENTS,
+  type NotificationCreatedEvent,
+} from "../notifications/notifications.events";
 
 /**
  * Tiempo real de la mensajería del colegio (docs/planning/chat-tiempo-real.md, Fases 1-2).
@@ -99,6 +103,24 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
         conversationId: event.conversationId,
         message: event.message,
       });
+    }
+  }
+
+  /**
+   * Avisa que el contador de no leídos de esas personas cambió, sin decir de qué.
+   *
+   * El payload es deliberadamente vacío: el cliente vuelve a pedir el contador a
+   * `/notifications/unread-count`, que ya aplica el scoping del actor. Mandar el número por
+   * socket obligaría a recalcularlo por destinatario acá y a mantener dos fuentes de verdad
+   * para el mismo dato.
+   *
+   * Cubre todas las notificaciones —nota, tarea, inasistencia, comunicado, evento, mensaje—
+   * y no solo el chat, porque cuelga de `NotificationsService#notify`, por donde pasan todas.
+   */
+  @OnEvent(NOTIFICATION_EVENTS.NOTIFICATION_CREATED)
+  handleNotificationCreated(event: NotificationCreatedEvent) {
+    for (const userId of event.recipientUserIds) {
+      this.server.to(this.userRoom(userId)).emit("notification:new");
     }
   }
 

@@ -12,6 +12,13 @@ export const NOTIFICATION_EVENTS = {
   ANNOUNCEMENT_PUBLISHED: "notification.announcement.published",
   EVENT_PUBLISHED: "notification.event.published",
   EVENT_REMINDER: "notification.event.reminder",
+  /**
+   * Se emite **después** de persistir las notificaciones, con la lista de a quiénes les tocó.
+   * Lo consume `ConversationsGateway` para avisar por socket que su contador de no leídos
+   * cambió. Es genérico a propósito: sirve para nota nueva, tarea, inasistencia, comunicado,
+   * evento y mensaje, no solo para el chat.
+   */
+  NOTIFICATION_CREATED: "notification.created",
 } as const;
 
 export type MarkPublishedEvent = {
@@ -72,6 +79,12 @@ export type AnnouncementPublishedEvent = {
   title: string;
   targetRole: string | null;
   groupId: string | null;
+};
+
+export type NotificationCreatedEvent = {
+  tenantId: string;
+  /** Usuarios cuyo contador de no leídos acaba de subir. */
+  recipientUserIds: string[];
 };
 
 /**
