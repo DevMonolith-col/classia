@@ -26,7 +26,8 @@ import type { Teacher, Group } from "@/components/admin/academic-types"
 
 type AttendanceRecord = { status: "PRESENT" | "ABSENT" | "LATE" | "EXCUSED" }
 type AttendanceSession = { date: string; records: AttendanceRecord[] }
-type SchoolEvent = { id: string; title: string; date: string; location?: string | null }
+// `date` se renombró a `startsAt` en 20260726130000_calendar_event_model.
+type SchoolEvent = { id: string; title: string; startsAt: string; location?: string | null }
 
 type DashboardStats = {
   totalStudents: number
@@ -287,7 +288,7 @@ export default function AdminDashboardPage() {
               ) : (
                 <div className="relative space-y-4 mt-2">
                   {events.map((event) => {
-                    const eventDate = new Date(event.date)
+                    const eventDate = new Date(event.startsAt)
                     return (
                       <div key={event.id} className="flex gap-3">
                         <div className="flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-lg bg-primary/10 text-primary border border-primary/20 shadow-sm">

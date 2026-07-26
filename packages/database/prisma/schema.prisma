@@ -153,6 +153,7 @@ model User {
   reportSchedulesCreated  ReportSchedule[]
   accessSessionsRequested AccessSession[]          @relation("AccessSessionRequestedBy")
   accessSessionsApproved  AccessSession[]          @relation("AccessSessionApprovedBy")
+  eventsCreated           Event[]
 
   @@map("users")
 }
@@ -222,6 +223,7 @@ model Group {
   announcements      Announcement[]
   gradingCategories  GradingCategory[]
   feeConcepts        FeeConcept[]
+  events             Event[]
 
   @@map("groups")
 }
@@ -775,17 +777,57 @@ model ConversationMessage {
   @@map("conversation_messages")
 }
 
+enum CalendarEventType {
+  ACADEMICO // exámenes, cierre de notas, entrega de boletines
+  INSTITUCIONAL // izadas de bandera, festival cultural
+  REUNION // consejo directivo, escuela de padres
+  ADMINISTRATIVO // matrículas, simulacros
+  FESTIVO // festivo nacional o día no lectivo del colegio
+}
+
 model Event {
-  id        String   @id @default(uuid())
-  tenantId  String
-  title     String
-  date      DateTime
-  location  String?
-  createdAt DateTime @default(now())
+  id          String            @id @default(uuid())
+  tenantId    String
+  title       String
+  description String?
+  type        CalendarEventType @default(INSTITUCIONAL)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  // Siempre UTC. `startTime`/`endTime` de Schedule son String a propósito (una clase es
+  // una plantilla semanal sin fecha); un evento es un instante y debe ser DateTime para
+  // que los rangos, el orden y el ICS funcionen sin parsing manual.
+  startsAt DateTime
+  endsAt   DateTime
+  // Sin esta bandera un evento guardado a medianoche UTC se muestra el día anterior para
+  // cualquiera al oeste de Greenwich, incluida toda Colombia (UTC-5).
+  allDay   Boolean  @default(false)
 
-  @@index([tenantId, date])
+  location String?
+
+  // Audiencia — mismo patrón que Announcement (ver announcements.service.ts#listForUser).
+  targetRole UserRole? // null = todos los roles
+  groupId    String? // null = todo el colegio
+
+  // Marca los días en que no hay clase. Lo consume asistencia, no solo la grilla.
+  isSchoolDayOff Boolean @default(false)
+
+  // Antelación del recordatorio, configurable por evento. null = sin recordatorio,
+  // que es distinto de 0.
+  reminderMinutesBefore Int?
+
+  // Nullable a propósito: las filas anteriores a este campo no tienen autor real y
+  // asignarles uno sería inventarlo. null = creado antes de que se registrara el autor.
+  // No es solo forense: un profesor solo puede editar y borrar lo que él creó.
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime? // soft-delete, coherente con Announcement
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+  group     Group? @relation(fields: [groupId], references: [id])
+  createdBy User?  @relation(fields: [createdById], references: [id])
+
+  @@index([tenantId, startsAt])
+  @@index([tenantId, groupId, startsAt])
   @@map("events")
 }
 

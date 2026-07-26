@@ -4,6 +4,8 @@
 // un cron estático — su patrón no es anual. Las corridas se disparan a las 07:00
 // hora local del colegio.
 
+import { localParts, zonedWallTimeToUtc } from "../../common/time/zoned-time";
+
 export type Recurrence = {
   frequencyType: "DAYS" | "MONTHLY";
   intervalValue: number;
@@ -14,46 +16,9 @@ export type Recurrence = {
 const RUN_HOUR = 7; // 07:00 hora local del colegio
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// Offset (ms) de una zona IANA en un instante dado: (hora de pared interpretada
-// como si fuera UTC) − instante real. Para zonas sin DST (p. ej. Colombia) es
-// exacto; para zonas con DST usa el offset vigente en ese instante.
-function tzOffsetMs(instant: Date, tz: string): number {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const map: Record<string, string> = {};
-  for (const p of dtf.formatToParts(instant)) map[p.type] = p.value;
-  const hour = map.hour === "24" ? "00" : map.hour; // Intl puede devolver "24" a medianoche
-  const asUtc = Date.UTC(+map.year, +map.month - 1, +map.day, +hour, +map.minute, +map.second);
-  return asUtc - instant.getTime();
-}
-
-// Instante UTC correspondiente a una hora de pared (y, m, d, hora) en la zona tz.
-// Date.UTC normaliza meses/días desbordados (p. ej. día 33 → mes siguiente).
-function zonedWallTimeToUtc(year: number, month1to12: number, day: number, hour: number, tz: string): Date {
-  const naiveUtc = Date.UTC(year, month1to12 - 1, day, hour, 0, 0);
-  const offset = tzOffsetMs(new Date(naiveUtc), tz);
-  return new Date(naiveUtc - offset);
-}
-
-function localParts(instant: Date, tz: string): { year: number; month: number; day: number } {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const map: Record<string, string> = {};
-  for (const p of dtf.formatToParts(instant)) map[p.type] = p.value;
-  return { year: +map.year, month: +map.month, day: +map.day };
-}
+// tzOffsetMs/zonedWallTimeToUtc/localParts viven en common/time/zoned-time.ts desde el
+// 2026-07-26: el módulo de calendario necesita la misma matemática y dos copias se
+// desincronizan. Comportamiento idéntico; este spec sigue siendo su cobertura.
 
 /**
  * Próxima corrida (instante UTC) estrictamente posterior a `after`, según la

@@ -16,8 +16,10 @@
 > `admin/calendario/page.tsx` se conservan porque se verificaron vigentes y son la
 > evidencia concreta de que la página es una maqueta.
 >
-> **Antes de ejecutar nada de esto, ver §0:** el módulo no figura en la lista de áreas
-> aprobadas de `CLAUDE.md`.
+> **§0 y las seis decisiones de §9 quedaron resueltas el 2026-07-26** — el módulo está
+> aprobado con alcance completo (fases 1-5) y así quedó anotado en `CLAUDE.md`. Las
+> respuestas están al pie, en §9; dos de ellas cambian §5 y la Fase 1, y ya están
+> incorporadas ahí. No hay que volver a preguntarlas.
 >
 > La sección §2 (panorama de mercado) es conocimiento general del sector, no auditoría de
 > código ajeno. Los detalles de proveedores LatAm están marcados como *a verificar* donde
@@ -25,7 +27,15 @@
 
 ---
 
-## 0. Estado de aprobación — **bloqueante**
+## 0. Estado de aprobación — **resuelto el 2026-07-26**
+
+> **Aprobado con alcance completo** (fases 1-5): núcleo interno, agregación multi-fuente,
+> portales de familia/profesor/alumno con recordatorios y feed ICS. Anotado en `CLAUDE.md`
+> con fecha, junto con las tres fronteras que el módulo roza y que **no** están aprobadas:
+> sync bidireccional con Google/Microsoft (plugin de pago posterior), reserva de recursos, y
+> cualquier cosa que invite a pagar desde el calendario.
+>
+> Lo que sigue es el texto original de la sección, que explica por qué era bloqueante.
 
 `CLAUDE.md` (§Alcance del producto) mantiene dos listas explícitas: lo que **no** está
 aprobado (transporte, biblioteca, enfermería, nómina, IA, biometría, firma digital
@@ -362,14 +372,17 @@ model Event {
   // Marca los días en que no hay clase. Lo consume asistencia, no solo la grilla.
   isSchoolDayOff Boolean        @default(false)
 
-  createdById String
+  // §9.5: antelación del recordatorio, por evento. null = sin recordatorio.
+  reminderMinutesBefore Int?
+
+  createdById String?           // §5.1: nullable — null = creado antes de que se registrara el autor
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   deletedAt   DateTime?         // soft-delete, coherente con Announcement
 
   tenant    Tenant  @relation(fields: [tenantId], references: [id])
   group     Group?  @relation(fields: [groupId], references: [id])
-  createdBy User    @relation(fields: [createdById], references: [id])
+  createdBy User?   @relation(fields: [createdById], references: [id])
 
   @@index([tenantId, startsAt])
   @@index([tenantId, groupId, startsAt])
@@ -396,7 +409,13 @@ Decisiones incorporadas y su razón:
   lectivo, y las fechas de entrega no deberían caer ahí. Se agrega el campo ahora aunque
   su consumo llegue después.
 - **`createdById` y `updatedAt`.** Hoy no se sabe quién creó un evento; con auditoría
-  como regla obligatoria del proyecto, es una omisión.
+  como regla obligatoria del proyecto, es una omisión. Desde §9.2 además es funcional y no
+  solo forense: un profesor edita y borra únicamente los eventos que creó. Queda **nullable**
+  por §5.1 — inventarle un autor a las filas viejas sería peor que admitir que no se sabe.
+- **`reminderMinutesBefore`** entra por §9.5 (recordatorio configurable por evento). Es un
+  `Int?` y no una tabla aparte porque hay un recordatorio por evento, no varios; si algún día
+  se piden múltiples, ahí sí toca tabla. `null` significa "sin recordatorio", que es distinto
+  de `0`.
 - **`deletedAt`.** Coherente con el criterio de retención ya aplicado a comunicados y
   mensajería.
 - **Sin `color` en la base de datos.** El color se deriva de `type` en el frontend. Un
@@ -446,7 +465,46 @@ cambia el modelo de permisos, no una bandera.
 
 ---
 
-### Fase 1 — Modelo y backend del calendario interno · **M** (~3-4 días)
+### Fase 1 — Modelo y backend del calendario interno · **M** (~3-4 días) · ✅ hecha el 2026-07-26
+
+> Implementada en `20260726130000_calendar_event_model` + `apps/api/src/modules/events/`.
+> Lo que se aprendió y no estaba previsto acá:
+>
+> - **`updatedAt` cae en la misma trampa que `endsAt`.** §5.1 solo señalaba `endsAt`, pero
+>   `@updatedAt` también se emite como `ADD COLUMN ... NOT NULL` sin default, así que también
+>   necesita nullable → backfill (con `createdAt`, no `now()`) → `SET NOT NULL`.
+> - **`prisma migrate dev` no es usable en este repo**: se cuelga replicando 40 migraciones en
+>   la shadow database. El SQL va a mano y se verifica con `prisma migrate diff
+>   --from-schema-datamodel ... --to-schema-datasource ...`, que no la necesita.
+> - **El backfill se probó con una fila de verdad.** En dev `events` está vacía, así que el
+>   atajo pasa igual; se insertó una fila sintética antes de migrar y se confirmó que
+>   `ADD COLUMN ... NOT NULL` la rechaza con una fila y la acepta con la tabla vacía. Es
+>   literalmente lo que §5.1 advertía, ahora comprobado y no supuesto.
+> - **`GET /events` tenía un consumidor real** que §1.1 no cubría: el dashboard de admin llama
+>   `/events?limit=4` (`apps/web/app/admin/page.tsx`). Hacer `from`/`to` obligatorios sin más
+>   le habría devuelto 400 en producción, así que el endpoint quedó con dos modos (rango para
+>   la grilla, "próximos N" para el widget). Ese dashboard además leía `date`, que ahora es
+>   `startsAt`: se corrigió en el mismo cambio.
+> - **`allDay` se normaliza desde la fecha civil UTC, no desde la hora de pared local.** La
+>   primera versión interpretaba el instante en la zona del colegio, y como una fecha se
+>   serializa a medianoche UTC, "2026-05-15" quedaba guardado el 14 — el bug que la bandera
+>   existe para prevenir. Lo destapó el test.
+> - **Bug encontrado en la aritmética de zonas horarias que ya existía**: `tzOffsetMs`
+>   (extraída de `reports.recurrence.ts`) descartaba los milisegundos, así que el fin de un
+>   día quedaba en `05:00:00.998Z` en vez de `04:59:59.999Z`. Era invisible porque su único
+>   llamador pasaba siempre `00:00:00.000`.
+> - **El cross-tenant devuelve 404, no 403.** RLS hace la fila invisible antes de que el
+>   servicio compare tenants. Falla cerrado y no confirma que el id exista.
+> - **Los 15 tests se verificaron revirtiendo el comportamiento que afirman, y 2 no fallaron.**
+>   Los dos de aislamiento cross-tenant pasan igual con el `where: { tenantId }` quitado,
+>   porque con RLS forzado la fila del otro colegio no existe para esa conexión: el filtro de
+>   la aplicación **no es observable desde el API**. Quedan como regresión de la garantía (se
+>   ponen rojos si se desactiva la política o si la app se conecta con el rol superuser), y se
+>   agregó el chequeo que sí es app-level: `?tenantId=<ajeno>` debe dar **403**, no una lista
+>   vacía — ese sí falla al revertirlo. Está anotado en el skill `rls-multitenant`, porque
+>   aplica a cualquier test de aislamiento futuro de este repo. Los 13 restantes fallan al
+>   revertirlos, incluidos los dos IDOR intra-tenant del profesor, que son los que RLS no
+>   puede cubrir.
 
 1. Migración Prisma del modelo de §5, **siguiendo §5.1 al pie de la letra**: el renombre
    `date` → `startsAt`, y `endsAt` agregada nullable → `UPDATE` de backfill → `SET NOT
@@ -463,7 +521,9 @@ cambia el modelo de permisos, no una bandera.
 4. Filtro de audiencia en `list()` portando `announcements.service.ts:38-39`.
 5. Permisos: dar `EVENTS_LIST`/`EVENTS_READ` a `TEACHER`, `GUARDIAN`, `STUDENT`.
    Cablear `EVENTS_READ` a un `GET /events/:id` real o eliminarlo — hoy es un permiso
-   fantasma.
+   fantasma. Y por §9.2, `TEACHER` recibe `EVENTS_CREATE/UPDATE/DELETE` con el alcance
+   impuesto en el servicio: `groupId` obligatorio validado contra los grupos que enseña, y
+   edición/borrado limitados a lo que él creó.
 6. Validación: `endsAt >= startsAt`; si `allDay`, normalizar a límites de día en
    `Tenant.timezone`.
 7. E2E en `backend-v1.e2e-spec.ts`: aislamiento entre tenants, audiencia por rol y por
@@ -602,6 +662,13 @@ consulta Prisma directamente; y la suite E2E prueba cada fuente con cada rol.
 `AttendanceSession` en un día no lectivo se bloquea o solo se advierte — es una decisión
 de producto (§9) con impacto en un módulo que ya está en producción.
 
+**Decidido (§9.3): solo advertir. Todavía no implementado.** La Fase 1 dejó el campo
+`isSchoolDayOff` escrito, validado (solo la administración puede marcarlo) y sembrado en los
+19 días no lectivos del demo, pero **asistencia no lo consume todavía**: no hay advertencia
+al abrir una sesión en un día marcado. Es trabajo del módulo `attendance`, no del calendario,
+y no estaba entre los nueve puntos de la Fase 1 — se deja anotado acá en vez de darlo por
+hecho. Hasta que se haga, el campo es informativo.
+
 ### 7.5 Volumen
 Un colegio genera decenas de eventos por año; nada preocupante. La agregación es lo que
 puede pesar: seis consultas por vista de mes. Índices `(tenantId, startsAt)` y
@@ -678,27 +745,61 @@ rápido se siente.
 
 ---
 
-## 9. Decisiones abiertas — requieren al dueño del producto
+## 9. Decisiones — **resueltas el 2026-07-26**
 
-0. **¿Está aprobado el módulo?** Ver §0: el calendario no figura ni en la lista de áreas
-   aprobadas ni en la de no aprobadas de `CLAUDE.md`. Esta pregunta va **antes** que las
-   seis siguientes, porque todas las demás asumen que se hace. Si se aprueba, anotarlo en
+Las siete estaban abiertas y bloqueaban la Fase 1. Quedan cerradas con el dueño del
+producto; las consecuencias ya están incorporadas en §5 y en las fases.
+
+0. **¿Está aprobado el módulo?** → **Sí, alcance completo** (fases 1-5). Ver §0. Anotado en
    `CLAUDE.md` con fecha.
-1. **¿Se confirma el enfoque de §3** (interno + ICS ahora, Google como plugin de pago
-   después), o hay un compromiso comercial ya adquirido con algún colegio que obligue a
-   subir la sync con Google al core?
-2. **¿Quién puede crear eventos?** El plan asume que solo admin/coordinación/rectoría/
-   secretaría (los 5 roles que hoy tienen el permiso). La pregunta real es **si un
-   profesor puede crear eventos para su propio grupo** — es la petición más previsible
-   apenas se lance, y cambia el modelo de permisos, no solo una bandera.
-3. **`isSchoolDayOff` frente a asistencia:** ¿bloquear la creación de sesiones de
-   asistencia en días no lectivos, solo advertir, o no hacer nada por ahora?
-4. **Calendario oficial del MEN** (calendario A/B, semanas de desarrollo institucional,
-   festivos nacionales): ¿se precarga por tenant como plantilla al abrir el año escolar,
-   o cada colegio captura sus días a mano? Precargar los festivos de Colombia es barato y
-   se percibe como mucho.
-5. **Recordatorios:** ¿24 h antes fijo, o configurable por evento? Fijo es más simple y
-   probablemente suficiente para la v1.
-6. **Fase 5 — alcance del feed:** ¿el ICS incluye solo eventos institucionales, o también
-   las entregas de tareas del alumno? Lo segundo es mucho más útil para las familias y
-   sube el listón de cuidado con los datos que van en el `SUMMARY`.
+
+1. **¿Se confirma el enfoque de §3?** → **Sí.** Interno + agregación + ICS ahora; Google /
+   Microsoft queda **fuera del core** como plugin de pago posterior. No hay compromiso
+   comercial que obligue a subirlo.
+
+2. **¿Quién puede crear eventos?** → **Un profesor sí puede, acotado a sus propios grupos.**
+   Es la decisión con más consecuencias técnicas de la lista:
+   - **Corrección del 2026-07-26, al implementarlo:** la primera versión de esta decisión
+     decía "permiso nuevo `EVENTS_CREATE_OWN_GROUP`, para que el alcance esté en el permiso
+     y no en un `if` disperso". **No funciona:** `PermissionsGuard` exige *todos* los
+     permisos del decorador (`requiredPermissions.every(...)`), no cualquiera de ellos, así
+     que dos permisos alternativos en la misma ruta se leen como conjunción y el profesor
+     recibiría 403. Las salidas eran duplicar la ruta o agregarle semántica "any-of" a un
+     guard compartido — más máquina de la que el problema justifica, y sobre una primitiva
+     de seguridad. Se hizo lo que ya hace `announcements`: `TEACHER` tiene `EVENTS_CREATE` y
+     el alcance lo impone el servicio. Además el alcance real depende de una consulta
+     (`Schedule` → grupos), que un decorador no puede hacer de todas formas.
+   - `groupId` es **obligatorio** cuando el actor es profesor, y el servicio valida que ese
+     grupo esté entre los que enseña. Es exactamente el patrón que
+     `announcements.service.ts` ya usa para publicar comunicados por grupo (`create()`, rama
+     `TEACHER`), incluida la resolución de grupos vía `Schedule` — se porta, no se inventa.
+   - Un profesor edita y borra **solo lo que creó** (de ahí que `createdById` importe para
+     algo más que auditoría). El staff administrativo edita y borra todo lo del tenant.
+   - `isSchoolDayOff` **no** lo puede marcar un profesor: declarar un día no lectivo es una
+     decisión institucional, y además tiene efecto sobre asistencia (§9.3).
+   - Ojo con el IDOR intra-tenant: RLS no lo atrapa (mismo tenant), así que la prueba de que
+     un profesor no puede crear ni editar para el grupo de otro es un test, no una política.
+
+3. **`isSchoolDayOff` frente a asistencia** → **solo advertir.** Abrir una
+   `AttendanceSession` en un día no lectivo sigue permitido, pero la respuesta trae una
+   advertencia y la UI la muestra antes de confirmar. Se eligió no bloquear porque asistencia
+   ya está en producción y los sábados de recuperación son un caso real, no un error.
+   Endurecerlo a bloqueo después es un cambio chico; ablandarlo sería un ticket.
+
+4. **Calendario oficial del MEN** → **precargar solo los festivos nacionales.** Se siembran
+   como eventos `FESTIVO` con `isSchoolDayOff`, editables y borrables por el colegio, desde
+   una tabla estática (con los traslados de la Ley Emiliani) y sin servicio externo. El
+   calendario A/B y las semanas de desarrollo institucional los captura cada colegio: es
+   donde de verdad varían y una plantilla equivocada se corrige a mano igual.
+
+5. **Recordatorios** → **configurable por evento.** Consecuencia directa sobre §5: el modelo
+   lleva `reminderMinutesBefore Int?` (`null` = sin recordatorio), así que entra en la
+   migración de la Fase 1 y no en una segunda. La parte que se rompe en silencio es
+   **reagendar**: al editar `startsAt` o la antelación hay que cancelar el job anterior y
+   encolar el nuevo, con `jobId` derivado del `id` del evento vía `core/queue/job-id.ts`
+   (ver el antecedente de `41d86f5` en la Fase 4).
+
+6. **Alcance del feed ICS** → **eventos institucionales + las entregas del alumno** (título y
+   materia, nada más). Los vencimientos de facturas quedan **fuera** en cualquier caso: un
+   monto de deuda en una URL sin sesión no es aceptable. El `SUMMARY` no lleva notas, montos
+   ni observaciones; el detalle exige entrar a la app.
