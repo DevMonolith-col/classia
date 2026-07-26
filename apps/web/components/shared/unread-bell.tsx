@@ -6,15 +6,12 @@
 // pendiente**. `GET /notifications/unread-count` existía desde el módulo de notificaciones y
 // ningún archivo de `apps/web` lo llamaba.
 //
-// El contador se refresca por socket, así que sube solo cuando llega una nota, una tarea, una
-// inasistencia, un comunicado, un evento o un mensaje — todo lo que pasa por
-// `NotificationsService#notify`.
+// Vive en el header móvil. En escritorio ese header no se renderiza, así que el contador se
+// muestra además en el ítem "Notificaciones" de la navegación (ver `NavUnreadBadge`).
 
-import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { Bell } from "lucide-react"
-import { apiFetch } from "@/lib/api-client"
-import { useNotificationPing } from "@/lib/realtime"
+import { formatUnread, useUnreadCount } from "./use-unread-count"
 
 interface Props {
   /** Ruta del centro de notificaciones del portal (cada uno tiene la suya). */
@@ -23,25 +20,7 @@ interface Props {
 }
 
 export function UnreadBell({ href, className }: Props) {
-  const [count, setCount] = useState(0)
-
-  const refresh = useCallback(async () => {
-    try {
-      const res = await apiFetch("/notifications/unread-count", { silent: true })
-      if (!res.ok) return
-      const data = (await res.json()) as { count: number }
-      setCount(data.count)
-    } catch {
-      // La campanita no es crítica: si falla, se queda con el último valor conocido en vez de
-      // mostrar un error en el marco de toda la aplicación.
-    }
-  }, [])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  useNotificationPing(refresh)
+  const count = useUnreadCount()
 
   return (
     <Link
@@ -52,9 +31,35 @@ export function UnreadBell({ href, className }: Props) {
       <Bell className="h-5 w-5" />
       {count > 0 && (
         <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-destructive-foreground">
-          {count > 99 ? "99+" : count}
+          {formatUnread(count)}
         </span>
       )}
     </Link>
+  )
+}
+
+/**
+ * Badge para el ítem "Notificaciones" de la navegación lateral, que es **el único indicador
+ * visible en escritorio**: el header con la campanita es `lg:hidden`.
+ *
+ * Con el sidebar colapsado no hay lugar para el número, así que se degrada a un punto.
+ */
+export function NavUnreadBadge({ collapsed }: { collapsed: boolean }) {
+  const count = useUnreadCount()
+  if (count === 0) return null
+
+  if (collapsed) {
+    return (
+      <span
+        aria-label={`${count} notificaciones sin leer`}
+        className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive"
+      />
+    )
+  }
+
+  return (
+    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[11px] font-bold leading-none text-destructive-foreground">
+      {formatUnread(count)}
+    </span>
   )
 }
