@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
@@ -22,9 +23,11 @@ import { RequestUser } from "../../common/types/request-context";
 import {
   BroadcastInput,
   CreateConversationInput,
+  type ListMessagesQuery,
   SendMessageInput,
   broadcastSchema,
   createConversationSchema,
+  listMessagesQuerySchema,
   sendMessageSchema,
 } from "./conversations.schemas";
 import { ConversationsService } from "./conversations.service";
@@ -39,6 +42,21 @@ export class ConversationsController {
   @Permissions(PERMISSIONS.MESSAGING_LIST)
   list(@CurrentUser() user: RequestUser) {
     return this.conversations.listConversations(user);
+  }
+
+  /**
+   * Historial paginado de un hilo. Va **antes** de `@Get("contacts")` no por precedencia
+   * —`contacts` es literal y no colisiona con `:id`— sino para dejarlo junto al resto de las
+   * rutas de una conversación concreta.
+   */
+  @Get(":id/messages")
+  @Permissions(PERMISSIONS.MESSAGING_READ)
+  messages(
+    @Param("id") conversationId: string,
+    @Query(new ZodValidationPipe(listMessagesQuerySchema)) query: ListMessagesQuery,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.conversations.listMessages(user, conversationId, query);
   }
 
   @Get("contacts")

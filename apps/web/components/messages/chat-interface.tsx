@@ -67,6 +67,10 @@ interface ChatInterfaceProps {
   canBroadcast?: boolean
   broadcastTargets?: BroadcastTarget[]
   onSendMessage?: (conversationId: string, message: string) => Promise<boolean> | boolean
+  /** Carga la página anterior del hilo. Devuelve si agregó algo (false = ya no hay más). */
+  onLoadOlderMessages?: (conversationId: string) => Promise<boolean>
+  /** Avisa que esta persona está escribiendo en el hilo. El debounce vive en el emisor. */
+  onTyping?: (conversationId: string) => void
   onOpenConversation?: (conversationId: string) => void
   onStartConversation?: (contactId: string) => void
   onBroadcast?: (groupId: string, body: string) => Promise<void> | void
@@ -81,6 +85,8 @@ export function ChatInterface({
   canBroadcast = false,
   broadcastTargets = [],
   onSendMessage,
+  onLoadOlderMessages,
+  onTyping,
   onOpenConversation,
   onStartConversation,
   onBroadcast,
@@ -97,6 +103,37 @@ export function ChatInterface({
   const [broadcastBody, setBroadcastBody] = useState("")
   const [broadcasting, setBroadcasting] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesScrollRef = useRef<HTMLDivElement>(null)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+
+  /**
+   * Trae la página anterior al llegar arriba del hilo.
+   *
+   * Lo delicado no es pedir los mensajes sino **no perder la posición de lectura**: al
+   * anteponerlos, el navegador mantiene `scrollTop` y el contenido se corre bajo el cursor, así
+   * que la persona termina mirando otro punto de la conversación. Se guarda `scrollHeight`
+   * antes y se compensa la diferencia después.
+   */
+  const handleMessagesScroll = async () => {
+    const node = messagesScrollRef.current
+    if (!node || loadingOlder || !selectedConversation || !onLoadOlderMessages) return
+    if (node.scrollTop > 80) return
+
+    setLoadingOlder(true)
+    const previousHeight = node.scrollHeight
+    try {
+      const added = await onLoadOlderMessages(selectedConversation.id)
+      if (added) {
+        // En el siguiente frame, cuando los mensajes nuevos ya están en el DOM.
+        requestAnimationFrame(() => {
+          const current = messagesScrollRef.current
+          if (current) current.scrollTop = current.scrollHeight - previousHeight
+        })
+      }
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
 
   // Sincroniza con datos recargados desde el backend, preservando la selección actual.
   useEffect(() => {
@@ -581,9 +618,14 @@ export function ChatInterface({
             </div>
 
             {/* Messages - iOS Style Bubbles */}
-            <div className="flex-1 overflow-y-auto p-4" style={{ 
+            <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4" style={{
               backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")"
             }}>
+              {loadingOlder && (
+                <p className="pb-3 text-center text-xs text-muted-foreground">
+                  Cargando mensajes anteriores…
+                </p>
+              )}
               <div className="space-y-3">
                 {selectedConversation.messages.map((message, index) => {
                   const isUser = message.sender === "user"
@@ -659,7 +701,11 @@ export function ChatInterface({
                   <Input
                     placeholder="Mensaje"
                     value={messageInput}
-                    onChange={(e) => setMessageInput(e.target.value)}
+                    onChange={(e) => {
+                      setMessageInput(e.target.value)
+                      // Solo al escribir algo: borrar hasta dejarlo vacío no es "escribiendo".
+                      if (e.target.value) onTyping?.(selectedConversation.id)
+                    }}
                     onKeyDown={handleKeyPress}
                     className="min-h-[36px] rounded-full bg-secondary/50 text-[15px] focus-visible:ring-1"
                   />
