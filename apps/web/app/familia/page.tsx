@@ -1,3 +1,8 @@
+"use client"
+
+// Pasa a client component el 2026-07-26: el card "Próximos Eventos" dejó de ser un array
+// hardcodeado y ahora consulta la API. El resto de la pantalla sigue siendo maqueta.
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
   TrendingUp,
@@ -13,6 +18,7 @@ import {
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { apiFetch } from "@/lib/api-client"
 
 const studentInfo = {
   name: "María García López",
@@ -100,26 +106,43 @@ const pendingTasks = [
   },
 ]
 
-const upcomingEvents = [
-  {
-    id: 1,
-    title: "Reunión de Padres",
-    date: "15 Mar",
-    time: "16:00",
-  },
-  {
-    id: 2,
-    title: "Examen de Español",
-    date: "18 Mar",
-    time: "08:00",
-  },
-  {
-    id: 3,
-    title: "Festival de Primavera",
-    date: "22 Mar",
-    time: "10:00",
-  },
-]
+// Los próximos eventos ya no son un array hardcodeado: salen de GET /events, filtrados por el
+// backend según la audiencia del acudiente (rol y grupos de sus hijos).
+type UpcomingEvent = {
+  id: string
+  title: string
+  startsAt: string
+  allDay: boolean
+  location?: string | null
+}
+
+function useUpcomingEvents() {
+  const [events, setEvents] = useState<UpcomingEvent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await apiFetch("/events?limit=4", { silent: true })
+        if (!res.ok) throw new Error("No se pudieron cargar los próximos eventos.")
+        const data = (await res.json()) as UpcomingEvent[]
+        if (!cancelled) setEvents(data)
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "No se pudo conectar.")
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return { events, loading, error }
+}
 
 const notifications = [
   {
@@ -146,6 +169,12 @@ const notifications = [
 ]
 
 export default function FamiliaDashboardPage() {
+  const {
+    events: upcomingEvents,
+    loading: upcomingLoading,
+    error: upcomingError,
+  } = useUpcomingEvents()
+
   const getGradeColor = (grade: number) => {
     if (grade >= 90) return "text-success"
     if (grade >= 70) return "text-foreground"
@@ -317,29 +346,53 @@ export default function FamiliaDashboardPage() {
               <Calendar className="h-5 w-5" />
               Próximos Eventos
             </CardTitle>
+            {/* Apuntaba a /familia/horario, que sigue siendo mock. Ahora va al calendario real. */}
             <Button variant="ghost" size="sm" asChild>
-              <Link href="/familia/horario">
+              <Link href="/familia/calendario">
                 Ver calendario
               </Link>
             </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {upcomingEvents.map((event) => (
-                <div
-                  key={event.id}
-                  className="flex items-center gap-3 rounded-lg border border-border p-3"
-                >
-                  <div className="flex h-10 w-10 flex-col items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                    <span className="text-xs font-medium">{event.date.split(" ")[0]}</span>
-                    <span className="text-xs">{event.date.split(" ")[1]}</span>
+              {upcomingLoading && (
+                <p className="text-sm text-muted-foreground">Cargando próximos eventos…</p>
+              )}
+              {!upcomingLoading && upcomingError && (
+                <p className="text-sm text-muted-foreground">{upcomingError}</p>
+              )}
+              {!upcomingLoading && !upcomingError && upcomingEvents.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No hay eventos próximos en el calendario del colegio.
+                </p>
+              )}
+              {upcomingEvents.map((event) => {
+                const date = new Date(event.startsAt)
+                return (
+                  <div
+                    key={event.id}
+                    className="flex items-center gap-3 rounded-lg border border-border p-3"
+                  >
+                    <div className="flex h-10 w-10 flex-col items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                      <span className="text-xs font-medium">
+                        {date.toLocaleDateString("es-CO", { day: "2-digit" })}
+                      </span>
+                      <span className="text-xs">
+                        {date.toLocaleDateString("es-CO", { month: "short" })}
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{event.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {event.allDay
+                          ? "Todo el día"
+                          : date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
+                        {event.location ? ` · ${event.location}` : ""}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{event.title}</p>
-                    <p className="text-xs text-muted-foreground">{event.time}</p>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </CardContent>
         </Card>

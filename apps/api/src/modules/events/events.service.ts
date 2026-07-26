@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { AudienceScopeService } from "../../common/audience/audience-scope.service";
@@ -12,6 +13,11 @@ import { zonedDayBounds } from "../../common/time/zoned-time";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import {
+  type CalendarEventNotification,
+  NOTIFICATION_EVENTS,
+} from "../notifications/notifications.events";
+import { EventRemindersService } from "./event-reminders.service";
 import { CreateEventInput, ListEventsQuery, UpdateEventInput } from "./events.schemas";
 
 // Los mismos roles que en announcements.service.ts: publican para todo el colegio, a
@@ -31,6 +37,8 @@ export class EventsService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly audience: AudienceScopeService,
+    private readonly reminders: EventRemindersService,
+    private readonly domainEvents: EventEmitter2,
   ) {}
 
   async list(actor: RequestUser, query: ListEventsQuery) {
@@ -139,6 +147,20 @@ export class EventsService {
       userAgent: request.headers["user-agent"],
     });
 
+    await this.reminders.sync(event);
+
+    this.domainEvents.emit(NOTIFICATION_EVENTS.EVENT_PUBLISHED, {
+      tenantId,
+      eventId: event.id,
+      title: event.title,
+      startsAt: event.startsAt,
+      allDay: event.allDay,
+      location: event.location,
+      targetRole: event.targetRole,
+      groupId: event.groupId,
+      authorId: actor.id,
+    } satisfies CalendarEventNotification);
+
     return event;
   }
 
@@ -212,6 +234,11 @@ export class EventsService {
       userAgent: request.headers["user-agent"],
     });
 
+    // Después de guardar y con los valores nuevos: mover la fecha o cambiar la antelación
+    // tiene que reagendar, y `sync` borra el job anterior antes de crear el nuevo. Sin esto el
+    // recordatorio seguiría apuntando a la fecha vieja sin que nada falle.
+    await this.reminders.sync(event);
+
     return event;
   }
 
@@ -236,6 +263,10 @@ export class EventsService {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
+
+    // El soft-delete conserva la fila, pero el recordatorio sí se cancela: avisar de un evento
+    // que el colegio borró es peor que no avisar.
+    await this.reminders.cancel(eventId);
 
     return { id: eventId };
   }

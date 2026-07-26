@@ -5,6 +5,7 @@ import { PrismaService } from "../../core/prisma/prisma.service";
 import {
   AnnouncementPublishedEvent,
   AttendanceAbsenceEvent,
+  CalendarEventNotification,
   HomeworkAssignedEvent,
   MarkPublishedEvent,
   MessageReceivedEvent,
@@ -96,6 +97,39 @@ export class NotificationsListeners {
     });
   }
 
+  @OnEvent(NOTIFICATION_EVENTS.EVENT_PUBLISHED)
+  async onEventPublished(event: CalendarEventNotification) {
+    await this.notifications.notify({
+      tenantId: event.tenantId,
+      eventType: NotificationEventType.EVENT_PUBLISHED,
+      recipientUserIds: await this.calendarEventRecipientUserIds(event),
+      title: "Nuevo evento en el calendario",
+      body: `${event.title} — ${formatDate(event.startsAt)}`,
+      entityType: "Event",
+      entityId: event.eventId,
+    });
+  }
+
+  @OnEvent(NOTIFICATION_EVENTS.EVENT_REMINDER)
+  async onEventReminder(event: CalendarEventNotification) {
+    const cuando = event.allDay
+      ? formatDate(event.startsAt)
+      : `${formatDate(event.startsAt)} a las ${new Date(event.startsAt).toLocaleTimeString("es-CO", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`;
+
+    await this.notifications.notify({
+      tenantId: event.tenantId,
+      eventType: NotificationEventType.EVENT_REMINDER,
+      recipientUserIds: await this.calendarEventRecipientUserIds(event),
+      title: "Recordatorio",
+      body: `${event.title} — ${cuando}${event.location ? ` · ${event.location}` : ""}`,
+      entityType: "Event",
+      entityId: event.eventId,
+    });
+  }
+
   // ─── Resolución de destinatarios ──────────────────────────────────────────────
 
   private async studentAndGuardianUserIds(studentId: string): Promise<string[]> {
@@ -162,5 +196,60 @@ export class NotificationsListeners {
       if (wantGuardian) ids.push(...student.guardians.map((link) => link.guardian.userId));
     }
     return ids.filter((id) => id !== event.authorId);
+  }
+
+  /**
+   * Destinatarios de un evento del calendario, según el mismo par `targetRole` + `groupId` que
+   * filtra `EventsService`.
+   *
+   * A diferencia de los comunicados, acá **sí se notifica a profesores**: un evento dirigido a
+   * `TEACHER` (un consejo académico) no tiene otro canal, mientras que la cartelera de
+   * comunicados sí existe para el staff.
+   *
+   * Con `groupId` los profesores se acotan a los que dan clase en ese grupo, vía `Schedule` —
+   * la misma relación que usa AudienceScopeService para el camino inverso.
+   */
+  private async calendarEventRecipientUserIds(
+    event: CalendarEventNotification,
+  ): Promise<string[]> {
+    const wantGuardian = event.targetRole === null || event.targetRole === UserRole.GUARDIAN;
+    const wantStudent = event.targetRole === null || event.targetRole === UserRole.STUDENT;
+    const wantTeacher = event.targetRole === null || event.targetRole === UserRole.TEACHER;
+
+    const ids: string[] = [];
+
+    if (wantGuardian || wantStudent) {
+      const students = await this.prisma.student.findMany({
+        where: {
+          tenantId: event.tenantId,
+          isActive: true, // no notificar a familias de alumnos retirados
+          ...(event.groupId ? { groupId: event.groupId } : {}),
+        },
+        select: {
+          userId: true,
+          guardians: { select: { guardian: { select: { userId: true } } } },
+        },
+      });
+
+      for (const student of students) {
+        if (wantStudent && student.userId) ids.push(student.userId);
+        if (wantGuardian) ids.push(...student.guardians.map((link) => link.guardian.userId));
+      }
+    }
+
+    if (wantTeacher) {
+      const teachers = await this.prisma.teacher.findMany({
+        where: {
+          tenantId: event.tenantId,
+          ...(event.groupId ? { schedules: { some: { groupId: event.groupId } } } : {}),
+        },
+        select: { userId: true },
+      });
+      ids.push(...teachers.map((teacher) => teacher.userId));
+    }
+
+    // Quien lo creó ya lo sabe. En el recordatorio `authorId` viene null a propósito: para
+    // entonces sí quiere que se lo recuerden.
+    return event.authorId ? ids.filter((id) => id !== event.authorId) : ids;
   }
 }

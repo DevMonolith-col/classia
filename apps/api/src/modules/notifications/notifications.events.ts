@@ -10,6 +10,8 @@ export const NOTIFICATION_EVENTS = {
   ATTENDANCE_ABSENCE: "notification.attendance.absence",
   MESSAGE_RECEIVED: "notification.message.received",
   ANNOUNCEMENT_PUBLISHED: "notification.announcement.published",
+  EVENT_PUBLISHED: "notification.event.published",
+  EVENT_REMINDER: "notification.event.reminder",
 } as const;
 
 export type MarkPublishedEvent = {
@@ -52,4 +54,22 @@ export type AnnouncementPublishedEvent = {
   title: string;
   targetRole: string | null;
   groupId: string | null;
+};
+
+/**
+ * Un evento del calendario que le toca a alguien. Lo usan las dos notificaciones del módulo
+ * —publicación y recordatorio— porque su audiencia se resuelve igual: `targetRole` + `groupId`,
+ * el mismo par que ya usa Announcement.
+ */
+export type CalendarEventNotification = {
+  tenantId: string;
+  eventId: string;
+  title: string;
+  startsAt: Date;
+  allDay: boolean;
+  location: string | null;
+  targetRole: string | null;
+  groupId: string | null;
+  /** Se excluye de los destinatarios: quien lo creó ya sabe. Null para el recordatorio. */
+  authorId: string | null;
 };

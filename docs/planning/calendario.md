@@ -636,7 +636,37 @@ Reglas no negociables:
 
 ---
 
-### Fase 4 — Lectura para familia, profesor y alumno + recordatorios · **M** (~3-4 días)
+### Fase 4 — Lectura para familia, profesor y alumno + recordatorios · **M** (~3-4 días) · ✅ hecha el 2026-07-26
+
+> `components/shared/calendar/portal-calendar-page.tsx` + tres rutas de diez líneas cada una,
+> `event-reminders.service.ts` y `event-reminders.processor.ts`.
+>
+> **Los recordatorios tenían una trampa que el plan no nombraba.** §1.6 y §7.7 acertaban en lo
+> que sí decían (BullMQ ya está, el `tenantId` va en `job.data`, el `jobId` por
+> `core/queue/job-id.ts`), pero falta una tercera cosa sin la cual reagendar no funciona:
+> **BullMQ ignora un `add()` con un `jobId` que ya existe en vez de reemplazarlo.** Con el
+> `jobId` estable por evento —que es lo que uno quiere para no duplicar—, mover un evento del
+> martes al viernes deja vivo el recordatorio del martes: el aviso llega el día equivocado y
+> no falla nada. Por eso `sync()` **siempre borra primero**, incluso cuando va a reagendar. Hay
+> test, y falla al quitar ese `cancel()`.
+>
+> Otras decisiones:
+>
+> - Un recordatorio cuyo momento ya pasó no se agenda: avisar "falta un día" cuando el evento
+>   fue anteayer es peor que no avisar. Pasa al crear un evento pasado o al bajarle la
+>   antelación a uno inminente.
+> - Borrar el evento cancela el recordatorio, aunque el borrado sea soft: avisar de algo que el
+>   colegio borró es peor que no avisar. El processor además revalida `deletedAt: null` por si
+>   el job sobrevivió por otro camino.
+> - `EVENT_PUBLISHED` **sí notifica a profesores**, a diferencia de los comunicados: un evento
+>   dirigido a `TEACHER` no tiene otro canal, mientras que para el staff la cartelera existe.
+> - En el recordatorio, `authorId` va null a propósito: a quien creó el evento también hay que
+>   recordárselo.
+> - Cada portal pide solo las fuentes que le sirven. El alumno **no** ve cartera: la deuda es
+>   conversación de la familia con el colegio. Ninguno pide `schedule`, que satura la grilla.
+> - El card "Próximos Eventos" de `/familia` dejó de ser un array hardcodeado y su botón ya no
+>   apunta a `/familia/horario`, que sigue siendo maqueta. La página pasó a client component
+>   para poder consultar la API.
 
 1. `/familia/calendario`, `/profesor/calendario`, `/alumno/calendario` sobre el
    componente compartido de la Fase 2, cada uno con sus fuentes por defecto.

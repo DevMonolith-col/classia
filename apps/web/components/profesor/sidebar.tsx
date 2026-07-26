@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import {
-  LayoutDashboard, Users, BookOpen, Calendar,
+  LayoutDashboard, Users, BookOpen, Calendar, CalendarDays,
   FileText, ClipboardList, MessageSquare, Settings,
   LogOut, Menu, X, Bell, ClipboardCheck, Megaphone,
 } from "lucide-react"
@@ -23,6 +23,7 @@ const navigation = [
   { name: "Calificaciones", href: "/profesor/calificaciones",icon: ClipboardList },
   { name: "Asignaciones",   href: "/profesor/asignaciones",  icon: FileText },
   { name: "Asistencia",     href: "/profesor/asistencia",    icon: ClipboardCheck },
+  { name: "Calendario",     href: "/profesor/calendario",    icon: CalendarDays },
   { name: "Horario",        href: "/profesor/horario",       icon: Calendar },
   { name: "Mensajes",       href: "/profesor/mensajes",      icon: MessageSquare },
   { name: "Comunicados",    href: "/profesor/comunicados",   icon: Megaphone },
