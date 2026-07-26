@@ -114,6 +114,40 @@ export function useNotificationPing(onPing: () => void) {
   useRealtimeEvent<void>("notification:new", onPing)
 }
 
+export type PresenceEvent = {
+  userId: string
+  online: boolean
+  lastSeenAt: string | null
+}
+
+/** Conexiones y desconexiones de la gente con la que esta persona conversa. */
+export function usePresenceEvents(onPresence: (event: PresenceEvent) => void) {
+  useRealtimeEvent<PresenceEvent>("presence:changed", onPresence)
+}
+
+/**
+ * Late cada 30 s para que el servidor sepa que esta pestaña sigue viva.
+ *
+ * Es lo único que apaga a alguien que se fue sin cerrar sesión —cerró la laptop, perdió la
+ * red—: el `disconnect` limpio no llega nunca en esos casos y, sin el latido, esa persona
+ * queda "en línea" para siempre del otro lado.
+ */
+export function usePresenceHeartbeat() {
+  useEffect(() => {
+    const socket = acquire()
+    if (!socket) return
+
+    const beat = () => socket.emit("presence:heartbeat")
+    beat()
+    const interval = setInterval(beat, 30_000)
+
+    return () => {
+      clearInterval(interval)
+      release()
+    }
+  }, [])
+}
+
 export type ConversationReadEvent = {
   conversationId: string
   userId: string

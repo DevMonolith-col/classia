@@ -14,6 +14,7 @@ import {
   NOTIFICATION_EVENTS,
 } from "../notifications/notifications.events";
 import { BroadcastInput, type ListMessagesQuery, SendMessageInput } from "./conversations.schemas";
+import { PresenceService } from "./presence.service";
 
 // Techo de mensajes que se devuelven por conversación en el listado: evita
 // cargar el historial completo de cada hilo solo para mostrar la vista
@@ -52,6 +53,7 @@ export class ConversationsService {
     private readonly events: EventEmitter2,
     private readonly tenantRlsContext: TenantRlsContextService,
     private readonly audience: AudienceScopeService,
+    private readonly presence: PresenceService,
   ) {}
 
   // ─── Lectura ────────────────────────────────────────────────────────────────
@@ -71,8 +73,20 @@ export class ConversationsService {
     });
 
     const unread = await this.unreadCountsFor(actor.tenantId, actor.id, conversations.map((c) => c.id));
+
+    // Presencia de los interlocutores en una sola lectura de Redis, para que la bandeja llegue
+    // con "en línea" / "última vez" ya resuelto y no con el literal que había antes.
+    const partnerIds = [
+      ...new Set(
+        conversations.flatMap((conversation) =>
+          conversation.members.map((member) => member.userId).filter((id) => id !== actor.id),
+        ),
+      ),
+    ];
+    const presence = await this.presence.statusOf(actor.tenantId, partnerIds);
+
     return conversations.map((conversation) =>
-      this.mapConversation(conversation, actor, unread.get(conversation.id) ?? 0),
+      this.mapConversation(conversation, actor, unread.get(conversation.id) ?? 0, presence),
     );
   }
 
@@ -453,6 +467,28 @@ export class ConversationsService {
   }
 
   /**
+   * Con quiénes tiene conversación abierta esta persona.
+   *
+   * Es a quiénes les importa que se haya conectado o desconectado. Se usa el listado de hilos
+   * y no la lista de contactos posibles: avisarle a todo el colegio por cada conexión es una
+   * tormenta de mensajes para nada, y quien nunca te escribió no necesita saber si estás.
+   */
+  async resolveConversationPartnerIds(actor: RequestUser): Promise<string[]> {
+    const members = await this.prisma.conversationMember.findMany({
+      where: {
+        userId: { not: actor.id },
+        conversation: {
+          tenantId: actor.tenantId,
+          archivedAt: null,
+          members: { some: { userId: actor.id } },
+        },
+      },
+      select: { userId: true },
+    });
+    return [...new Set(members.map((member) => member.userId))];
+  }
+
+  /**
    * Los otros miembros del hilo, **validando primero que el actor pertenezca**.
    *
    * Existe para el gateway: el relay de "escribiendo..." necesita a quién avisarle, y no puede
@@ -649,6 +685,7 @@ export class ConversationsService {
     conversation: ConversationWithRelations,
     actor: RequestUser,
     unreadCount: number,
+    presence: Record<string, { online: boolean; lastSeenAt: string | null }> = {},
   ) {
     const participants = conversation.members.map((member) => ({
       id: member.user.id,
@@ -681,6 +718,11 @@ export class ConversationsService {
       otherParticipants,
       unreadCount,
       otherLastReadAt,
+      // Presencia del interlocutor. En un hilo de grupo no aplica: "en línea" de un grupo no
+      // significa nada, así que queda en false y la UI no lo muestra.
+      online: otherParticipants.length === 1 ? (presence[otherParticipants[0].id]?.online ?? false) : false,
+      lastSeenAt:
+        otherParticipants.length === 1 ? (presence[otherParticipants[0].id]?.lastSeenAt ?? null) : null,
       lastMessageAt: conversation.lastMessageAt,
       // Se piden en orden desc (los MESSAGE_PAGE_SIZE más recientes) y se
       // revierten aquí para mostrarlos en orden cronológico.

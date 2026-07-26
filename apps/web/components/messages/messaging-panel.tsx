@@ -7,6 +7,8 @@ import { getCurrentUser } from "@/lib/auth"
 import {
   useConversationReadEvents,
   useConversationsSocket,
+  usePresenceEvents,
+  usePresenceHeartbeat,
   useTypingEmitter,
   useTypingEvents,
   type IncomingMessage,
@@ -44,6 +46,9 @@ type ApiConversation = {
   unreadCount: number
   /** Hasta cuándo leyeron los demás. Null = nadie abrió el hilo todavía. */
   otherLastReadAt: string | null
+  online: boolean
+  /** Null si nunca se lo vio conectado, o si es un hilo de grupo. */
+  lastSeenAt: string | null
   lastMessageAt: string
   messages: ApiMessage[]
 }
@@ -125,6 +130,10 @@ function mapConversation(conversation: ApiConversation, currentUserId: string): 
     lastMessageTime: new Date(conversation.lastMessageAt),
     unreadCount: conversation.unreadCount,
     otherLastReadAt,
+    // Solo tiene sentido en un hilo directo: "en línea" de un grupo no significa nada.
+    partnerId: conversation.otherParticipants.length === 1 ? conversation.otherParticipants[0].id : null,
+    online: conversation.online,
+    lastSeenAt: conversation.lastSeenAt ? new Date(conversation.lastSeenAt) : null,
     messages,
     role: role || undefined,
   }
@@ -344,6 +353,21 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
       },
       [],
     ),
+  )
+
+  usePresenceHeartbeat()
+
+  usePresenceEvents(
+    useCallback(({ userId, online, lastSeenAt }) => {
+      setConversations((current) =>
+        current.map((conversation) =>
+          // La presencia es por persona, no por hilo: se aplica al hilo directo con ese usuario.
+          conversation.partnerId === userId
+            ? { ...conversation, online, lastSeenAt: lastSeenAt ? new Date(lastSeenAt) : null }
+            : conversation,
+        ),
+      )
+    }, []),
   )
 
   const emitTyping = useTypingEmitter()

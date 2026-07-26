@@ -8,10 +8,17 @@ import { AuditCoreModule } from "../../core/audit/audit-core.module";
 import { ConversationsController } from "./conversations.controller";
 import { ConversationsGateway } from "./conversations.gateway";
 import { ConversationsService } from "./conversations.service";
+import { PresenceService } from "./presence.service";
 
 @Module({
   imports: [AuditCoreModule, AudienceCoreModule, DataScopeModule, JwtModule.register({})],
   controllers: [ConversationsController],
-  providers: [JwtAuthGuard, PermissionsGuard, ConversationsService, ConversationsGateway],
+  providers: [
+    JwtAuthGuard,
+    PermissionsGuard,
+    ConversationsService,
+    ConversationsGateway,
+    PresenceService,
+  ],
 })
 export class ConversationsModule {}
