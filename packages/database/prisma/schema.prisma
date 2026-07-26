@@ -83,6 +83,7 @@ model Tenant {
   subjects          Subject[]
   announcements     Announcement[]
   events            Event[]
+  calendarFeedTokens CalendarFeedToken[]
   academicYears     AcademicYear[]
   academicPeriods   AcademicPeriod[]
   gradingScales     GradingScale[]
@@ -154,6 +155,7 @@ model User {
   accessSessionsRequested AccessSession[]          @relation("AccessSessionRequestedBy")
   accessSessionsApproved  AccessSession[]          @relation("AccessSessionApprovedBy")
   eventsCreated           Event[]
+  calendarFeedTokens      CalendarFeedToken[]
 
   @@map("users")
 }
@@ -832,6 +834,32 @@ model Event {
   @@index([tenantId, startsAt])
   @@index([tenantId, groupId, startsAt])
   @@map("events")
+}
+
+/// Token de suscripción al feed ICS del calendario (una *capability URL*).
+///
+/// Es por USUARIO y nunca por colegio: la URL lleva el token en texto plano, queda en los
+/// logs de acceso del servidor y en el historial del cliente que se suscriba, así que un
+/// token filtrado tiene que poder revocarse sin afectar a nadie más.
+///
+/// Solo se guarda el hash, igual que AuthSession.refreshTokenHash. Es sha256 y no bcrypt a
+/// propósito: la búsqueda es POR el token que llega en la URL, y un hash con sal no se puede
+/// indexar. Es seguro porque el token no es una contraseña elegida por una persona sino 32
+/// bytes aleatorios — no hay diccionario que atacar.
+model CalendarFeedToken {
+  id         String    @id @default(uuid())
+  tenantId   String
+  userId     String
+  tokenHash  String    @unique
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId])
+  @@map("calendar_feed_tokens")
 }
 
 model Announcement {

@@ -13,6 +13,7 @@ import {
   BarChart3,
   Calendar as CalendarIcon,
   CalendarOff,
+  CalendarPlus,
   Clock,
   GraduationCap,
   Loader2,
@@ -45,6 +46,7 @@ import {
   TARGET_ROLE_LABELS,
   formatEventRange,
 } from "@/components/shared/calendar/calendar-types"
+import { CalendarSubscribeDialog } from "@/components/shared/calendar/subscribe-dialog"
 import { EventFormDialog } from "@/components/admin/event-form-dialog"
 import type { Group } from "@/components/admin/academic-types"
 
@@ -81,6 +83,7 @@ export default function CalendarioAdminPage() {
   // de salida: al limpiar `deleting` tras borrar, el título alcanzaba a mostrarse como «»
   // mientras se desvanecía.
   const [deletingTitle, setDeletingTitle] = useState("")
+  const [subscribeOpen, setSubscribeOpen] = useState(false)
 
   // La clave del rango va en las dependencias en vez de `currentDate`: navegar del 3 al 10
   // de agosto no cambia el mes consultado, y sin esto cada clic dispararía un fetch nuevo.
@@ -208,10 +211,16 @@ export default function CalendarioAdminPage() {
                 Gestiona los eventos y actividades del año escolar
               </p>
             </div>
-            <Button className="gap-2" onClick={() => openCreate()}>
-              <Plus className="h-4 w-4" />
-              Nuevo Evento
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" className="gap-2" onClick={() => setSubscribeOpen(true)}>
+                <CalendarPlus className="h-4 w-4" />
+                Suscribir a mi calendario
+              </Button>
+              <Button className="gap-2" onClick={() => openCreate()}>
+                <Plus className="h-4 w-4" />
+                Nuevo Evento
+              </Button>
+            </div>
           </div>
 
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -417,6 +426,8 @@ export default function CalendarioAdminPage() {
           </Card>
         </div>
       )}
+
+      <CalendarSubscribeDialog open={subscribeOpen} onOpenChange={setSubscribeOpen} />
 
       <EventFormDialog
         open={formOpen}

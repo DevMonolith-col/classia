@@ -27,6 +27,7 @@ import { AuditModule } from "./modules/audit/audit.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BootstrapModule } from "./modules/bootstrap/bootstrap.module";
 import { ConversationsModule } from "./modules/conversations/conversations.module";
+import { CalendarModule } from "./modules/calendar/calendar.module";
 import { EventsModule } from "./modules/events/events.module";
 import { FilesModule } from "./modules/files/files.module";
 import { GroupsModule } from "./modules/groups/groups.module";
@@ -91,6 +92,7 @@ import { AccessControlModule } from "./modules/access-control/access-control.mod
     SubjectsModule,
     SchedulesModule,
     EventsModule,
+    CalendarModule,
     AcademicModule,
     GradingModule,
     AttendanceModule,

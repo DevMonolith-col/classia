@@ -621,7 +621,43 @@ Reglas no negociables:
 
 ---
 
-### Fase 5 — Feed ICS suscribible · **S-M** (~2-3 días) · *el mayor retorno del plan*
+### Fase 5 — Feed ICS suscribible · **S-M** (~2-3 días) · ✅ hecha el 2026-07-26
+
+> `apps/api/src/modules/calendar/` + `components/shared/calendar/subscribe-dialog.tsx`.
+> Verificado descargando el feed real con `curl`, sin sesión y sin `x-tenant-slug`: 19 eventos,
+> todas las líneas CRLF, y la semana de desarrollo institucional con `DTSTART:20260622` /
+> `DTEND:20260627` (el fin exclusivo correcto para un evento del 22 al 26).
+>
+> **Lo que §7.7 no resolvía, y hubo que decidir acá:** el lookup del token es circular.
+> `calendar_feed_tokens` es tenant-owned con RLS forzado, así que buscar el token para
+> *averiguar* el tenant necesita un tenant que todavía no se conoce. La salida es el rol de
+> bypass **solo para ese lookup** —exactamente el caso de login/refresh, que `CLAUDE.md` ya
+> reconoce— y todo lo demás dentro de `runWithTenant(token.tenantId, ...)`. Lo que §7.7
+> prohíbe es leer los *eventos* con el bypass, y eso no se hace.
+>
+> Otras decisiones y desvíos del plan:
+>
+> - **No se emite `VTIMEZONE`**, contra lo que decía el plan. Los instantes van en UTC, que es
+>   exacto y no admite interpretación; `VTIMEZONE` hace falta cuando el cliente tiene que
+>   expandir una recurrencia en hora local cruzando cambios de horario, y la recurrencia está
+>   fuera de alcance (§4). Se manda `X-WR-TIMEZONE` como pista. **Si algún día entra `RRULE`,
+>   hay que emitir el `VTIMEZONE` completo.**
+> - **El uso se audita a lo sumo una vez por hora y por token**, no en cada lectura: Google
+>   reconsulta solo, y auditar cada poll inunda `audit_logs` hasta que deja de servir.
+>   `lastUsedAt` sí se actualiza siempre.
+> - **El feed reusa `EventsService.list`** en vez de consultar Prisma. Es lo que hace cierto el
+>   requisito "el mismo contenido que si el dueño del token llamara a la API": si cambia la
+>   audiencia, el feed cambia con ella. Tiene test que falla si se reimplementa.
+> - **`SEQUENCE` = segundos entre creación y última edición**, no el epoch de `updatedAt`: el
+>   epoch desborda los 32 bits en 2038.
+> - **`Homework` no tiene `updatedAt`**, así que el `DTSTAMP` de una entrega usa su fecha de
+>   creación. Consecuencia asumida: mover la fecha de una tarea ya publicada no sube el
+>   `SEQUENCE`. El arreglo, si molesta, es agregarle `updatedAt` a `Homework`.
+> - El botón vive en `shared/` porque el feed es por usuario: los tres portales de la Fase 4
+>   lo reusan sin cambios.
+> - Bug de UI encontrado en el navegador y no por los tests: al reabrir el diálogo se veía
+>   "última lectura: nunca" con la base diciendo lo contrario, porque el estado optimista de la
+>   emisión sobrevivía al cierre.
 
 `GET /calendar/feed/:token.ics` → `text/calendar`, sin sesión, con el contenido filtrado
 exactamente igual que si el dueño del token hubiera llamado a la API.
