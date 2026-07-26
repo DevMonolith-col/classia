@@ -1,10 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { getCurrentUser } from "@/lib/auth"
-import { useConversationsSocket, type IncomingMessage } from "@/lib/realtime"
+import {
+  useConversationsSocket,
+  useTypingEmitter,
+  useTypingEvents,
+  type IncomingMessage,
+} from "@/lib/realtime"
 import {
   ChatInterface,
   type BroadcastTarget,
@@ -139,6 +144,10 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
   const [error, setError] = useState(false)
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
 
+  // Hilos que ya llegaron a su primer mensaje: se deja de pedirles páginas anteriores. En un
+  // ref y no en estado porque no cambia lo que se pinta.
+  const exhaustedThreads = useRef<Set<string>>(new Set())
+
   const currentUserId = getCurrentUser()?.sub ?? ""
   const canBroadcast = userRole === "profesor" || userRole === "admin"
 
@@ -232,6 +241,58 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
 
   useConversationsSocket(handleIncomingMessage)
 
+  /**
+   * "Escribiendo..." del otro lado. El hueco ya existía en la UI (`conversation.typing`) y
+   * nunca se seteaba: hasta ahora era un indicador decorativo.
+   *
+   * Se apaga solo a los 4 s aunque no llegue el `typing:stop`. Si se confiara solo en el stop,
+   * cualquier corte de red o pestaña cerrada a mitad de frase dejaría al otro "escribiendo..."
+   * indefinidamente — el margen es mayor que los 2 s del emisor para no parpadear mientras la
+   * persona sigue tecleando.
+   */
+  const typingTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  const setTyping = useCallback((conversationId: string, typing: boolean) => {
+    setConversations((current) =>
+      current.map((c) => (c.id === conversationId ? { ...c, typing } : c)),
+    )
+  }, [])
+
+  useTypingEvents(
+    useCallback(
+      ({ conversationId, isTyping }) => {
+        const timers = typingTimers.current
+        const pending = timers.get(conversationId)
+        if (pending) clearTimeout(pending)
+
+        setTyping(conversationId, isTyping)
+
+        if (isTyping) {
+          timers.set(
+            conversationId,
+            setTimeout(() => {
+              setTyping(conversationId, false)
+              timers.delete(conversationId)
+            }, 4000),
+          )
+        } else {
+          timers.delete(conversationId)
+        }
+      },
+      [setTyping],
+    ),
+  )
+
+  useEffect(() => {
+    const timers = typingTimers.current
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+    }
+  }, [])
+
+  const emitTyping = useTypingEmitter()
+
   const handleSendMessage = useCallback(
     async (conversationId: string, message: string): Promise<boolean> => {
       try {
@@ -247,6 +308,61 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
       }
     },
     [loadData],
+  )
+
+  /**
+   * Antepone la página anterior del hilo. Devuelve si agregó algo.
+   *
+   * El cursor es el id del mensaje más viejo que ya está en pantalla; cuando el servidor
+   * responde `nextCursor: null` se llegó al principio de la conversación y se deja de pedir.
+   */
+  const handleLoadOlderMessages = useCallback(
+    async (conversationId: string): Promise<boolean> => {
+      if (exhaustedThreads.current.has(conversationId)) return false
+
+      const conversation = conversations.find((c) => c.id === conversationId)
+      const oldest = conversation?.messages[0]
+      if (!oldest) return false
+
+      try {
+        const res = await apiFetch(
+          `/conversations/${conversationId}/messages?cursor=${encodeURIComponent(oldest.id)}`,
+          { silent: true },
+        )
+        if (!res.ok) return false
+
+        const data = (await res.json()) as { messages: ApiMessage[]; nextCursor: string | null }
+        if (data.nextCursor === null) exhaustedThreads.current.add(conversationId)
+        if (data.messages.length === 0) return false
+
+        // El API devuelve del más nuevo al más viejo (así se pagina hacia atrás); la vista los
+        // quiere al revés.
+        const older: Message[] = data.messages
+          .slice()
+          .reverse()
+          .map((message) => ({
+            id: message.id,
+            content: message.body,
+            timestamp: new Date(message.createdAt),
+            sender: message.fromId === currentUserId ? "user" : "other",
+            status: "read",
+            type: "text",
+          }))
+
+        setConversations((current) =>
+          current.map((c) => {
+            if (c.id !== conversationId) return c
+            const known = new Set(c.messages.map((m) => m.id))
+            const nuevos = older.filter((m) => !known.has(m.id))
+            return nuevos.length > 0 ? { ...c, messages: [...nuevos, ...c.messages] } : c
+          }),
+        )
+        return true
+      } catch {
+        return false
+      }
+    },
+    [conversations, currentUserId],
   )
 
   const handleOpenConversation = useCallback(async (conversationId: string) => {
@@ -316,6 +432,8 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
           canBroadcast={canBroadcast}
           broadcastTargets={broadcastTargets}
           onSendMessage={handleSendMessage}
+          onLoadOlderMessages={handleLoadOlderMessages}
+          onTyping={emitTyping}
           onOpenConversation={handleOpenConversation}
           onStartConversation={handleStartConversation}
           onBroadcast={handleBroadcast}

@@ -12,7 +12,7 @@ import {
   MessageReceivedEvent,
   NOTIFICATION_EVENTS,
 } from "../notifications/notifications.events";
-import { BroadcastInput, SendMessageInput } from "./conversations.schemas";
+import { BroadcastInput, type ListMessagesQuery, SendMessageInput } from "./conversations.schemas";
 
 // Techo de mensajes que se devuelven por conversación en el listado: evita
 // cargar el historial completo de cada hilo solo para mostrar la vista
@@ -325,6 +325,37 @@ export class ConversationsService {
     return message;
   }
 
+  /**
+   * Historial de un hilo, hacia atrás y por páginas.
+   *
+   * Hasta ahora la única forma de leer mensajes era `GET /conversations`, que devuelve los
+   * últimos `MESSAGE_PAGE_SIZE` de cada hilo embebidos: nada más viejo que eso era alcanzable
+   * desde la aplicación.
+   *
+   * Devuelve en orden **descendente** (del más nuevo al más viejo) porque así se pagina hacia
+   * atrás; la UI lo invierte para pintar. `nextCursor` es null cuando ya no queda nada más.
+   */
+  async listMessages(actor: RequestUser, conversationId: string, query: ListMessagesQuery) {
+    await this.assertMember(actor, conversationId);
+
+    const messages = await this.prisma.conversationMessage.findMany({
+      where: { conversationId, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      // Se pide uno de más para saber si hay página siguiente sin hacer un count aparte.
+      take: query.limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      select: this.messageSelect(),
+    });
+
+    const hasMore = messages.length > query.limit;
+    const page = hasMore ? messages.slice(0, query.limit) : messages;
+
+    return {
+      messages: page,
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
+  }
+
   async markRead(actor: RequestUser, conversationId: string) {
     await this.assertMember(actor, conversationId);
 
@@ -402,6 +433,32 @@ export class ConversationsService {
     throw new ForbiddenException(
       "No tienes permiso para iniciar una conversación con este usuario.",
     );
+  }
+
+  /**
+   * Los otros miembros del hilo, **validando primero que el actor pertenezca**.
+   *
+   * Existe para el gateway: el relay de "escribiendo..." necesita a quién avisarle, y no puede
+   * confiar en el `conversationId` que mande el cliente por socket. Devuelve `null` si el actor
+   * no es miembro, en vez de lanzar: en un socket no hay a quién devolverle un 403, y un evento
+   * ignorado en silencio es la respuesta correcta.
+   */
+  async resolveOtherMemberUserIds(
+    actor: RequestUser,
+    conversationId: string,
+  ): Promise<string[] | null> {
+    const member = await this.prisma.conversationMember.findUnique({
+      where: { conversationId_userId: { conversationId, userId: actor.id } },
+      select: { conversation: { select: { tenantId: true } } },
+    });
+
+    if (!member || member.conversation.tenantId !== actor.tenantId) return null;
+
+    const others = await this.prisma.conversationMember.findMany({
+      where: { conversationId, userId: { not: actor.id } },
+      select: { userId: true },
+    });
+    return others.map((other) => other.userId);
   }
 
   private async assertMember(actor: RequestUser, conversationId: string) {
