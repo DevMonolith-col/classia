@@ -6,7 +6,6 @@ import {
   Plus,
   Bell,
   BellOff,
-  MoreHorizontal,
   Send,
   Image as ImageIcon,
   Paperclip,
@@ -40,7 +39,6 @@ export interface Message {
   timestamp: Date
   sender: "user" | "other"
   status: "sending" | "sent" | "delivered" | "read" | "failed"
-  type: "text" | "image" | "file"
   /** Null en la enorme mayoría de mensajes; presente solo si se envió un archivo. */
   attachment?: MessageAttachment | null
 }
@@ -324,7 +322,6 @@ export function ChatInterface({
       timestamp: new Date(),
       sender: "user",
       status: "sending",
-      type: attachment ? (IMAGE_FILE_PATTERN.test(attachment.name) ? "image" : "file") : "text",
       attachment,
     }
 
@@ -731,9 +728,6 @@ export function ChatInterface({
                     <Bell className="h-5 w-5" />
                   )}
                 </Button>
-                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
-                  <MoreHorizontal className="h-5 w-5" />
-                </Button>
               </div>
             </div>
 
@@ -797,6 +791,7 @@ export function ChatInterface({
                               {IMAGE_FILE_PATTERN.test(message.attachment.name) ? (
                                 <button
                                   onClick={() => setPreview(message.attachment ?? null)}
+                                  aria-label={`Abrir ${message.attachment.name}`}
                                   className={cn(
                                     "block overflow-hidden rounded-lg border",
                                     isUser ? "border-white/20" : "border-border"

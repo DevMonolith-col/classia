@@ -84,6 +84,10 @@ dispara un `loadData()` completo).
 `chat-interface.tsx` **ya promete tiempo real que no existe**. Esto no es solo deuda
 cosmética: define la meta, porque el usuario ya cree que estas cosas funcionan.
 
+> Al 2026-07-26 esta tabla es historia: las cinco filas están resueltas (fases 3, 4, 5, 6 y 7).
+> Se deja como estaba porque describe el punto de partida, y las referencias a líneas de
+> `chat-interface.tsx` valen para el archivo de entonces, no para el de hoy.
+
 | Elemento | Dónde | Realidad |
 |---|---|---|
 | `"escribiendo..."` | `chat-interface.tsx:474-476, 527-528` | `conversation.typing` nunca se setea. El hueco existe en el tipo (`:41-42`). |
@@ -507,12 +511,25 @@ sin eso no se está probando nada de lo que esta feature promete.
     de mute/unmute + respetarlo en `NotificationsListeners` (`notifications.listeners.ts:72-83`)
     para no mandar email de un hilo silenciado.
 
-**Limpieza que acompaña (cualquier fase)**
-21. Borrar `app/admin/mensajes/nuevo/page.tsx` y `app/profesor/mensajes/nuevo/page.tsx`:
-    dicen *"estará disponible cuando se conecte el módulo de mensajería, que otro equipo
-    está construyendo"* — el módulo lleva conectado desde `eda38c4`. Los quick-actions de
-    ambos dashboards siguen apuntando a esas rutas muertas. (Ya listado como ítem 5 de la
-    Fase 1 de `frontend-unificacion-roles.md`.)
+**Limpieza que acompaña (cualquier fase)** · ✅ cerrada el 2026-07-26
+
+> **El ítem 21 ya estaba hecho cuando se escribió este plan.** Las dos páginas muertas y los
+> quick-actions que apuntaban a ellas se arreglaron el 2026-07-18 en `83c50b4`; el plan lo
+> listó como pendiente por leer una versión vieja de `estado-del-proyecto.md`, que también lo
+> daba por pendiente. Los dos documentos quedaron corregidos.
+>
+> Del ítem 22, los botones de Video y Phone se fueron con el toggle de silenciar (Fase 7) y el
+> de Mic con el compositor de adjuntos (Fase 6). Quedaba `MoreHorizontal` en la cabecera del
+> hilo, sin `onClick`: se borró. Archivar o eliminar conversaciones no está en el alcance
+> aprobado, así que no había nada que ponerle detrás.
+>
+> Se aprovechó para borrar `Message.type` (`"text" | "image" | "file"`), que **se escribía y
+> nunca se leía**: la burbuja decide cómo pintar el adjunto por la extensión del nombre. Era la
+> misma clase de mentira que los botones — un campo que aparenta una distinción que la UI no
+> hace.
+21. ~~Borrar `app/admin/mensajes/nuevo/page.tsx` y `app/profesor/mensajes/nuevo/page.tsx`~~ —
+    ya no existían: se borraron el 2026-07-18 en `83c50b4`, junto con los quick-actions que
+    apuntaban ahí.
 22. Quitar los botones decorativos sin `onClick` (Video, Phone, Mic) o implementarlos —
     pero no dejarlos mintiendo.
 

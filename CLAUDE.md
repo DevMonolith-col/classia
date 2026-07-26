@@ -92,11 +92,12 @@ proveedor de pagos, ahí está el límite.
 
 Aprobado explícitamente: **chat en tiempo real estilo WhatsApp** (2026-07-16), alcance
 completo — entrega en vivo, "escribiendo...", presencia, checks de leído, adjuntos, silenciar
-hilos. Seguir `docs/planning/chat-tiempo-real.md`. Las llamadas de voz/video **no** están
-aprobadas: los botones que hay hoy en la UI son decorativos.
+hilos. **Terminado el 2026-07-26**, las siete fases de `docs/planning/chat-tiempo-real.md`.
+Las llamadas de voz/video **no** están aprobadas, y los botones decorativos que las insinuaban
+se borraron ese mismo día: si vuelven a aparecer botones de llamada en la UI, es un error.
 
-Aprobado explícitamente: **módulo de calendario** (2026-07-26), alcance completo de las
-fases 1-5 de `docs/planning/calendario.md` — modelo `Event` real, UI de admin conectada,
+Aprobado explícitamente: **módulo de calendario** (2026-07-26, terminado ese mismo día),
+alcance completo de las fases 1-5 de `docs/planning/calendario.md` — modelo `Event` real, UI de admin conectada,
 agregación multi-fuente de las seis fuentes de fechas que ya existen, portales de
 familia/profesor/alumno con recordatorios, y feed ICS suscribible de solo lectura. La
 **sincronización bidireccional con Google Workspace / Microsoft 365 no está aprobada**: es

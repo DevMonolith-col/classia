@@ -57,10 +57,11 @@
   sí. No es solo un refactor de UI: son features sin terminar, con `profesor/horario`
   y `familia/horario` incluso usando vocabularios de estado distintos al enum real
   del backend.
-- **Código muerto activo**: `admin/mensajes/nuevo` y `profesor/mensajes/nuevo` son
-  páginas idénticas ("Próximamente...") ya obsoletas — `ChatInterface` ya tiene el
-  flujo real de composición integrado — pero los botones de acción rápida en ambos
-  dashboards siguen apuntando a esas rutas muertas en vez de al flujo real.
+- ~~**Código muerto activo**: `admin/mensajes/nuevo` y `profesor/mensajes/nuevo`~~ —
+  **resuelto el 2026-07-18 en `83c50b4`** (verificado el 2026-07-26): las dos páginas
+  se borraron y los quick-actions de los tres dashboards se repuntaron al flujo real
+  de `ChatInterface`. El de familia apuntaba a `familia/mensajes/nuevo`, que ni
+  siquiera existía como ruta — era un 404, no un stub.
 - **Gap de acceso real detectado de paso** (no es un problema de arquitectura de UI,
   pero surge del mismo análisis): `familia/calificaciones/page.tsx` llama a
   `/students` sin scope, con un comentario propio en el código admitiendo que
@@ -215,8 +216,9 @@ export function PortalSidebar({ navigation, roleLabels, isCollapsed, onToggle }:
 3. Extraer `components/shared/portal-sidebar.tsx` y migrar los 5 sidebars uno por
    uno, comparando captura de pantalla antes/después de cada portal.
 4. Unificar `attendance-types.ts` en `components/shared/attendance-constants.ts`.
-5. Eliminar `admin/mensajes/nuevo` y `profesor/mensajes/nuevo`; repuntar los
-   quick-actions de ambos dashboards al flujo real ya integrado en `ChatInterface`.
+5. ~~Eliminar `admin/mensajes/nuevo` y `profesor/mensajes/nuevo`; repuntar los
+   quick-actions de ambos dashboards al flujo real ya integrado en `ChatInterface`.~~
+   **Hecho el 2026-07-18 en `83c50b4`.**
 
 **Fase 2 — Shells de listado**
 6. Extraer `usePagination()` + shell compartido de lista y migrar Asignaciones
