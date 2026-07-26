@@ -15,11 +15,14 @@ import {
 } from "@/lib/realtime"
 import {
   ChatInterface,
+  messagePreview,
   type BroadcastTarget,
   type Contact,
   type Conversation,
   type Message,
+  type MessageAttachment,
 } from "@/components/messages/chat-interface"
+import { IMAGE_FILE_PATTERN } from "@/lib/upload"
 
 type ApiParticipant = {
   id: string
@@ -113,16 +116,11 @@ function mapConversation(conversation: ApiConversation, currentUserId: string): 
     ? new Date(conversation.otherLastReadAt)
     : null
 
-  const messages: Message[] = conversation.messages.map((message) => ({
-    id: message.id,
-    content: message.body,
-    timestamp: new Date(message.createdAt),
-    sender: message.fromId === currentUserId ? "user" : "other",
-    status: readStatusOf(message, currentUserId, otherLastReadAt),
-    type: "text",
-  }))
+  const messages: Message[] = conversation.messages.map((message) =>
+    mapMessage(message, currentUserId, otherLastReadAt),
+  )
 
-  const lastMessage = messages.length > 0 ? messages[messages.length - 1].content : ""
+  const lastMessage = messages.length > 0 ? messagePreview(messages[messages.length - 1]) : ""
 
   return {
     id: conversation.id,
@@ -139,6 +137,33 @@ function mapConversation(conversation: ApiConversation, currentUserId: string): 
     lastSeenAt: conversation.lastSeenAt ? new Date(conversation.lastSeenAt) : null,
     messages,
     role: role || undefined,
+  }
+}
+
+/**
+ * Traducción de un mensaje del API al de la vista. Es una sola función a propósito: los mensajes
+ * entran por tres caminos distintos —el listado inicial, el socket y la paginación hacia atrás— y
+ * mientras cada uno armaba su propio objeto, agregar un campo significaba acordarse de los tres.
+ * Los adjuntos son justamente el campo que hacía falta.
+ */
+function mapMessage(
+  message: ApiMessage,
+  currentUserId: string,
+  otherLastReadAt: Date | null,
+): Message {
+  const attachment =
+    message.attachmentKey && message.attachmentName
+      ? { key: message.attachmentKey, name: message.attachmentName }
+      : null
+
+  return {
+    id: message.id,
+    content: message.body,
+    timestamp: new Date(message.createdAt),
+    sender: message.fromId === currentUserId ? "user" : "other",
+    status: readStatusOf(message, currentUserId, otherLastReadAt),
+    type: attachment ? (IMAGE_FILE_PATTERN.test(attachment.name) ? "image" : "file") : "text",
+    attachment,
   }
 }
 
@@ -251,21 +276,14 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
             return conversation
           }
 
-          const incoming: Message = {
-            id: message.id,
-            content: message.body,
-            timestamp: new Date(message.createdAt),
-            // El backend excluye al remitente de `recipientUserIds`, así que por socket solo
-            // llega lo que escribió otro. La comparación queda igual por si eso cambia.
-            sender: message.fromId === currentUserId ? "user" : "other",
-            status: "read",
-            type: "text",
-          }
+          // El backend excluye al remitente de `recipientUserIds`, así que por socket solo llega
+          // lo que escribió otro; `mapMessage` igual resuelve el caso propio por si eso cambia.
+          const incoming = mapMessage(message, currentUserId, conversation.otherLastReadAt ?? null)
 
           return {
             ...conversation,
             messages: [...conversation.messages, incoming],
-            lastMessage: incoming.content,
+            lastMessage: messagePreview(incoming),
             lastMessageTime: incoming.timestamp,
             // Si el hilo está abierto, la persona lo está viendo: no se le suma un no leído.
             unreadCount:
@@ -376,11 +394,20 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
   const emitTyping = useTypingEmitter()
 
   const handleSendMessage = useCallback(
-    async (conversationId: string, message: string): Promise<boolean> => {
+    async (
+      conversationId: string,
+      message: string,
+      attachment?: MessageAttachment | null,
+    ): Promise<boolean> => {
       try {
         const res = await apiFetch(`/conversations/${conversationId}/messages`, {
           method: "POST",
-          body: JSON.stringify({ body: message }),
+          body: JSON.stringify({
+            body: message,
+            ...(attachment
+              ? { attachmentKey: attachment.key, attachmentName: attachment.name }
+              : {}),
+          }),
         })
         if (!res.ok) return false
         void loadData()
@@ -422,14 +449,11 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
         const older: Message[] = data.messages
           .slice()
           .reverse()
-          .map((message) => ({
-            id: message.id,
-            content: message.body,
-            timestamp: new Date(message.createdAt),
-            sender: message.fromId === currentUserId ? "user" : "other",
-            status: "read",
-            type: "text",
-          }))
+          .map((message) =>
+            // Se pasa el `otherLastReadAt` del hilo en vez del literal "read" que había antes: un
+            // mensaje propio viejo en un hilo que el otro nunca abrió no está leído.
+            mapMessage(message, currentUserId, conversation.otherLastReadAt ?? null),
+          )
 
         setConversations((current) =>
           current.map((c) => {

@@ -452,7 +452,36 @@ sin eso no se está probando nada de lo que esta feature promete.
 17. `mapConversation` calcula el status real desde `lastReadAt` (sin migración).
 18. `markRead` emite `conversation:read` → los checks se vuelven azules en vivo.
 
-**Fase 6 — Adjuntos en el chat**
+**Fase 6 — Adjuntos en el chat** · ✅ hecha el 2026-07-26
+
+> **No era puro frontend.** El plan decía que el schema "ya acepta" los adjuntos, y es cierto,
+> pero `body` era `z.string().min(1)`: un archivo **sin comentario** —el caso más común— daba
+> 400. Enviar solo una foto es un mensaje válido, así que `body` pasa a `max(5000)` y la
+> exigencia de "algo hay" se mueve a un `.refine`. Un segundo refine obliga a que clave y
+> nombre viajen juntos: con clave y sin nombre la burbuja queda con un archivo que no se puede
+> etiquetar y el visor no sabe si abrirlo como PDF.
+>
+> De ahí salieron dos cosas más que el plan no preveía:
+> - **La notificación quedaba en blanco.** El `preview` era `input.body.slice(0, 120)`, o sea
+>   vacío cuando el mensaje es solo un archivo. Ahora dice `Archivo adjunto: {nombre}`.
+> - **La clave del adjunto la elige el cliente.** `sendMessage` verifica que empiece por
+>   `tenants/{tenantId}/`. No sería una fuga —`FilesService` exige el mismo prefijo al firmar
+>   la URL— pero sí un adjunto muerto, y el error aparecería recién al hacer clic.
+>
+> No se usó `FileUploadField` como sugería el plan: su UI es una caja con vista previa, y en el
+> compositor lo que hace falta es un `input` oculto detrás del botón `+`. Lo que sí se compartió
+> es la subida (`lib/upload.ts`), que era el cuarto lugar del repo con el contrato de
+> `POST /files` copiado; `FileUploadField` ahora también la usa.
+>
+> **El mapeo de mensajes quedó en una sola función.** Los mensajes entran por tres caminos —el
+> listado, el socket y la paginación— y cada uno armaba su propio objeto, así que agregar un
+> campo significaba acordarse de los tres. De paso apareció que la paginación marcaba `"read"`
+> a mano: un mensaje propio viejo en un hilo que el otro nunca abrió se veía con checks azules.
+>
+> **Un test pasó al revertir el arreglo y hubo que corregirlo.** El de la notificación buscaba
+> el texto `Archivo adjunto: boletin.pdf`, y lo encontraba —de una corrida anterior, porque las
+> notificaciones no se limpian entre corridas—. Con el nombre del archivo único por corrida, la
+> reversión falla como debe.
 19. `sendMessageSchema` **ya acepta** `attachmentKey`/`attachmentName`
     (`conversations.schemas.ts:9-13`) y el modelo ya los tiene — es puro frontend: cablear
     `FileUploadField` (ya existe) al botón de adjuntar, que hoy no tiene `onClick`
