@@ -45,6 +45,13 @@ export class SchedulesController {
     return this.schedules.list(user, query);
   }
 
+  // Antes de `:id`: Nest resuelve por orden de declaración y el parámetro se tragaría "mine".
+  @Get("mine")
+  @Permissions(PERMISSIONS.SCHEDULES_READ_SELF)
+  listMine(@CurrentUser() user: RequestUser) {
+    return this.schedules.listMine(user);
+  }
+
   @Get(":id")
   @Permissions(PERMISSIONS.SCHEDULES_READ)
   findOne(@Param("id") scheduleId: string, @CurrentUser() user: RequestUser) {

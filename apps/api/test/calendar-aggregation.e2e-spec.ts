@@ -325,6 +325,23 @@ describe("Calendario agregado", () => {
     expect(items).toHaveLength(0);
   });
 
+  // Hasta el 2026-07-26 esta fuente solo miraba SCHEDULES_LIST, que la familia y el alumno no
+  // tienen, asi que devolvia vacio en silencio para los dos. Nunca se noto porque ninguna UI
+  // pide la fuente `schedule`: queda fuera de DEFAULT_CALENDAR_SOURCES.
+  it("el alumno ve en el calendario las clases de su grupo, y solo esas", async () => {
+    const sourceIds = (await calendar(student, "schedule")).map((item) => item.sourceId);
+
+    expect(sourceIds).toContain(fixtures.scheduleOneId);
+    expect(sourceIds).not.toContain(fixtures.scheduleTwoId);
+  });
+
+  it("el acudiente ve en el calendario las clases del grupo de su hijo, y solo esas", async () => {
+    const sourceIds = (await calendar(guardian, "schedule")).map((item) => item.sourceId);
+
+    expect(sourceIds).toContain(fixtures.scheduleOneId);
+    expect(sourceIds).not.toContain(fixtures.scheduleTwoId);
+  });
+
   // Una elección en borrador no se anunció: mostrarla en el calendario de los estudiantes
   // filtra una decisión que todavía no se tomó.
   //

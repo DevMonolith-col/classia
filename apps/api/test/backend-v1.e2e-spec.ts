@@ -414,6 +414,45 @@ describe("Backend v1 e2e", () => {
     expect(otherRead.body.message).toBe("You can only view schedules for your own classes.");
   });
 
+  it("gives a GUARDIAN their children's timetable through /schedules/mine only", async () => {
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+    expect(guardian.status).toBe(201);
+
+    const mine = await api<ScheduleListItem[]>("/schedules/mine", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(mine.status).toBe(200);
+    const listedIds = mine.body.map((s) => s.id);
+    expect(listedIds).toContain(guardianFixtures.ownScheduleId);
+    // El horario del otro grupo: ningún hijo suyo está ahí.
+    expect(listedIds).not.toContain(guardianFixtures.otherTeacherScheduleId);
+
+    // La puerta que se le abrió es solo esa. La ruta de administración sigue cerrada, que es
+    // el motivo de que /schedules/mine exista en vez de concederle SCHEDULES_LIST.
+    const adminRoute = await api<ErrorResponse>("/schedules", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(adminRoute.status).toBe(403);
+
+    const adminRead = await api<ErrorResponse>(
+      `/schedules/${guardianFixtures.otherTeacherScheduleId}`,
+      { headers: authHeaders(guardian.body.accessToken) },
+    );
+    expect(adminRead.status).toBe(403);
+  });
+
+  it("gives a TEACHER their own classes on /schedules/mine", async () => {
+    const teacher = await loginAs(TEACHER_EMAIL);
+
+    const mine = await api<ScheduleListItem[]>("/schedules/mine", {
+      headers: authHeaders(teacher.body.accessToken),
+    });
+    expect(mine.status).toBe(200);
+    const listedIds = mine.body.map((s) => s.id);
+    expect(listedIds).toContain(guardianFixtures.ownScheduleId);
+    expect(listedIds).not.toContain(guardianFixtures.otherTeacherScheduleId);
+  });
+
   it("still lets the administration see the whole school's schedule", async () => {
     const admin = await loginAs(TENANT_ADMIN_EMAIL);
 
