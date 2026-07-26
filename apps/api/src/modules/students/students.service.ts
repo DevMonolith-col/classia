@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
+import { AudienceScopeService } from "../../common/audience/audience-scope.service";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
@@ -11,6 +12,7 @@ export class StudentsService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly audience: AudienceScopeService,
   ) {}
 
   list(actor: RequestUser, tenantId?: string, groupId?: string) {
@@ -22,6 +24,31 @@ export class StudentsService {
         ...(groupId ? { groupId } : {}),
       },
       select: this.studentSelect(),
+      orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+    });
+  }
+
+  /**
+   * Los estudiantes que el actor puede mirar como propios: sus hijos si es acudiente, él mismo
+   * si es alumno. Es la puerta de entrada del portal de familia — sin esto la UI no tiene el
+   * `studentId` que le piden `/marks?studentId=`, `/payments/students/:id/balance` y las demás.
+   *
+   * **No es `list()` con un filtro.** `list()` es la ruta de administración: recibe `groupId` y
+   * `tenantId` del query y su contrato es "listame lo que yo filtre". Acá el alcance está en el
+   * nombre y no puede crecer por accidente.
+   *
+   * Falla cerrado: `resolveOwnStudentIds` devuelve `[]` para cualquier otro rol, y un acudiente
+   * sin hijos vinculados no ve nada en vez de ver todo. Ojo con "optimizar" el early return —
+   * `id: { in: [] }` también devolvería vacío, pero el día que alguien agregue un `OR` al where
+   * la lista vacía deja de ser inofensiva.
+   */
+  async listMine(actor: RequestUser) {
+    const ownStudentIds = await this.audience.resolveOwnStudentIds(actor);
+    if (ownStudentIds.length === 0) return [];
+
+    return this.prisma.student.findMany({
+      where: { id: { in: ownStudentIds }, tenantId: actor.tenantId },
+      select: this.ownStudentSelect(),
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
     });
   }
@@ -191,6 +218,30 @@ export class StudentsService {
 
   private isGlobalAdmin(actor: RequestUser) {
     return actor.role === UserRole.SUPER_ADMIN || actor.role === UserRole.SUPPORT_AGENT;
+  }
+
+  /**
+   * Más angosto que `studentSelect()` a propósito: sin `guardians` (son los datos personales de
+   * los otros acudientes del mismo alumno, que no hacen falta para elegir de qué hijo se habla)
+   * y sin `tenant` (el portal ya sabe en qué colegio está).
+   */
+  private ownStudentSelect() {
+    return {
+      id: true,
+      firstName: true,
+      lastName: true,
+      documentId: true,
+      birthDate: true,
+      isActive: true,
+      group: {
+        select: {
+          id: true,
+          name: true,
+          grade: true,
+          section: true,
+        },
+      },
+    };
   }
 
   private studentSelect() {

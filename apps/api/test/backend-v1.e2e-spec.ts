@@ -101,6 +101,7 @@ type GuardianScopingFixtures = {
   sharedSessionId: string;
   ownChildStudentId: string;
   classmateStudentId: string;
+  otherChildStudentId: string;
   otherGroupSessionId: string;
   childTeacherUserId: string;
   otherTeacherUserId: string;
@@ -108,6 +109,12 @@ type GuardianScopingFixtures = {
   otherGroupId: string;
 };
 
+type OwnStudentItem = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  group: { id: string; name: string } | null;
+};
 type ContactItem = { id: string; role: string };
 type BroadcastTargetItem = { groupId: string; groupName: string; recipientCount: number };
 type BroadcastResult = { recipientCount: number; conversationIds: string[] };
@@ -364,6 +371,44 @@ describe("Backend v1 e2e", () => {
     });
     expect(otherRead.status).toBe(403);
     expect(otherRead.body.message).toBe("You can only view assignments for your own children's group.");
+  });
+
+  it("scopes GET /students/mine to the guardian's own children, not to their group", async () => {
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+    expect(guardian.status).toBe(201);
+
+    const mine = await api<OwnStudentItem[]>("/students/mine", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(mine.status).toBe(200);
+
+    const listedIds = mine.body.map((s) => s.id);
+    expect(listedIds).toContain(guardianFixtures.ownChildStudentId);
+    // El compañero comparte grupo con el hijo. Es el expect que hace útil al test: un
+    // scoping por grupo en vez de por vínculo devolvería igual el hijo propio y solo se
+    // delataría acá.
+    expect(listedIds).not.toContain(guardianFixtures.classmateStudentId);
+    expect(listedIds).not.toContain(guardianFixtures.otherChildStudentId);
+
+    // Datos de los otros acudientes del mismo alumno: no hacen falta para elegir hijo.
+    expect(mine.body[0]).not.toHaveProperty("guardians");
+
+    // `mine` no es un atajo a la ruta de administración: esa sigue cerrada.
+    const adminList = await api<ErrorResponse>("/students", {
+      headers: authHeaders(guardian.body.accessToken),
+    });
+    expect(adminList.status).toBe(403);
+  });
+
+  it("gives a STUDENT their own record on /students/mine, and nobody else's", async () => {
+    const student = await loginAs(QUIZ_STUDENT_EMAIL);
+    expect(student.status).toBe(201);
+
+    const mine = await api<OwnStudentItem[]>("/students/mine", {
+      headers: authHeaders(student.body.accessToken),
+    });
+    expect(mine.status).toBe(200);
+    expect(mine.body.map((s) => s.id)).toEqual([guardianFixtures.quizStudentId]);
   });
 
   it("scopes a GUARDIAN to marks of their own child only, even within the same class", async () => {
@@ -1757,6 +1802,7 @@ async function ensureGuardianScopingFixtures(
     sharedSessionId: sharedSession.id,
     ownChildStudentId: ownChild.id,
     classmateStudentId: classmate.id,
+    otherChildStudentId: otherChild.id,
     otherGroupSessionId: otherGroupSession.id,
     childTeacherUserId: teacherUser.id,
     otherTeacherUserId: otherTeacherUser.id,

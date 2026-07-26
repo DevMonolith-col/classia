@@ -12,6 +12,7 @@ export const PERMISSIONS = {
   STUDENTS_CREATE: "students:create",
   STUDENTS_LIST: "students:list",
   STUDENTS_READ: "students:read",
+  STUDENTS_READ_SELF: "students:read-self", // los propios hijos (guardián) o la propia ficha (estudiante)
   STUDENTS_UPDATE: "students:update",
   TEACHERS_CREATE: "teachers:create",
   TEACHERS_LIST: "teachers:list",
@@ -520,6 +521,9 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.EVENTS_DELETE,
   ],
   GUARDIAN: [
+    // Los hijos vinculados, y nada más: sin esto el portal de familia no sabe de quién
+    // está hablando y ninguna otra pantalla suya puede pedir datos por estudiante.
+    PERMISSIONS.STUDENTS_READ_SELF,
     PERMISSIONS.HOMEWORK_LIST,
     PERMISSIONS.HOMEWORK_READ,
     PERMISSIONS.MARKS_LIST,
@@ -541,6 +545,9 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.PAYMENTS_READ_SELF,
   ],
   STUDENT: [
+    // Su propia ficha. Mismo permiso que el guardián porque es la misma pregunta
+    // ("¿de qué estudiante estamos hablando?") resuelta por `resolveOwnStudentIds`.
+    PERMISSIONS.STUDENTS_READ_SELF,
     PERMISSIONS.HOMEWORK_LIST,
     PERMISSIONS.HOMEWORK_READ,
     PERMISSIONS.MARKS_LIST,
