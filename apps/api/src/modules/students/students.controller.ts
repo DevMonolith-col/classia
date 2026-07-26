@@ -44,6 +44,14 @@ export class StudentsController {
     return this.students.list(user, tenantId, groupId);
   }
 
+  // Antes de `:id` a propósito: Nest resuelve por orden de declaración, así que abajo del
+  // parámetro esta ruta sería inalcanzable — "mine" entraría como un id de estudiante.
+  @Get("mine")
+  @Permissions(PERMISSIONS.STUDENTS_READ_SELF)
+  listMine(@CurrentUser() user: RequestUser) {
+    return this.students.listMine(user);
+  }
+
   @Get(":id")
   @Permissions(PERMISSIONS.STUDENTS_READ)
   findOne(@Param("id") studentId: string, @CurrentUser() user: RequestUser) {

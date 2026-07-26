@@ -33,8 +33,7 @@ export default function CalificacionesFamiliaPage() {
     setLoading(true)
     setError("")
     try {
-      // In a real scenario, this endpoint should only return the parent's children.
-      const res = await apiFetch("/students", { silent: true })
+      const res = await apiFetch("/students/mine", { silent: true })
       if (!res.ok) throw new Error("No se pudieron cargar los estudiantes vinculados.")
       const data = (await res.json()) as Student[]
       setStudents(data)
