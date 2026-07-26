@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/commo
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { ConversationType, MembershipStatus, Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
+import { AudienceScopeService } from "../../common/audience/audience-scope.service"
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
@@ -49,6 +50,7 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
     private readonly tenantRlsContext: TenantRlsContextService,
+    private readonly audience: AudienceScopeService,
   ) {}
 
   // ─── Lectura ────────────────────────────────────────────────────────────────
@@ -442,39 +444,19 @@ export class ConversationsService {
 
   // ─── Resolución de contactos ──────────────────────────────────────────────────
 
-  private async resolveOwnChildIds(actor: RequestUser): Promise<string[]> {
-    const guardian = await this.prisma.guardian.findFirst({
-      where: { userId: actor.id, tenantId: actor.tenantId },
-      select: { students: { select: { studentId: true } } },
-    });
-    return guardian?.students.map((student) => student.studentId) ?? [];
+  // Vive en common/audience/audience-scope.service.ts desde el 2026-07-26: esta misma
+  // resolución estaba copiada en cuatro servicios (attendance, homework, conversations y
+  // marks) y se desincronizaban al primer cambio de modelo.
+  private resolveOwnChildIds(actor: RequestUser): Promise<string[]> {
+    return this.audience.resolveGuardianChildIds(actor);
   }
 
-  private async resolveOwnChildGroupIds(actor: RequestUser): Promise<string[]> {
-    const childIds = await this.resolveOwnChildIds(actor);
-    if (childIds.length === 0) return [];
-
-    const children = await this.prisma.student.findMany({
-      where: { id: { in: childIds } },
-      select: { groupId: true },
-    });
-    return [
-      ...new Set(children.map((child) => child.groupId).filter((groupId): groupId is string => Boolean(groupId))),
-    ];
+  private resolveOwnChildGroupIds(actor: RequestUser): Promise<string[]> {
+    return this.audience.resolveOwnChildGroupIds(actor);
   }
 
-  private async resolveTeacherGroupIds(actor: RequestUser): Promise<string[]> {
-    const teacher = await this.prisma.teacher.findFirst({
-      where: { userId: actor.id, tenantId: actor.tenantId },
-      select: { id: true },
-    });
-    if (!teacher) return [];
-
-    const schedules = await this.prisma.schedule.findMany({
-      where: { tenantId: actor.tenantId, teacherId: teacher.id },
-      select: { groupId: true },
-    });
-    return [...new Set(schedules.map((schedule) => schedule.groupId))];
+  private resolveTeacherGroupIds(actor: RequestUser): Promise<string[]> {
+    return this.audience.resolveTeacherGroupIds(actor);
   }
 
   private async resolveTeacherUserIdsForGroups(tenantId: string, groupIds: string[]): Promise<string[]> {
