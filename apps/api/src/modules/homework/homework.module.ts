@@ -10,5 +10,8 @@ import { HomeworkService } from "./homework.service";
   imports: [AuditCoreModule, JwtModule.register({})],
   controllers: [HomeworkController],
   providers: [JwtAuthGuard, PermissionsGuard, HomeworkService],
+  // Lo consume CalendarModule para proyectar las fechas de entrega en el calendario agregado,
+  // reusando su scoping por rol en vez de copiarlo.
+  exports: [HomeworkService],
 })
 export class HomeworkModule {}

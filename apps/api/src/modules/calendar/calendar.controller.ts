@@ -1,4 +1,15 @@
-import { Controller, Delete, Get, Header, Param, Post, Req, Res, UseGuards } from "@nestjs/common";
+import {
+  Controller,
+  Delete,
+  Get,
+  Header,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
 import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import { Request, Response } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
@@ -6,13 +17,35 @@ import { Permissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { PERMISSIONS } from "../../common/permissions/permissions";
+import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
+import { CalendarAggregationService } from "./calendar-aggregation.service";
 import { CalendarFeedService } from "./calendar-feed.service";
+import { type ListCalendarQuery, listCalendarQuerySchema } from "./calendar.schemas";
 import { FeedTokenThrottlerGuard } from "./feed-token-throttler.guard";
 
 @Controller("calendar")
 export class CalendarController {
-  constructor(private readonly feed: CalendarFeedService) {}
+  constructor(
+    private readonly feed: CalendarFeedService,
+    private readonly aggregation: CalendarAggregationService,
+  ) {}
+
+  /**
+   * Calendario agregado: las seis fuentes de fechas que ya existían y que nadie veía juntas.
+   *
+   * El permiso de ruta es solo la puerta de entrada — cada fuente vuelve a cerrarse con el
+   * permiso de su propio módulo dentro del servicio. Ver CalendarAggregationService.
+   */
+  @Get()
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(PERMISSIONS.EVENTS_LIST)
+  list(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(listCalendarQuerySchema)) query: ListCalendarQuery,
+  ) {
+    return this.aggregation.list(user, query);
+  }
 
   /**
    * Feed ICS suscribible. **Pública a propósito y sin ninguno de los guards de sesión**: la

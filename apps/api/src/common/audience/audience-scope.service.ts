@@ -48,6 +48,35 @@ export class AudienceScopeService {
     return [];
   }
 
+  /**
+   * Estudiantes que el actor puede ver como "propios": él mismo si es alumno, sus hijos si es
+   * acudiente. Vacío para cualquier otro rol — un profesor o un admin ven estudiantes por otras
+   * vías, con sus propias reglas.
+   *
+   * Ojo: esto resuelve *a quiénes* puede mirar, no *qué* puede mirar de ellos. Quien consuma
+   * esto sigue teniendo que pasar por el servicio del módulo dueño (por ejemplo
+   * `PaymentsService#getStudentBalance`, que revalida la pertenencia por su cuenta).
+   */
+  async resolveOwnStudentIds(actor: RequestUser): Promise<string[]> {
+    if (actor.role === UserRole.STUDENT) {
+      const student = await this.prisma.student.findFirst({
+        where: { userId: actor.id, tenantId: actor.tenantId },
+        select: { id: true },
+      });
+      return student ? [student.id] : [];
+    }
+
+    if (actor.role === UserRole.GUARDIAN) {
+      const guardian = await this.prisma.guardian.findFirst({
+        where: { userId: actor.id, tenantId: actor.tenantId },
+        select: { students: { select: { studentId: true } } },
+      });
+      return guardian?.students.map((link) => link.studentId) ?? [];
+    }
+
+    return [];
+  }
+
   /** Grupos en los que el profesor tiene clase, vía Schedule. */
   async resolveTeacherGroupIds(actor: RequestUser): Promise<string[]> {
     const teacher = await this.prisma.teacher.findFirst({

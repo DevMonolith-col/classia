@@ -579,7 +579,37 @@ ahí; la familia objetivo lo ve por API.
 
 ---
 
-### Fase 3 — Agregación multi-fuente · **L** (~4-6 días) · *el diferencial*
+### Fase 3 — Agregación multi-fuente · **L** (~4-6 días) · ✅ hecha el 2026-07-26
+
+> `GET /calendar?from&to&sources=` en `calendar-aggregation.service.ts`.
+>
+> **El hallazgo que justifica toda §7.3:** delegar en el servicio de cada módulo **no alcanza**.
+> Varios servicios del repo confían en que el permiso ya se validó en el controlador, y
+> `PaymentsService#listInvoices` es el caso que lo prueba — filtra solo por `tenantId`, porque
+> su ruta exige `PAYMENTS_MANAGE`. Llamarlo desde la agregación para un acudiente habría
+> listado **las facturas de todas las familias del colegio**. Por eso cada fuente se cierra
+> además con el permiso que protege su propia ruta: la agregación no puede ver nada que el
+> actor no pudiera haber pedido por sí mismo.
+>
+> Para el acudiente, cartera va por `getStudentBalance(studentId, actor)` una vez por hijo. Es
+> un N+1 acotado y elegido a propósito sobre un `studentId IN (...)`: cada iteración vuelve a
+> pasar por el chequeo de pertenencia del módulo dueño en vez de confiar en una lista armada
+> en el calendario. El test lo cubre con dos estudiantes **del mismo grupo**, uno del acudiente
+> y otro no — con el otro en un grupo distinto, un filtro por grupo pasaría el test igual.
+>
+> Otras decisiones:
+>
+> - Los borradores de elección (`DRAFT`) solo los ve quien las administra: una elección sin
+>   anunciar en el calendario de los estudiantes filtra una decisión que no se tomó.
+> - Solo se proyectan facturas `PENDING`/`PARTIAL`. Una cancelada no vence y una pagada ya no
+>   es una obligación; el ítem desaparece cuando la familia paga.
+> - Los periodos se proyectan como dos ítems (inicia/cierra) y no como una banda de meses, que
+>   en una grilla mensual se pinta en todos los días y tapa el resto. `startDate`/`endDate` son
+>   nullable: un periodo sin fechas no aporta ítems.
+> - `schedule` expande la plantilla semanal a ocurrencias, con tope duro de 2000 y `log` del
+>   corte. Es la fuente más cara y por eso está apagada por default.
+> - Los permisos se derivan del rol con `getPermissionsForRole` y **no se leen del JWT**: un
+>   token viejo traería una lista desactualizada.
 
 `GET /calendar?from&to&sources=` devuelve una lista unificada y normalizada donde cada
 ítem lleva `source`, `sourceId`, `editable: false` para lo derivado, y su deep link al
