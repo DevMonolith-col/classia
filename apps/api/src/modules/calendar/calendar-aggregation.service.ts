@@ -100,6 +100,7 @@ export class CalendarAggregationService {
       sourceId: event.id,
       title: event.title,
       description: event.description,
+      type: event.type,
       startsAt: event.startsAt,
       endsAt: event.endsAt,
       allDay: event.allDay,

@@ -91,4 +91,9 @@ export type CalendarItem = {
   editable: boolean;
   /** Deep link al módulo dueño: el clic lleva a donde el dato de verdad se edita. */
   href: string;
+  /**
+   * Solo para `source: "event"`: el tipo del evento, para que la grilla lo pinte con el mismo
+   * color que en el panel de admin. Las demás fuentes derivan su color de `source`.
+   */
+  type?: string;
 };

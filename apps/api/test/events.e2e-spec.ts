@@ -12,10 +12,13 @@
 // Archivo aparte de backend-v1.e2e-spec.ts porque levanta su propio tenant B y sus propias
 // identidades (dos profesores de grupos distintos, un acudiente), igual que
 // rls-cross-tenant.e2e-spec.ts.
+import { getQueueToken } from "@nestjs/bullmq";
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { CalendarEventType, UserRole } from "@prisma/client";
+import { Queue } from "bullmq";
 import { AppModule } from "../src/app.module";
+import { EVENT_REMINDERS_QUEUE } from "../src/modules/events/event-reminders.service";
 import { setupApp } from "../src/app.setup";
 import { PrismaService } from "../src/core/prisma/prisma.service";
 import { TenantRlsContextService } from "../src/core/prisma/tenant-rls-context.service";
@@ -61,6 +64,9 @@ describe("Calendario (events)", () => {
   let prisma: PrismaService;
   let rls: TenantRlsContextService;
   let fixtures: Fixtures;
+  // Se inspecciona la cola directamente: que el recordatorio quede agendado en el momento
+  // correcto no se puede afirmar desde la respuesta HTTP.
+  let remindersQueue: Queue;
 
   // Un login por identidad, no por test: /auth/login tiene rate-limit a propósito
   // (20/min por IP) y los e2e en ráfaga pegan contra él.
@@ -83,6 +89,7 @@ describe("Calendario (events)", () => {
 
     prisma = app.get(PrismaService);
     rls = app.get(TenantRlsContextService);
+    remindersQueue = app.get<Queue>(getQueueToken(EVENT_REMINDERS_QUEUE));
     fixtures = await ensureFixtures(prisma, rls);
 
     adminA = await loginAs(ADMIN_A_EMAIL, TENANT_A_SLUG);
@@ -701,6 +708,128 @@ describe("Calendario (events)", () => {
       expect(res.body.schoolDayOffWarning).toBeNull();
 
       await deleteAttendanceSession(res.body.id);
+    });
+  });
+
+  // ─── Recordatorios (§9.5) ───────────────────────────────────────────────────
+
+  describe("recordatorios", () => {
+    /** Momento en que el job va a dispararse, o null si no hay job agendado. */
+    async function fireAtOf(eventId: string): Promise<number | null> {
+      const job = await remindersQueue.getJob(`event-reminder-${eventId}`);
+      if (!job) return null;
+      return job.timestamp + (job.opts.delay ?? 0);
+    }
+
+    it("agenda el recordatorio con la antelación pedida", async () => {
+      const startsAt = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
+      const created = await createEvent(adminA, {
+        title: "Reunión con recordatorio",
+        startsAt: startsAt.toISOString(),
+        endsAt: new Date(startsAt.getTime() + 60 * 60 * 1000).toISOString(),
+        reminderMinutesBefore: 1440, // un día
+      });
+      expect(created.status).toBe(201);
+
+      const fireAt = await fireAtOf(created.body.id);
+      expect(fireAt).not.toBeNull();
+      // Tolerancia de un minuto: entre que se calcula el delay y se encola pasa tiempo real.
+      expect(Math.abs(fireAt! - (startsAt.getTime() - 1440 * 60 * 1000))).toBeLessThan(60_000);
+    });
+
+    it("no agenda nada si el evento no pide recordatorio", async () => {
+      const created = await createEvent(adminA, {
+        title: "Evento sin recordatorio",
+        startsAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+        endsAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000 + 3600_000).toISOString(),
+      });
+      expect(created.status).toBe(201);
+      expect(await fireAtOf(created.body.id)).toBeNull();
+    });
+
+    // **Este es el test que importa.** El jobId es estable por evento y BullMQ IGNORA un
+    // `add()` con un jobId que ya existe en vez de reemplazarlo, así que sin el `remove()`
+    // previo de EventRemindersService#sync el recordatorio se queda apuntando a la fecha
+    // vieja: el aviso llega el día equivocado y nada falla por el camino.
+    //
+    // Reversión verificada: quitando el `await this.cancel(event.id)` del principio de sync(),
+    // este test falla — el job conserva el disparo original.
+    it("reagenda al mover la fecha del evento", async () => {
+      const startsAt = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000);
+      const created = await createEvent(adminA, {
+        title: "Evento que se mueve",
+        startsAt: startsAt.toISOString(),
+        endsAt: new Date(startsAt.getTime() + 3600_000).toISOString(),
+        reminderMinutesBefore: 1440,
+      });
+      expect(created.status).toBe(201);
+      const antes = await fireAtOf(created.body.id);
+      expect(antes).not.toBeNull();
+
+      const nuevoInicio = new Date(startsAt.getTime() + 3 * 24 * 60 * 60 * 1000);
+      const patch = await api<EventPayload>(`/events/${created.body.id}`, {
+        method: "PATCH",
+        headers: headers(adminA, true),
+        body: JSON.stringify({ startsAt: nuevoInicio.toISOString(), endsAt: new Date(nuevoInicio.getTime() + 3600_000).toISOString() }),
+      });
+      expect(patch.status).toBe(200);
+
+      const despues = await fireAtOf(created.body.id);
+      expect(despues).not.toBeNull();
+      expect(Math.abs(despues! - (nuevoInicio.getTime() - 1440 * 60 * 1000))).toBeLessThan(60_000);
+      // Y de verdad cambió: tres días más tarde que el anterior.
+      expect(despues! - antes!).toBeGreaterThan(2 * 24 * 60 * 60 * 1000);
+    });
+
+    it("cancela el recordatorio al quitar la antelación", async () => {
+      const created = await createEvent(adminA, {
+        title: "Evento que pierde el recordatorio",
+        startsAt: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(),
+        endsAt: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000 + 3600_000).toISOString(),
+        reminderMinutesBefore: 60,
+      });
+      expect(created.status).toBe(201);
+      expect(await fireAtOf(created.body.id)).not.toBeNull();
+
+      const patch = await api<EventPayload>(`/events/${created.body.id}`, {
+        method: "PATCH",
+        headers: headers(adminA, true),
+        body: JSON.stringify({ reminderMinutesBefore: null }),
+      });
+      expect(patch.status).toBe(200);
+      expect(await fireAtOf(created.body.id)).toBeNull();
+    });
+
+    // Reversión verificada: quitando el `await this.reminders.cancel(eventId)` de remove(),
+    // este test falla — el job sigue vivo apuntando a un evento borrado.
+    it("cancela el recordatorio al borrar el evento", async () => {
+      const created = await createEvent(adminA, {
+        title: "Evento que se borra",
+        startsAt: new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString(),
+        endsAt: new Date(Date.now() + 12 * 24 * 60 * 60 * 1000 + 3600_000).toISOString(),
+        reminderMinutesBefore: 60,
+      });
+      expect(created.status).toBe(201);
+      expect(await fireAtOf(created.body.id)).not.toBeNull();
+
+      const del = await api<unknown>(`/events/${created.body.id}`, {
+        method: "DELETE",
+        headers: headers(adminA),
+      });
+      expect(del.status).toBe(200);
+      expect(await fireAtOf(created.body.id)).toBeNull();
+    });
+
+    // Avisar "falta un día" cuando el evento ya pasó es peor que no avisar.
+    it("no agenda un recordatorio cuyo momento ya pasó", async () => {
+      const created = await createEvent(adminA, {
+        title: "Evento del pasado con recordatorio",
+        startsAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        endsAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 + 3600_000).toISOString(),
+        reminderMinutesBefore: 60,
+      });
+      expect(created.status).toBe(201);
+      expect(await fireAtOf(created.body.id)).toBeNull();
     });
   });
 
