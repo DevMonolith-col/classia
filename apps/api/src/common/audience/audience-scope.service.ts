@@ -49,9 +49,50 @@ export class AudienceScopeService {
   }
 
   /**
+   * Hijos de un acudiente. **No mira el rol**: si el actor no es acudiente no hay fila
+   * `Guardian` y devuelve vacío, que es lo mismo que hacían las cuatro copias que reemplaza
+   * (attendance, homework, conversations y marks).
+   *
+   * Existe además de `resolveOwnStudentIds` justamente por eso: son semánticas distintas y
+   * confundirlas cambia lo que ve un alumno. Ver el comentario de la otra.
+   */
+  async resolveGuardianChildIds(actor: RequestUser): Promise<string[]> {
+    const guardian = await this.prisma.guardian.findFirst({
+      where: { userId: actor.id, tenantId: actor.tenantId },
+      select: { students: { select: { studentId: true } } },
+    });
+    return guardian?.students.map((link) => link.studentId) ?? [];
+  }
+
+  /** Grupos de un conjunto de estudiantes ya resuelto. */
+  async resolveChildGroupIds(childIds: string[]): Promise<string[]> {
+    if (childIds.length === 0) return [];
+
+    const children = await this.prisma.student.findMany({
+      where: { id: { in: childIds } },
+      select: { groupId: true },
+    });
+    return [
+      ...new Set(
+        children.map((child) => child.groupId).filter((groupId): groupId is string => Boolean(groupId)),
+      ),
+    ];
+  }
+
+  /** Atajo: los grupos de los hijos del acudiente. */
+  async resolveOwnChildGroupIds(actor: RequestUser): Promise<string[]> {
+    return this.resolveChildGroupIds(await this.resolveGuardianChildIds(actor));
+  }
+
+  /**
    * Estudiantes que el actor puede ver como "propios": él mismo si es alumno, sus hijos si es
    * acudiente. Vacío para cualquier otro rol — un profesor o un admin ven estudiantes por otras
    * vías, con sus propias reglas.
+   *
+   * **Es distinta de `resolveGuardianChildIds`** y la diferencia importa: esta incluye al
+   * propio alumno. Usar esta donde antes había una guardián-solo le abre a un estudiante datos
+   * que antes no veía; usar la otra en el portal del alumno lo deja sin nada. Elegir a
+   * conciencia.
    *
    * Ojo: esto resuelve *a quiénes* puede mirar, no *qué* puede mirar de ellos. Quien consuma
    * esto sigue teniendo que pasar por el servicio del módulo dueño (por ejemplo
@@ -67,11 +108,7 @@ export class AudienceScopeService {
     }
 
     if (actor.role === UserRole.GUARDIAN) {
-      const guardian = await this.prisma.guardian.findFirst({
-        where: { userId: actor.id, tenantId: actor.tenantId },
-        select: { students: { select: { studentId: true } } },
-      });
-      return guardian?.students.map((link) => link.studentId) ?? [];
+      return this.resolveGuardianChildIds(actor);
     }
 
     return [];

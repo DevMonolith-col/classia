@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
+import { AudienceScopeService } from "../../common/audience/audience-scope.service"
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
@@ -81,6 +82,7 @@ export class MarksService {
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
     private readonly tenantRlsContext: TenantRlsContextService,
+    private readonly audience: AudienceScopeService,
   ) {}
 
   private emitMarkPublished(mark: PublishableMark) {
@@ -615,12 +617,11 @@ export class MarksService {
     return student?.id;
   }
 
-  private async resolveOwnChildIds(actor: RequestUser): Promise<string[]> {
-    const guardian = await this.prisma.guardian.findFirst({
-      where: { userId: actor.id, tenantId: actor.tenantId },
-      select: { students: { select: { studentId: true } } },
-    });
-    return guardian?.students.map((s) => s.studentId) ?? [];
+  // Vive en common/audience/audience-scope.service.ts desde el 2026-07-26: esta misma
+  // resolución estaba copiada en cuatro servicios (attendance, homework, conversations y
+  // marks) y se desincronizaban al primer cambio de modelo.
+  private resolveOwnChildIds(actor: RequestUser): Promise<string[]> {
+    return this.audience.resolveGuardianChildIds(actor);
   }
 
   private resolveTenantScope(actor: RequestUser, tenantId?: string) {
