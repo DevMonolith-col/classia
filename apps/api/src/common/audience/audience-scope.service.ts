@@ -114,16 +114,28 @@ export class AudienceScopeService {
     return [];
   }
 
-  /** Grupos en los que el profesor tiene clase, vía Schedule. */
-  async resolveTeacherGroupIds(actor: RequestUser): Promise<string[]> {
+  /**
+   * Ficha `Teacher` del actor, o `undefined` si no tiene.
+   *
+   * Un usuario con rol TEACHER puede no tener fila `Teacher` (se le asignó el rol pero
+   * todavía no se creó la ficha). Quien scopea por esto debe tratar el `undefined` como
+   * "no ve nada", no como "no hay filtro que aplicar".
+   */
+  async resolveOwnTeacherId(actor: RequestUser): Promise<string | undefined> {
     const teacher = await this.prisma.teacher.findFirst({
       where: { userId: actor.id, tenantId: actor.tenantId },
       select: { id: true },
     });
-    if (!teacher) return [];
+    return teacher?.id;
+  }
+
+  /** Grupos en los que el profesor tiene clase, vía Schedule. */
+  async resolveTeacherGroupIds(actor: RequestUser): Promise<string[]> {
+    const teacherId = await this.resolveOwnTeacherId(actor);
+    if (!teacherId) return [];
 
     const schedules = await this.prisma.schedule.findMany({
-      where: { tenantId: actor.tenantId, teacherId: teacher.id },
+      where: { tenantId: actor.tenantId, teacherId },
       select: { groupId: true },
     });
     return [...new Set(schedules.map((schedule) => schedule.groupId))];

@@ -319,13 +319,13 @@ export class CalendarAggregationService {
   private async scheduleItems(actor: RequestUser, from: Date, to: Date): Promise<CalendarItem[]> {
     if (!this.can(actor, PERMISSIONS.SCHEDULES_LIST)) return [];
 
-    const groupIds = await this.audience.resolveUserGroupIds(actor);
-    const isStaff = groupIds.length === 0 && this.can(actor, PERMISSIONS.SCHEDULES_READ);
+    const roleScope = await this.resolveScheduleScope(actor);
+    if (!roleScope) return [];
 
     const schedules = await this.prisma.schedule.findMany({
       where: {
         tenantId: actor.tenantId,
-        ...(isStaff ? {} : { groupId: { in: groupIds } }),
+        ...roleScope,
       },
       select: {
         id: true,
@@ -382,6 +382,33 @@ export class CalendarAggregationService {
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Alcance de la fuente `schedule`, o `null` si el actor no debe ver ninguna clase.
+   *
+   * Hasta el 2026-07-26 esto era `groupIds.length === 0 && can(SCHEDULES_READ)`, y **fallaba
+   * abierto**: `resolveUserGroupIds` devuelve `[]` tanto para un administrativo como para un
+   * profesor sin ficha `Teacher`, para uno sin clases asignadas o para un acudiente sin hijos
+   * vinculados. Como TEACHER sí tiene `SCHEDULES_READ`, cualquiera de esos casos se leía como
+   * "es staff" y el calendario devolvía el horario completo del colegio. La ausencia de
+   * contexto no puede significar acceso total.
+   *
+   * Mismo criterio que `SchedulesService#resolveRoleScope`, y por el mismo motivo: el profesor
+   * ve *sus* clases, no todas las de los grupos donde enseña.
+   */
+  private async resolveScheduleScope(actor: RequestUser) {
+    if (actor.role === UserRole.TEACHER) {
+      const teacherId = await this.audience.resolveOwnTeacherId(actor);
+      return teacherId ? { teacherId } : null;
+    }
+
+    if (actor.role === UserRole.STUDENT || actor.role === UserRole.GUARDIAN) {
+      const groupIds = await this.audience.resolveUserGroupIds(actor);
+      return groupIds.length > 0 ? { groupId: { in: groupIds } } : null;
+    }
+
+    return {};
+  }
 
   /**
    * Los permisos se derivan del rol y **no se leen del token**: `RequestUser.permissions` es

@@ -24,6 +24,7 @@ import {
   PASSWORD,
   STUDENT_EMAIL,
   TEACHER_1_EMAIL,
+  TEACHER_NO_PROFILE_EMAIL,
   TENANT_A_SLUG,
   ensureFixtures,
 } from "./helpers/calendar-fixtures";
@@ -301,6 +302,27 @@ describe("Calendario agregado", () => {
     const conClases = await calendar(adminA, "schedule");
     expect(conClases.length).toBeGreaterThan(0);
     expect(new Set(conClases.map((i) => i.source))).toEqual(new Set(["schedule"]));
+  });
+
+  // La fuente `schedule` era la única que decidía el alcance por ausencia de datos en vez de
+  // por rol: `groupIds.length === 0 && can(SCHEDULES_READ)` trataba como administrativo a
+  // cualquiera sin grupos resueltos. Como TEACHER tiene ese permiso, el agujero se abría solo.
+  //
+  // Reversión verificada: con `isStaff = groupIds.length === 0 && can(SCHEDULES_READ)`, el
+  // profesor sin ficha recibe las clases de todo el colegio y este test falla.
+  it("un profesor ve sus clases y no las del resto del colegio", async () => {
+    const items = await calendar(teacher, "schedule");
+    const sourceIds = items.map((item) => item.sourceId);
+
+    expect(sourceIds).toContain(fixtures.scheduleOneId);
+    expect(sourceIds).not.toContain(fixtures.scheduleTwoId);
+  });
+
+  it("un rol de profesor sin ficha no ve NINGUNA clase, en vez de verlas todas", async () => {
+    const sinFicha = await loginAs(TEACHER_NO_PROFILE_EMAIL, TENANT_A_SLUG);
+
+    const items = await calendar(sinFicha, "schedule");
+    expect(items).toHaveLength(0);
   });
 
   // Una elección en borrador no se anunció: mostrarla en el calendario de los estudiantes
