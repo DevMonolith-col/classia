@@ -1,11 +1,13 @@
 import { randomBytes } from "node:crypto";
 import {
+  CalendarEventType,
   PrismaClient,
   TenantStatus,
   UserRole,
   UserStatus,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { colombianHolidays } from "../src/colombia-holidays";
 
 const prisma = new PrismaClient();
 
@@ -588,6 +590,147 @@ async function main() {
       },
     });
   }
+
+  // ── Calendario ──────────────────────────────────────────────────────────────
+  //
+  // Dos bloques: los festivos nacionales (§9.4 del plan: se precargan, editables por el
+  // colegio) y eventos propios de un calendario escolar colombiano.
+  //
+  // Las fechas se guardan en UTC. Los eventos de todo el día van de 00:00 a 23:59:59.999
+  // en hora de Bogotá (UTC-5), que es lo mismo que hace EventsService al normalizar: un
+  // festivo guardado a medianoche UTC se ve el día anterior en Colombia.
+  const BOGOTA_OFFSET_HOURS = 5;
+  const bogotaWallTime = (year: number, month: number, day: number, hour = 0, minute = 0) =>
+    new Date(Date.UTC(year, month - 1, day, hour + BOGOTA_OFFSET_HOURS, minute));
+  const endOfBogotaDay = (year: number, month: number, day: number) =>
+    new Date(Date.UTC(year, month - 1, day, 23 + BOGOTA_OFFSET_HOURS, 59, 59, 999));
+
+  // Idempotencia: se borran los eventos del seed y se recrean. No se puede usar la fecha
+  // como clave (dos festivos pueden caer el mismo lunes, ver colombianHolidays) ni el
+  // título (el colegio puede renombrarlos), así que el criterio es "los que sembró el seed",
+  // identificados por haber sido creados por el rector demo.
+  await prisma.event.deleteMany({ where: { tenantId: tenant.id, createdById: tenantAdmin.id } });
+
+  const holidayEvents = colombianHolidays(2026).map((holiday) => ({
+    tenantId: tenant.id,
+    title: holiday.moved ? `${holiday.name} (trasladado)` : holiday.name,
+    description: "Festivo nacional. Editable por el colegio.",
+    type: CalendarEventType.FESTIVO,
+    startsAt: bogotaWallTime(holiday.year, holiday.month, holiday.day),
+    endsAt: endOfBogotaDay(holiday.year, holiday.month, holiday.day),
+    allDay: true,
+    isSchoolDayOff: true,
+    createdById: tenantAdmin.id,
+  }));
+
+  const schoolEvents = [
+    {
+      title: "Inicio del año escolar 2026",
+      description: "Primer día de clases. Jornada de bienvenida por grupos.",
+      type: CalendarEventType.ACADEMICO,
+      startsAt: bogotaWallTime(2026, 1, 27, 7, 0),
+      endsAt: bogotaWallTime(2026, 1, 27, 13, 0),
+      location: "Todas las sedes",
+    },
+    {
+      title: "Asamblea general de padres de familia",
+      description: "Presentación del plan académico y elección de representantes de curso.",
+      type: CalendarEventType.REUNION,
+      startsAt: bogotaWallTime(2026, 2, 6, 18, 0),
+      endsAt: bogotaWallTime(2026, 2, 6, 20, 0),
+      location: "Auditorio principal",
+      targetRole: UserRole.GUARDIAN,
+      reminderMinutesBefore: 24 * 60,
+    },
+    {
+      title: "Cierre de notas — Periodo 1",
+      description: "Último día para registrar calificaciones del primer periodo.",
+      type: CalendarEventType.ACADEMICO,
+      startsAt: bogotaWallTime(2026, 4, 10, 23, 0),
+      endsAt: bogotaWallTime(2026, 4, 10, 23, 59),
+      targetRole: UserRole.TEACHER,
+      reminderMinutesBefore: 3 * 24 * 60,
+    },
+    {
+      title: "Entrega de boletines — Periodo 1",
+      description: "Atención a acudientes por director de grupo, cita previa.",
+      type: CalendarEventType.REUNION,
+      startsAt: bogotaWallTime(2026, 4, 17, 7, 0),
+      endsAt: bogotaWallTime(2026, 4, 17, 12, 0),
+      location: "Salones de clase",
+      targetRole: UserRole.GUARDIAN,
+      reminderMinutesBefore: 24 * 60,
+    },
+    {
+      title: "Simulacro nacional de evacuación",
+      type: CalendarEventType.ADMINISTRATIVO,
+      startsAt: bogotaWallTime(2026, 5, 6, 10, 0),
+      endsAt: bogotaWallTime(2026, 5, 6, 11, 0),
+      location: "Patio central",
+    },
+    {
+      title: "Semana de desarrollo institucional",
+      description: "Sin clases. Jornada pedagógica para docentes.",
+      type: CalendarEventType.INSTITUCIONAL,
+      startsAt: bogotaWallTime(2026, 6, 22),
+      endsAt: endOfBogotaDay(2026, 6, 26),
+      allDay: true,
+      isSchoolDayOff: true,
+    },
+    {
+      title: "Elección de personero estudiantil",
+      description: "Jornada de votación en la sala de sistemas por franjas horarias.",
+      type: CalendarEventType.INSTITUCIONAL,
+      startsAt: bogotaWallTime(2026, 3, 13, 8, 0),
+      endsAt: bogotaWallTime(2026, 3, 13, 15, 0),
+      location: "Sala de sistemas",
+      targetRole: UserRole.STUDENT,
+    },
+    {
+      title: "Izada de bandera — 20 de julio",
+      type: CalendarEventType.INSTITUCIONAL,
+      startsAt: bogotaWallTime(2026, 7, 17, 7, 30),
+      endsAt: bogotaWallTime(2026, 7, 17, 9, 0),
+      location: "Patio central",
+    },
+    {
+      title: "Festival cultural y deportivo",
+      type: CalendarEventType.INSTITUCIONAL,
+      startsAt: bogotaWallTime(2026, 9, 25, 8, 0),
+      endsAt: bogotaWallTime(2026, 9, 25, 16, 0),
+      location: "Coliseo",
+    },
+    {
+      title: "Refuerzo de matemáticas — 5A",
+      description: "Repaso de fracciones antes de la evaluación acumulativa.",
+      type: CalendarEventType.ACADEMICO,
+      startsAt: bogotaWallTime(2026, 4, 8, 14, 0),
+      endsAt: bogotaWallTime(2026, 4, 8, 15, 30),
+      location: "Aula 201",
+      // Evento de un solo grupo: es exactamente lo que un profesor puede crear (§9.2).
+      groupId: group5A.id,
+    },
+    {
+      title: "Salida pedagógica — Museo del Oro (6B)",
+      type: CalendarEventType.ACADEMICO,
+      startsAt: bogotaWallTime(2026, 8, 20, 7, 0),
+      endsAt: bogotaWallTime(2026, 8, 20, 14, 0),
+      location: "Museo del Oro, Bogotá",
+      groupId: group6B.id,
+      reminderMinutesBefore: 2 * 24 * 60,
+    },
+    {
+      title: "Matrículas 2027 — estudiantes antiguos",
+      type: CalendarEventType.ADMINISTRATIVO,
+      startsAt: bogotaWallTime(2026, 11, 16),
+      endsAt: endOfBogotaDay(2026, 11, 20),
+      allDay: true,
+      location: "Secretaría académica",
+      targetRole: UserRole.GUARDIAN,
+    },
+  ].map((event) => ({ ...event, tenantId: tenant.id, createdById: tenantAdmin.id }));
+
+  await prisma.event.createMany({ data: [...holidayEvents, ...schoolEvents] });
 
   await prisma.auditLog.create({
     data: {

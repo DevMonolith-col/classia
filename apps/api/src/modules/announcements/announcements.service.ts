@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/commo
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
+import { AudienceScopeService } from "../../common/audience/audience-scope.service";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
@@ -24,6 +25,7 @@ export class AnnouncementsService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
+    private readonly audience: AudienceScopeService,
   ) {}
 
   async listForUser(actor: RequestUser) {
@@ -192,46 +194,15 @@ export class AnnouncementsService {
     }
   }
 
-  private async resolveUserGroupIds(actor: RequestUser): Promise<string[]> {
-    if (actor.role === UserRole.STUDENT) {
-      const student = await this.prisma.student.findFirst({
-        where: { userId: actor.id, tenantId: actor.tenantId },
-        select: { groupId: true },
-      });
-      return student?.groupId ? [student.groupId] : [];
-    }
-
-    if (actor.role === UserRole.GUARDIAN) {
-      const guardian = await this.prisma.guardian.findFirst({
-        where: { userId: actor.id, tenantId: actor.tenantId },
-        select: { students: { select: { student: { select: { groupId: true } } } } },
-      });
-      const groupIds =
-        guardian?.students
-          .map((link) => link.student.groupId)
-          .filter((groupId): groupId is string => Boolean(groupId)) ?? [];
-      return [...new Set(groupIds)];
-    }
-
-    if (actor.role === UserRole.TEACHER) {
-      return this.resolveTeacherGroupIds(actor);
-    }
-
-    return [];
+  // resolveUserGroupIds/resolveTeacherGroupIds se movieron a
+  // common/audience/audience-scope.service.ts el 2026-07-26: el calendario necesita la
+  // misma resolución y la agregación multi-fuente de su Fase 3 será el tercer consumidor.
+  private resolveUserGroupIds(actor: RequestUser): Promise<string[]> {
+    return this.audience.resolveUserGroupIds(actor);
   }
 
-  private async resolveTeacherGroupIds(actor: RequestUser): Promise<string[]> {
-    const teacher = await this.prisma.teacher.findFirst({
-      where: { userId: actor.id, tenantId: actor.tenantId },
-      select: { id: true },
-    });
-    if (!teacher) return [];
-
-    const schedules = await this.prisma.schedule.findMany({
-      where: { tenantId: actor.tenantId, teacherId: teacher.id },
-      select: { groupId: true },
-    });
-    return [...new Set(schedules.map((schedule) => schedule.groupId))];
+  private resolveTeacherGroupIds(actor: RequestUser): Promise<string[]> {
+    return this.audience.resolveTeacherGroupIds(actor);
   }
 
   private isAdminStaff(role: UserRole) {

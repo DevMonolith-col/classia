@@ -106,8 +106,21 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
 - `familia/tareas` está bloqueada además por permisos: `GUARDIAN` no tiene ningún `HOMEWORK_SUBMISSIONS_*`, así que no puede ver la entrega ni la retroalimentación de su hijo. Ver `asignaciones-calificacion-en-linea.md` §5.
 
 ### Panel del colegio (`/admin`) — pendientes
-- `page.tsx` (Dashboard): stats hardcodeadas.
-- `calendario`, `configuracion`, `plugins`, `plugins/desarrolladores`: sin backend ni conexión.
+
+> Corregido el 2026-07-26: esta lista decía que el dashboard tenía "stats hardcodeadas" y
+> que `calendario` no tenía backend. Ninguna de las dos era cierta ya — abajo lo verificado
+> contra el código.
+
+- `page.tsx` (Dashboard): **conectado**. `useDashboardStats` calcula estudiantes, profesores,
+  grupos y asistencia del día con cuatro llamadas reales (`/students`, `/teachers`, `/groups`,
+  `/attendance/sessions?from&to`), y `useUpcomingEvents` trae los próximos eventos de
+  `/events?limit=4`. Lo que sigue pendiente es el fan-out de 4 requests y que la asistencia se
+  agrega en el cliente.
+- `calendario`: la **página** sigue siendo mock (`mockEvents`, "hoy" congelado en
+  febrero de 2024, botones sin `onClick`), pero el backend ya existe y es real desde el
+  2026-07-26: modelo `Event` completo, rango `from`/`to`, `PATCH`, audiencia por rol y grupo,
+  soft-delete y 28 tests e2e. Conectarla es la Fase 2 de `calendario.md`.
+- `configuracion`, `plugins`, `plugins/desarrolladores`: sin backend ni conexión.
 - (`reportes` y `pagos` ya se conectaron el 2026-07-18/19 — ver §2.)
 - `mensajes/nuevo`: **página muerta** ("Próximamente...") — el módulo de mensajería lleva conectado desde `eda38c4` y la composición vive dentro del panel. Los quick-actions del dashboard todavía apuntan a esa ruta muerta.
 - (`estudiantes`, `profesores`, `cursos` ya se conectaron en `1f9870b`.)

@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
+import { AudienceCoreModule } from "../../common/audience/audience-core.module";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { DataScopeModule } from "../../common/guards/data-scope.module";
@@ -8,7 +9,7 @@ import { AnnouncementsController } from "./announcements.controller";
 import { AnnouncementsService } from "./announcements.service";
 
 @Module({
-  imports: [AuditCoreModule, DataScopeModule, JwtModule.register({})],
+  imports: [AuditCoreModule, AudienceCoreModule, DataScopeModule, JwtModule.register({})],
   controllers: [AnnouncementsController],
   providers: [JwtAuthGuard, PermissionsGuard, AnnouncementsService],
 })

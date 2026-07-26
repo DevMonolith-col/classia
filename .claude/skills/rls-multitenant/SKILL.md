@@ -113,13 +113,36 @@ En orden de probabilidad:
 1. `$transaction` crudo en el camino (o una llamada a un service que lo usa).
 2. Job de BullMQ sin `tenantId` en el payload.
 3. Código que corre fuera de request sin `runWithTenant`.
-4. `DATABASE_URL_APP` mal configurada. Ojo con el inverso: si de repente **todo** funciona y
+4. **Un test que lee la base directo con Prisma.** Es el caso 3, pero merece su propia línea
+   porque en un test no se manifiesta como "cero filas": invierte la aserción sin avisar. Un
+   `prisma.event.findUnique(...)` en un `it()` corre sin contexto, devuelve `null`, y entonces
+   `expect(row?.deletedAt).toBeNull()` **pasa** — el test afirma exactamente lo contrario de lo
+   que cree y queda verde para siempre. Las aserciones que van contra la base (no contra el
+   API) van envueltas en `runWithTenant`, y conviene agregarles un `expect(row).not.toBeNull()`
+   antes, para que la ausencia de contexto se vea. La suite de calendario pisó esto en tres
+   tests el 2026-07-26; se detectó porque los tres fallaron a la vez con `Received: null`.
+5. `DATABASE_URL_APP` mal configurada. Ojo con el inverso: si de repente **todo** funciona y
    ves filas de varios colegios, probablemente la app se conectó con `DATABASE_URL` (rol
    `classia`, superuser) — un superuser ignora RLS sin excepción y eso convierte todo el
    aislamiento en un no-op silencioso. Es el modo de falla más peligroso porque parece que
    funciona.
 
 ## El límite de lo que RLS defiende
+
+**Un e2e de aislamiento cross-tenant prueba que RLS está activo, no que el código filtra.**
+Se comprobó el 2026-07-26 en el módulo de calendario: quitándole el `where: { tenantId }` a
+`list()` y a `findOne()`, los dos tests de aislamiento **siguieron pasando**. Con la política
+forzada, la fila del otro colegio no existe para esa conexión, con `WHERE` o sin él — Postgres
+tapa el error antes de que el filtro importe. Sirve como regresión de la garantía (si alguien
+desactiva la política o la app se conecta con el rol superuser, se pone rojo), pero no cubre el
+código.
+
+Si querés un test que sí falle cuando el código se rompe, apuntá a lo que RLS **no** puede
+producir: un `403` al pedir explícitamente otro tenant (`?tenantId=<ajeno>`), donde la
+diferencia entre "403" y "200 con lista vacía" solo la puede decidir la aplicación. Y para el
+scoping por rol dentro del mismo colegio —el grupo de otro profesor, el hijo de otro
+acudiente— RLS no ayuda en absoluto: mismo `tenantId`, la política los deja pasar a los dos.
+Esos tests sí fallan al revertir el chequeo, y son los que hay que escribir.
 
 RLS protege contra "me olvidé el filtro". **No** protege contra "resolví el tenant
 equivocado" río arriba, en el JWT o la sesión. Tampoco reemplaza el scoping por rol: que un

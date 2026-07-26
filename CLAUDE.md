@@ -95,6 +95,17 @@ completo — entrega en vivo, "escribiendo...", presencia, checks de leído, adj
 hilos. Seguir `docs/planning/chat-tiempo-real.md`. Las llamadas de voz/video **no** están
 aprobadas: los botones que hay hoy en la UI son decorativos.
 
+Aprobado explícitamente: **módulo de calendario** (2026-07-26), alcance completo de las
+fases 1-5 de `docs/planning/calendario.md` — modelo `Event` real, UI de admin conectada,
+agregación multi-fuente de las seis fuentes de fechas que ya existen, portales de
+familia/profesor/alumno con recordatorios, y feed ICS suscribible de solo lectura. La
+**sincronización bidireccional con Google Workspace / Microsoft 365 no está aprobada**: es
+plugin de pago posterior (`docs/planning/plugins.md` §2 Módulo C), no parte del core.
+Tampoco están aprobadas la reserva de recursos (aulas, buses — Transporte además está en la
+lista de arriba) ni nada que invite a **pagar** desde el calendario: mostrar que el 14 de
+agosto vence la pensión es cartera y está dentro; un botón de pago cruza la frontera de
+pagos.
+
 Datos de menores, calificaciones, asistencia y comunicaciones institucionales están de por
 medio, con retención obligatoria por Ley 1620 y Ley 527 (de ahí el soft-delete que conserva
 la fila en mensajería). Las acciones sensibles se auditan vía `AuditService`, y las
