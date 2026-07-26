@@ -16,6 +16,7 @@ import { WsJwtGuard, verifyAndDecodeToken } from "../../common/guards/ws-jwt.gua
 import { RequestUser } from "../../common/types/request-context";
 import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { ConversationsService } from "./conversations.service";
+import { PresenceService } from "./presence.service";
 import {
   type ConversationReadEvent,
   MessageReceivedEvent,
@@ -58,6 +59,7 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
     private readonly config: ConfigService,
     private readonly conversations: ConversationsService,
     private readonly tenantRlsContext: TenantRlsContextService,
+    private readonly presence: PresenceService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -87,13 +89,56 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
 
     void client.join(this.userRoom(userId));
     this.scheduleExpiry(client, token);
+
+    const becameOnline = await this.presence.connect(client.data.user.tenantId, userId);
+    if (becameOnline) await this.broadcastPresence(client.data.user, userId, true);
   }
 
-  handleDisconnect(client: Socket) {
+  async handleDisconnect(client: Socket) {
     const timer = this.expiryTimers.get(client.id);
     if (timer) {
       clearTimeout(timer);
       this.expiryTimers.delete(client.id);
+    }
+
+    const actor = client.data.user as RequestUser | undefined;
+    if (!actor?.id) return;
+
+    // Cuántos sockets le quedan a esta persona: cerrar una pestaña no la desconecta.
+    const sockets = await this.server.in(this.userRoom(actor.id)).fetchSockets();
+    const remaining = sockets.filter((socket) => socket.id !== client.id).length;
+
+    const wentOffline = await this.presence.disconnect(actor.tenantId, actor.id, remaining);
+    if (wentOffline) await this.broadcastPresence(actor, actor.id, false);
+  }
+
+  /**
+   * Latido del cliente. Sin esto, quien pierde la red o cierra la laptop queda "en línea" para
+   * siempre: el TTL del heartbeat es lo único que lo apaga.
+   */
+  @SubscribeMessage("presence:heartbeat")
+  async handleHeartbeat(@ConnectedSocket() client: Socket) {
+    const actor = client.data.user as RequestUser | undefined;
+    if (!actor?.id) return;
+    await this.presence.touch(actor.tenantId, actor.id);
+  }
+
+  /**
+   * Avisa del cambio de presencia **solo a quienes hablan con esta persona**, no a todo el
+   * colegio: en un colegio de mil personas, avisarle a todos por cada conexión es una tormenta
+   * de mensajes por nada.
+   */
+  private async broadcastPresence(actor: RequestUser, userId: string, online: boolean) {
+    const contacts = await this.tenantRlsContext.runWithTenant(actor.tenantId, () =>
+      this.conversations.resolveConversationPartnerIds(actor),
+    );
+
+    for (const contactId of contacts) {
+      this.server.to(this.userRoom(contactId)).emit("presence:changed", {
+        userId,
+        online,
+        lastSeenAt: online ? null : new Date().toISOString(),
+      });
     }
   }
 

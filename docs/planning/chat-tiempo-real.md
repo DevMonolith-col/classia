@@ -428,7 +428,23 @@ sin eso no se está probando nada de lo que esta feature promete.
 15. `typing:start`/`typing:stop` con debounce (~2s) + relay. Activa el hueco muerto de
     `chat-interface.tsx:474-476`.
 
-**Fase 4 — Presencia**
+**Fase 4 — Presencia** · ✅ hecha el 2026-07-26
+
+> `presence.service.ts` (Set por colegio + heartbeat con TTL en Redis), `presence:changed` en
+> el gateway y `usePresenceHeartbeat` en el cliente.
+>
+> - **El `"última vez hoy"` hardcodeado ya no existe.** Cuando no hay dato se muestra **cadena
+>   vacía**, no una fecha inventada: `lastSeenAt` vive en Redis y se pierde en un reinicio, así
+>   que "sin información" es la verdad.
+> - **Una pestaña cerrada no desconecta a la persona**: se cuentan los sockets que le quedan.
+> - **El aviso va solo a quienes conversan con esa persona**, no a todo el colegio: en un
+>   colegio de mil, avisarle a todos por cada conexión es una tormenta por nada.
+> - El TTL de 90 s del heartbeat es lo único que apaga a quien se fue sin `disconnect` limpio
+>   (cerró la laptop, perdió la red). `statusOf` cruza el Set con el heartbeat y de paso limpia
+>   los rancios.
+> - **Los tests de presencia necesitaron limpiar Redis entre casos**: es estado externo que
+>   sobrevive entre tests, y sin eso pasaban en aislamiento y fallaban los cuatro dentro de la
+>   suite completa, según el orden.
 16. Set de Redis + heartbeat + TTL. Activa `online` y reemplaza el `"última vez hoy"`
     hardcodeado (`chat-interface.tsx:531`) por `lastSeenAt` real.
 

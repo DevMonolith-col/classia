@@ -481,6 +481,87 @@ describe("Mensajería en tiempo real", () => {
     });
   });
 
+  // ─── Presencia (Fase 4) ─────────────────────────────────────────────────────
+
+  describe("presencia", () => {
+    type PresenceEvent = { userId: string; online: boolean; lastSeenAt: string | null };
+    type Conv = { id: string; online: boolean; lastSeenAt: string | null };
+
+    /**
+     * La presencia vive en Redis, o sea **estado externo que sobrevive entre tests**: los
+     * bloques anteriores abren y cierran sockets de las mismas dos personas y dejan rastro. Sin
+     * limpiar, estos tests pasan o fallan según el orden — se comprobó: en aislamiento pasaban
+     * y dentro de la suite completa fallaban los cuatro.
+     */
+    beforeEach(async () => {
+      const redis = app.get(RedisService).client;
+      const keys = await redis.keys("presence:*");
+      if (keys.length > 0) await redis.del(...keys);
+      // Margen para que los sockets de los tests anteriores terminen de salir de sus salas.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+
+    async function threadFor(session: LoginResponse) {
+      const res = await api<Conv[]>("/conversations", { headers: authHeaders(session) });
+      return res.body.find((c) => c.id === conversationId)!;
+    }
+
+    // Reversión verificada: devolviendo `online: false` fijo en mapConversation, este test
+    // falla — que es el estado anterior, donde `online` nunca se seteaba y la cabecera decía
+    // "última vez hoy" para todo el mundo.
+    it("marca en línea a quien tiene un socket abierto", async () => {
+      const socketAcudiente = await connectReady(guardian.accessToken);
+
+      const paraElProfesor = await threadFor(teacher);
+      expect(paraElProfesor.online).toBe(true);
+
+      socketAcudiente.disconnect();
+    });
+
+    it("lo marca fuera de línea al cerrar el socket, con la última vez", async () => {
+      const socketAcudiente = await connectReady(guardian.accessToken);
+      expect((await threadFor(teacher)).online).toBe(true);
+
+      socketAcudiente.disconnect();
+      await new Promise((resolve) => setTimeout(resolve, 800));
+
+      const despues = await threadFor(teacher);
+      expect(despues.online).toBe(false);
+      expect(despues.lastSeenAt).toBeTruthy();
+      expect(new Date(despues.lastSeenAt!).toString()).not.toBe("Invalid Date");
+    });
+
+    // Reversión verificada: quitando el `broadcastPresence` de handleConnection, este test
+    // falla por timeout.
+    it("avisa en vivo a quien conversa con esa persona", async () => {
+      const socketProfesor = await connectReady(teacher.accessToken);
+
+      const avisado = waitFor<PresenceEvent>(socketProfesor, "presence:changed");
+      const socketAcudiente = await connectReady(guardian.accessToken);
+      const payload = await avisado;
+
+      expect(payload.online).toBe(true);
+
+      socketAcudiente.disconnect();
+      socketProfesor.disconnect();
+    });
+
+    // Una pestaña cerrada no es una persona desconectada.
+    it("sigue en línea si le queda otra pestaña abierta", async () => {
+      const pestaña1 = await connectReady(guardian.accessToken);
+      const pestaña2 = await connectReady(guardian.accessToken);
+
+      pestaña1.disconnect();
+      await new Promise((resolve) => setTimeout(resolve, 800));
+
+      expect((await threadFor(teacher)).online).toBe(true);
+
+      pestaña2.disconnect();
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      expect((await threadFor(teacher)).online).toBe(false);
+    });
+  });
+
   // ─── Aislamiento del socket ─────────────────────────────────────────────────
 
   // Salas `user:{id}`: el emisor no está en `recipientUserIds`, así que no recibe su propio

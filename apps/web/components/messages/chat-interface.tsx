@@ -41,6 +41,10 @@ export interface Conversation {
   typing?: boolean
   /** Hasta cuándo leyeron los demás; determina los checks azules de los mensajes propios. */
   otherLastReadAt?: Date | null
+  /** Usuario del otro lado en un hilo directo; null en grupos. Ancla la presencia. */
+  partnerId?: string | null
+  /** Última vez que se lo vio conectado. Null = sin información (no "hoy"). */
+  lastSeenAt?: Date | null
   messages: Message[]
   role?: string
 }
@@ -194,6 +198,29 @@ export function ChatInterface({
 
   const formatMessageTime = (date: Date) => {
     return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
+  }
+
+  /**
+   * Reemplaza el literal `"última vez hoy"`, que estaba escrito a mano y se mostraba igual para
+   * alguien que no entraba hacía meses.
+   *
+   * Sin dato devuelve cadena vacía en vez de inventar: el `lastSeenAt` vive en Redis y se pierde
+   * en un reinicio, y "sin información" es la verdad. Es preferible a un texto que miente.
+   */
+  const formatLastSeen = (lastSeenAt?: Date | null) => {
+    if (!lastSeenAt) return ""
+
+    const ahora = new Date()
+    const mismoDia = lastSeenAt.toDateString() === ahora.toDateString()
+    if (mismoDia) {
+      return `última vez hoy a las ${lastSeenAt.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}`
+    }
+
+    const ayer = new Date(ahora)
+    ayer.setDate(ahora.getDate() - 1)
+    if (lastSeenAt.toDateString() === ayer.toDateString()) return "última vez ayer"
+
+    return `última vez el ${lastSeenAt.toLocaleDateString("es-CO", { day: "numeric", month: "short" })}`
   }
 
   // Actualiza un mensaje (por id) dentro de una conversación, tanto en la
@@ -608,8 +635,8 @@ export function ChatInterface({
                   {selectedConversation.typing
                     ? "escribiendo..."
                     : selectedConversation.online
-                    ? "en línea"
-                    : "última vez hoy"}
+                      ? "en línea"
+                      : formatLastSeen(selectedConversation.lastSeenAt)}
                 </p>
               </div>
               <div className="flex items-center gap-1">
