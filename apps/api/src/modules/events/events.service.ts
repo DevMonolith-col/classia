@@ -7,6 +7,7 @@ import {
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
 import { AudienceScopeService } from "../../common/audience/audience-scope.service";
+import { resolveTenantTimezone } from "../../common/time/tenant-timezone";
 import { zonedDayBounds } from "../../common/time/zoned-time";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
@@ -366,12 +367,8 @@ export class EventsService {
     };
   }
 
-  private async tenantTimezone(tenantId: string): Promise<string> {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { timezone: true },
-    });
-    return tenant?.timezone || "America/Bogota";
+  private tenantTimezone(tenantId: string): Promise<string> {
+    return resolveTenantTimezone(this.prisma, tenantId);
   }
 
   private canDeclareSchoolDayOff(actor: RequestUser) {

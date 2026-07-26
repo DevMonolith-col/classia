@@ -201,7 +201,10 @@ model AuthSession {
 
   user   User           @relation(fields: [userId], references: [id])
   tenant Tenant?        @relation(fields: [tenantId], references: [id])
-  ticket SupportTicket? @relation(fields: [ticketId], references: [id])
+  // onDelete: Restrict explícito, por la misma razón que access_sessions.approvedById:
+  // 20260720180000_auth_session_ticket_isolation lo creó como RESTRICT para que no se pueda
+  // borrar el ticket que justifica una impersonación en curso.
+  ticket SupportTicket? @relation(fields: [ticketId], references: [id], onDelete: Restrict)
 
   @@map("auth_sessions")
 }
@@ -1003,6 +1006,9 @@ model SupportTicket {
   authSessions   AuthSession[]
 
   @@index([tenantId, status])
+  // Lo crea 20260717231500_add_support_ticket_assignee_relation; estaba en la base y no
+  // declarado acá, así que `prisma migrate diff` reportaba drift permanente.
+  @@index([assigneeId])
   @@map("support_tickets")
 }
 
@@ -1050,7 +1056,12 @@ model AccessSession {
   ticket      SupportTicket @relation(fields: [ticketId], references: [id])
   tenant      Tenant        @relation(fields: [tenantId], references: [id])
   requestedBy User          @relation("AccessSessionRequestedBy", fields: [requestedById], references: [id])
-  approvedBy  User?         @relation("AccessSessionApprovedBy", fields: [approvedById], references: [id])
+  // onDelete: Restrict explícito. Prisma asume SET NULL en una relación opcional, pero
+  // 20260720170000_add_access_sessions la creó como RESTRICT a propósito: quién aprobó una
+  // impersonación es rastro de auditoría y no debe quedar en null porque se borre el usuario.
+  // Sin declararlo, el schema decía SET NULL, la base decía RESTRICT, y la próxima migración
+  // generada por Prisma habría "arreglado" el schema debilitando la base.
+  approvedBy  User?         @relation("AccessSessionApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
 
   @@index([tenantId, requestedById, status])
   @@index([ticketId])

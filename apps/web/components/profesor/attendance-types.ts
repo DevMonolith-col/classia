@@ -66,4 +66,12 @@ export type AttendanceSession = {
     subject: { id: string; name: string; code?: string | null }
   } | null
   records: AttendanceRecord[]
+  // Presente solo en la respuesta de POST /attendance/sessions: el día está marcado como no
+  // lectivo en el calendario. Advierte, no bloquea (calendario.md §9.3).
+  schoolDayOffWarning?: {
+    eventId: string
+    title: string
+    type: string
+    message: string
+  } | null
 }
