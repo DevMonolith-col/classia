@@ -106,6 +106,17 @@ Hay dos salidas y se confunden fácil:
   `BYPASSRLS`. Es un getter y no una inyección directa a propósito: cada uso deja rastro de
   "necesité el bypass" y debe poder justificarse por el nombre del método.
 
+Hay un tercer caso que parece el segundo y no lo es: **traducir una credencial a su tenant**.
+Un endpoint autenticado por token en la URL (el feed ICS del calendario, `refresh`, `logout`)
+tiene que buscar ese token en una tabla tenant-owned *para averiguar* el tenant, y eso es
+circular: sin contexto la política devuelve cero filas, y el contexto sale justo de la fila que
+no puede leer. La salida es el bypass **solo para ese lookup**, buscando por hash exacto y
+devolviendo lo mínimo (id, tenant, usuario, revocación), y de ahí en adelante todo el trabajo
+real adentro de `runWithTenant(tenantId, ...)`. Lo que no se hace nunca es leer los **datos**
+con el bypass: si el token se filtra, RLS sigue siendo la barrera de abajo. Ver
+`CalendarFeedService#resolveTokenAcrossTenants`, cuyo nombre existe para que el uso se
+justifique solo.
+
 ## Diagnosticar "devuelve cero filas"
 
 En orden de probabilidad:

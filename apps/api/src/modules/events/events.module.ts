@@ -11,5 +11,8 @@ import { EventsService } from "./events.service";
   imports: [AuditCoreModule, AudienceCoreModule, JwtModule.register({})],
   controllers: [EventsController],
   providers: [JwtAuthGuard, PermissionsGuard, EventsService],
+  // Lo consume CalendarModule para el feed ICS: el feed tiene que aplicar el mismo filtro de
+  // audiencia que GET /events, no una copia suya.
+  exports: [EventsService],
 })
 export class EventsModule {}
