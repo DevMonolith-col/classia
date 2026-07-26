@@ -49,6 +49,26 @@ export class SchedulesService {
     });
   }
 
+  /**
+   * El horario propio, para los tres portales que preguntan lo mismo con distinta cara:
+   * `/profesor/horario`, `/familia/horario` y `/alumno/horario`.
+   *
+   * Endpoint aparte y no un permiso más sobre `list()` porque `list()` es la ruta de
+   * administración: acepta `groupId`, `teacherId` y `tenantId` del query y su contrato es
+   * "listame lo que yo filtre". Darle esa puerta a una familia obliga a defender cada
+   * parámetro nuevo que alguien le agregue; acá el alcance está en el nombre.
+   */
+  async listMine(actor: RequestUser) {
+    const ownScope = await this.resolveOwnScope(actor);
+    if (!ownScope) return [];
+
+    return this.prisma.schedule.findMany({
+      where: { tenantId: actor.tenantId, ...ownScope },
+      select: this.scheduleSelect(),
+      orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+    });
+  }
+
   async findOne(scheduleId: string, actor: RequestUser) {
     const schedule = await this.prisma.schedule.findUniqueOrThrow({
       where: { id: scheduleId },
@@ -62,19 +82,15 @@ export class SchedulesService {
   }
 
   /**
-   * Filtro adicional por rol, o `null` si el actor no tiene por qué ver ningún horario.
+   * "Mi horario": las clases que el actor dicta si es profesor, las de su grupo si es alumno,
+   * las de los grupos de sus hijos si es acudiente. `null` para cualquier otro rol y para
+   * quien no tenga cómo resolverlo — un rol de profesor sin ficha `Teacher`, un alumno sin
+   * grupo, un acudiente sin hijos vinculados.
    *
-   * Existe porque `SCHEDULES_LIST` abre la ruta pero no dice **cuánto** de ella: hasta el
-   * 2026-07-26 `list()` filtraba solo por tenant, así que cualquier profesor podía listar el
-   * horario completo del colegio (y `findOne` leer el de cualquier otro). RLS no atrapa eso —
-   * es un IDOR intra-tenant, y las políticas de Postgres defienden contra el filtro olvidado,
-   * no contra el rol que pide de más.
-   *
-   * Devuelve `{}` para los roles con alcance de colegio completo (administrativos y soporte,
-   * que ya pasaron el guard del permiso). Los tres roles acotados fallan cerrado: sin ficha
-   * de profesor o sin grupo, no ven nada en vez de verlo todo.
+   * Que devuelva `null` y no `{}` es lo que hace segura a `/schedules/mine`: un endpoint
+   * llamado "mine" que ante la duda muestra el colegio entero es peor que no tenerlo.
    */
-  private async resolveRoleScope(actor: RequestUser): Promise<Prisma.ScheduleWhereInput | null> {
+  private async resolveOwnScope(actor: RequestUser): Promise<Prisma.ScheduleWhereInput | null> {
     if (actor.role === UserRole.TEACHER) {
       const teacherId = await this.audience.resolveOwnTeacherId(actor);
       return teacherId ? { teacherId } : null;
@@ -83,6 +99,31 @@ export class SchedulesService {
     if (actor.role === UserRole.STUDENT || actor.role === UserRole.GUARDIAN) {
       const groupIds = await this.audience.resolveUserGroupIds(actor);
       return groupIds.length > 0 ? { groupId: { in: groupIds } } : null;
+    }
+
+    return null;
+  }
+
+  /**
+   * Filtro adicional por rol para la ruta de administración, o `null` si el actor no tiene por
+   * qué ver ningún horario.
+   *
+   * Existe porque `SCHEDULES_LIST` abre la ruta pero no dice **cuánto** de ella: hasta el
+   * 2026-07-26 `list()` filtraba solo por tenant, así que cualquier profesor podía listar el
+   * horario completo del colegio (y `findOne` leer el de cualquier otro). RLS no atrapa eso —
+   * es un IDOR intra-tenant, y las políticas de Postgres defienden contra el filtro olvidado,
+   * no contra el rol que pide de más.
+   *
+   * Devuelve `{}` solo para los roles con alcance de colegio completo: administrativos y
+   * soporte, que ya pasaron el guard del permiso.
+   */
+  private async resolveRoleScope(actor: RequestUser): Promise<Prisma.ScheduleWhereInput | null> {
+    if (
+      actor.role === UserRole.TEACHER ||
+      actor.role === UserRole.STUDENT ||
+      actor.role === UserRole.GUARDIAN
+    ) {
+      return this.resolveOwnScope(actor);
     }
 
     return {};

@@ -317,7 +317,14 @@ export class CalendarAggregationService {
    * la que más satura: cinco clases por día por cada día del rango.
    */
   private async scheduleItems(actor: RequestUser, from: Date, to: Date): Promise<CalendarItem[]> {
-    if (!this.can(actor, PERMISSIONS.SCHEDULES_LIST)) return [];
+    // Dos permisos porque son dos rutas distintas al mismo dato: `SCHEDULES_LIST` es la de
+    // administración y `SCHEDULES_READ_SELF` la del horario propio. Hasta el 2026-07-26 acá
+    // solo se miraba la primera, así que para una familia o un alumno esta fuente devolvía
+    // vacío en silencio — nunca se notó porque ninguna UI la pedía (queda fuera de
+    // DEFAULT_CALENDAR_SOURCES por saturar la grilla mensual).
+    if (!this.can(actor, PERMISSIONS.SCHEDULES_LIST) && !this.can(actor, PERMISSIONS.SCHEDULES_READ_SELF)) {
+      return [];
+    }
 
     const roleScope = await this.resolveScheduleScope(actor);
     if (!roleScope) return [];

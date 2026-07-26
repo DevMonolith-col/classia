@@ -29,6 +29,7 @@ export const PERMISSIONS = {
   SCHEDULES_CREATE: "schedules:create",
   SCHEDULES_LIST: "schedules:list",
   SCHEDULES_READ: "schedules:read",
+  SCHEDULES_READ_SELF: "schedules:read-self", // el horario propio: mis clases, o las de mi grupo
   SCHEDULES_UPDATE: "schedules:update",
   EVENTS_CREATE: "events:create",
   EVENTS_LIST: "events:list",
@@ -475,6 +476,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.SUBJECTS_READ,
     PERMISSIONS.SCHEDULES_LIST,
     PERMISSIONS.SCHEDULES_READ,
+    PERMISSIONS.SCHEDULES_READ_SELF,
     PERMISSIONS.ATTENDANCE_CREATE,
     PERMISSIONS.ATTENDANCE_LIST,
     PERMISSIONS.ATTENDANCE_READ,
@@ -524,6 +526,9 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     // Los hijos vinculados, y nada más: sin esto el portal de familia no sabe de quién
     // está hablando y ninguna otra pantalla suya puede pedir datos por estudiante.
     PERMISSIONS.STUDENTS_READ_SELF,
+    // Solo el horario de los grupos de sus hijos, vía GET /schedules/mine. La ruta de
+    // administración (SCHEDULES_LIST) sigue cerrada para la familia.
+    PERMISSIONS.SCHEDULES_READ_SELF,
     PERMISSIONS.HOMEWORK_LIST,
     PERMISSIONS.HOMEWORK_READ,
     PERMISSIONS.MARKS_LIST,
@@ -548,6 +553,8 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     // Su propia ficha. Mismo permiso que el guardián porque es la misma pregunta
     // ("¿de qué estudiante estamos hablando?") resuelta por `resolveOwnStudentIds`.
     PERMISSIONS.STUDENTS_READ_SELF,
+    // El horario de su propio grupo. Mismo endpoint que usa la familia.
+    PERMISSIONS.SCHEDULES_READ_SELF,
     PERMISSIONS.HOMEWORK_LIST,
     PERMISSIONS.HOMEWORK_READ,
     PERMISSIONS.MARKS_LIST,
