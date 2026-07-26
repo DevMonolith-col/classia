@@ -459,7 +459,21 @@ sin eso no se está probando nada de lo que esta feature promete.
     (`chat-interface.tsx:618-624`), y renderizar el adjunto con `AttachmentPreviewDialog`
     (ya existe).
 
-**Fase 7 — Silenciar hilos**
+**Fase 7 — Silenciar hilos** · ✅ hecha el 2026-07-26
+
+> `POST /conversations/:id/mute`, el estado expuesto en la bandeja y el toggle en la cabecera
+> del chat. `ConversationMember.mutedAt` existía desde el principio y **nunca se leyó ni se
+> escribió**: era una columna muerta.
+>
+> **Silenciar apaga el aviso, no la entrega.** El mensaje sigue llegando por socket y sigue
+> contando en el hilo; lo que deja de pasar es la notificación in-app y el email. Confundir las
+> dos cosas hace que la gente pierda mensajes creyendo que solo bajó el volumen, así que hay un
+> test por cada mitad y una franja en la UI que lo dice con palabras.
+>
+> El filtro vive en `NotificationsListeners` y consulta con Prisma en vez de inyectar
+> `ConversationsService`: notificaciones es el módulo de más abajo —marks, homework, attendance,
+> announcements, calendario y mensajería le emiten— y hacerlo depender de conversations
+> invertiría esa dirección por una consulta de cinco líneas.
 20. `ConversationMember.mutedAt` ya existe y está muerto (`schema.prisma:462`). Endpoint
     de mute/unmute + respetarlo en `NotificationsListeners` (`notifications.listeners.ts:72-83`)
     para no mandar email de un hilo silenciado.

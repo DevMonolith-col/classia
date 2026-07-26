@@ -72,10 +72,30 @@ export class NotificationsListeners {
 
   @OnEvent(NOTIFICATION_EVENTS.MESSAGE_RECEIVED)
   async onMessage(event: MessageReceivedEvent) {
+    // Silenciar apaga el **aviso**, no la entrega: el mensaje igual llega por socket y sigue
+    // contando en el hilo. Lo que se saltea acá es la notificación in-app y el email
+    // (Fase 7 de chat-tiempo-real.md).
+    //
+    // Se consulta con Prisma acá en vez de inyectar ConversationsService a propósito:
+    // notificaciones es el módulo de más abajo —marks, homework, attendance, announcements,
+    // calendario y mensajería le emiten— y hacerlo depender de conversations invertiría esa
+    // dirección por una sola consulta de cinco líneas.
+    const muted = await this.prisma.conversationMember.findMany({
+      where: {
+        conversationId: event.conversationId,
+        userId: { in: event.recipientUserIds },
+        mutedAt: { not: null },
+      },
+      select: { userId: true },
+    });
+    const mutedIds = new Set(muted.map((member) => member.userId));
+    const recipientUserIds = event.recipientUserIds.filter((userId) => !mutedIds.has(userId));
+    if (recipientUserIds.length === 0) return;
+
     await this.notifications.notify({
       tenantId: event.tenantId,
       eventType: NotificationEventType.MESSAGE_RECEIVED,
-      recipientUserIds: event.recipientUserIds,
+      recipientUserIds,
       title: "Nuevo mensaje",
       body: event.preview,
       entityType: "Conversation",

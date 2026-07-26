@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from "react"
 import {
   Search,
   Plus,
+  Bell,
+  BellOff,
   MoreHorizontal,
   Send,
   Image as ImageIcon,
@@ -41,6 +43,8 @@ export interface Conversation {
   typing?: boolean
   /** Hasta cuándo leyeron los demás; determina los checks azules de los mensajes propios. */
   otherLastReadAt?: Date | null
+  /** Avisos silenciados por esta persona. Los mensajes siguen llegando. */
+  muted?: boolean
   /** Usuario del otro lado en un hilo directo; null en grupos. Ancla la presencia. */
   partnerId?: string | null
   /** Última vez que se lo vio conectado. Null = sin información (no "hoy"). */
@@ -77,6 +81,8 @@ interface ChatInterfaceProps {
   onLoadOlderMessages?: (conversationId: string) => Promise<boolean>
   /** Avisa que esta persona está escribiendo en el hilo. El debounce vive en el emisor. */
   onTyping?: (conversationId: string) => void
+  /** Silencia o reactiva los avisos del hilo. */
+  onToggleMute?: (conversationId: string, muted: boolean) => void
   onOpenConversation?: (conversationId: string) => void
   onStartConversation?: (contactId: string) => void
   onBroadcast?: (groupId: string, body: string) => Promise<void> | void
@@ -93,6 +99,7 @@ export function ChatInterface({
   onSendMessage,
   onLoadOlderMessages,
   onTyping,
+  onToggleMute,
   onOpenConversation,
   onStartConversation,
   onBroadcast,
@@ -640,11 +647,39 @@ export function ChatInterface({
                 </p>
               </div>
               <div className="flex items-center gap-1">
+                {/* Silenciar (Fase 7). ConversationMember.mutedAt existia en el schema desde el
+                    principio y nunca se leia ni se escribia. */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-full"
+                  title={
+                    selectedConversation.muted
+                      ? "Reactivar los avisos de este hilo"
+                      : "Silenciar los avisos de este hilo"
+                  }
+                  aria-label={selectedConversation.muted ? "Reactivar avisos" : "Silenciar avisos"}
+                  onClick={() =>
+                    onToggleMute?.(selectedConversation.id, !selectedConversation.muted)
+                  }
+                >
+                  {selectedConversation.muted ? (
+                    <BellOff className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <Bell className="h-5 w-5" />
+                  )}
+                </Button>
                 <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
                   <MoreHorizontal className="h-5 w-5" />
                 </Button>
               </div>
             </div>
+
+            {selectedConversation.muted && (
+              <p className="border-b border-border bg-muted/50 px-4 py-1.5 text-center text-xs text-muted-foreground">
+                Hilo silenciado: los mensajes siguen llegando, pero sin aviso.
+              </p>
+            )}
 
             {/* Messages - iOS Style Bubbles */}
             <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4" style={{

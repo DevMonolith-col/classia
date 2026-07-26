@@ -28,6 +28,12 @@ export const sendMessageSchema = z.object({
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 
+export const muteConversationSchema = z.object({
+  muted: z.boolean(),
+});
+
+export type MuteConversationInput = z.infer<typeof muteConversationSchema>;
+
 export const broadcastSchema = z.object({
   groupId: z.string().min(1),
   body: z.string().min(1).max(5000),

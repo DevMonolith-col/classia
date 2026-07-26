@@ -562,6 +562,74 @@ describe("Mensajería en tiempo real", () => {
     });
   });
 
+  // ─── Silenciar hilos (Fase 7) ───────────────────────────────────────────────
+
+  describe("silenciar", () => {
+    async function setMuted(session: LoginResponse, muted: boolean) {
+      const res = await api<{ muted: boolean }>(`/conversations/${conversationId}/mute`, {
+        method: "POST",
+        headers: authHeaders(session, true),
+        body: JSON.stringify({ muted }),
+      });
+      expect(res.status).toBe(201);
+      return res.body;
+    }
+
+    afterEach(async () => {
+      await setMuted(guardian, false);
+    });
+
+    it("guarda y expone el estado del silencio", async () => {
+      await setMuted(guardian, true);
+
+      const res = await api<Array<{ id: string; muted: boolean }>>("/conversations", {
+        headers: authHeaders(guardian),
+      });
+      expect(res.body.find((c) => c.id === conversationId)?.muted).toBe(true);
+
+      await setMuted(guardian, false);
+      const despues = await api<Array<{ id: string; muted: boolean }>>("/conversations", {
+        headers: authHeaders(guardian),
+      });
+      expect(despues.body.find((c) => c.id === conversationId)?.muted).toBe(false);
+    });
+
+    // **La distinción que define esta fase.** Silenciar apaga el aviso, NO la entrega: si el
+    // mensaje dejara de llegar, la gente perdería mensajes creyendo que solo bajó el volumen.
+    //
+    // Reversión verificada: filtrando los silenciados en `sendMessage` en vez de en el listener
+    // de notificaciones, este test falla — el mensaje no llega por socket.
+    it("un hilo silenciado sigue entregando el mensaje en vivo", async () => {
+      await setMuted(guardian, true);
+
+      const socket = await connectReady(guardian.accessToken);
+      const recibido = waitFor<IncomingMessage>(socket, "message:new");
+      await sendAs(teacher, "Mensaje a un hilo silenciado");
+
+      await expect(recibido).resolves.toMatchObject({ conversationId });
+      socket.disconnect();
+    });
+
+    // Reversión verificada: quitando el filtro de silenciados de onMessage, este test falla —
+    // el contador sube igual y la persona recibe el aviso que pidió no recibir.
+    it("no le suma no leídos ni le avisa", async () => {
+      await setMuted(guardian, true);
+
+      const antes = await api<{ count: number }>("/notifications/unread-count", {
+        headers: authHeaders(guardian),
+      });
+
+      await sendAs(teacher, "Otro mensaje silenciado");
+      // No hay ping que esperar —justamente— así que se le da margen al listener.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      const despues = await api<{ count: number }>("/notifications/unread-count", {
+        headers: authHeaders(guardian),
+      });
+      expect(despues.body.count).toBe(antes.body.count);
+    });
+  });
+
   // ─── Aislamiento del socket ─────────────────────────────────────────────────
 
   // Salas `user:{id}`: el emisor no está en `recipientUserIds`, así que no recibe su propio
