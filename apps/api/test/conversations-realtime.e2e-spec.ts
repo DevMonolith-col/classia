@@ -19,6 +19,7 @@ import { RedisService } from "../src/core/redis/redis.service";
 import { TenantRlsContextService } from "../src/core/prisma/tenant-rls-context.service";
 import { ConfigService } from "@nestjs/config";
 import {
+  ADMIN_A_EMAIL,
   type Fixtures,
   GUARDIAN_EMAIL,
   PASSWORD,
@@ -142,6 +143,22 @@ describe("Mensajería en tiempo real", () => {
     });
   }
 
+  /**
+   * Conecta y espera a que el socket esté **realmente listo para recibir**.
+   *
+   * El evento `connect` llega al cliente en cuanto se establece el namespace, pero
+   * `handleConnection` del servidor es `async`: verifica el JWT y recién después mete al socket
+   * en su sala `user:{id}`. Entre una cosa y la otra hay una ventana en la que el socket está
+   * "conectado" y todavía no pertenece a ninguna sala, así que un evento emitido en ese
+   * instante no le llega. Se descubrió acá con los tests de typing.
+   */
+  async function connectReady(token: string): Promise<Socket> {
+    const socket = connect(token);
+    await waitFor(socket, "connect");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return socket;
+  }
+
   function waitFor<T>(socket: Socket, event: string, timeoutMs = 8000): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`Timeout esperando "${event}"`)), timeoutMs);
@@ -246,6 +263,159 @@ describe("Mensajería en tiempo real", () => {
     expect(after.body.count).toBeGreaterThan(before.body.count);
 
     socket.disconnect();
+  });
+
+  // ─── Historial paginado (Fase 0, ítem 4) ────────────────────────────────────
+
+  describe("historial por cursor", () => {
+    // Suficientes para cruzar una página de 50 sin depender de lo que dejaron otros tests.
+    const TOTAL = 12;
+    const LIMIT = 5;
+
+    beforeAll(async () => {
+      for (let i = 1; i <= TOTAL; i++) {
+        await sendAs(teacher, `Histórico ${i}`);
+      }
+    }, 120_000);
+
+    type Page = { messages: Array<{ id: string; body: string }>; nextCursor: string | null };
+
+    function page(cursor?: string) {
+      const query = `limit=${LIMIT}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+      return api<Page>(`/conversations/${conversationId}/messages?${query}`, {
+        headers: authHeaders(guardian),
+      });
+    }
+
+    it("devuelve la primera página del más nuevo al más viejo", async () => {
+      const res = await page();
+      expect(res.status).toBe(200);
+      expect(res.body.messages).toHaveLength(LIMIT);
+      expect(res.body.nextCursor).toBeTruthy();
+
+      const times = res.body.messages.map((m) => m.id);
+      expect(new Set(times).size).toBe(LIMIT);
+    });
+
+    // Con `skip`/`offset` esto se rompería: el hilo crece por el final mientras se lee hacia
+    // atrás, así que la ventana se corre y un mensaje se repite o se salta.
+    it("pagina hacia atrás sin repetir ni saltarse mensajes", async () => {
+      const first = await page();
+      const second = await page(first.body.nextCursor!);
+
+      expect(second.status).toBe(200);
+      expect(second.body.messages.length).toBeGreaterThan(0);
+
+      const firstIds = new Set(first.body.messages.map((m) => m.id));
+      const repetidos = second.body.messages.filter((m) => firstIds.has(m.id));
+      expect(repetidos).toHaveLength(0);
+    });
+
+    it("llega al principio del hilo y ahí deja de haber cursor", async () => {
+      let cursor: string | null | undefined = undefined;
+      const vistos = new Set<string>();
+
+      for (let i = 0; i < 40; i++) {
+        const res: { status: number; body: Page } = await page(cursor ?? undefined);
+        expect(res.status).toBe(200);
+        for (const message of res.body.messages) vistos.add(message.id);
+        cursor = res.body.nextCursor;
+        if (cursor === null) break;
+      }
+
+      expect(cursor).toBeNull();
+      expect(vistos.size).toBeGreaterThanOrEqual(TOTAL);
+    });
+
+    // Reversión verificada: quitando el `await this.assertMember(...)` de listMessages(), este
+    // test falla — el admin de otro colegio lee el hilo entero citando su id.
+    it("no deja leer el historial de un hilo del que no sos miembro", async () => {
+      const intruso = await loginAs(ADMIN_A_EMAIL);
+      const res = await api<unknown>(`/conversations/${conversationId}/messages`, {
+        headers: authHeaders(intruso),
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  // ─── "Escribiendo..." (Fase 3) ──────────────────────────────────────────────
+
+  describe("escribiendo", () => {
+    type TypingEvent = { conversationId: string; userId: string; isTyping: boolean };
+
+    it("le avisa al otro miembro que estás escribiendo", async () => {
+      const [receptor, emisor] = await Promise.all([
+        connectReady(guardian.accessToken),
+        connectReady(teacher.accessToken),
+      ]);
+
+      const avisado = waitFor<TypingEvent>(receptor, "typing");
+      emisor.emit("typing:start", { conversationId });
+      const payload = await avisado;
+
+      expect(payload.conversationId).toBe(conversationId);
+      expect(payload.isTyping).toBe(true);
+
+      receptor.disconnect();
+      emisor.disconnect();
+    });
+
+    it("avisa también cuando deja de escribir", async () => {
+      const [receptor, emisor] = await Promise.all([
+        connectReady(guardian.accessToken),
+        connectReady(teacher.accessToken),
+      ]);
+
+      const avisado = waitFor<TypingEvent>(receptor, "typing");
+      emisor.emit("typing:stop", { conversationId });
+      expect((await avisado).isTyping).toBe(false);
+
+      receptor.disconnect();
+      emisor.disconnect();
+    });
+
+    // **El chequeo que importa de esta fase.** El `conversationId` lo manda el cliente por
+    // socket: sin validar la pertenencia en el servidor, cualquiera con sesión podría avisar
+    // que escribe en un hilo ajeno y, de paso, confirmar que ese hilo existe.
+    //
+    // Reversión verificada: quitando el `if (!others) return` de relayTyping —o sea, confiando
+    // en el conversationId del cliente— este test falla: al acudiente le llega el aviso de un
+    // intruso que no pertenece al hilo.
+    it("ignora el typing de quien no pertenece al hilo", async () => {
+      const intruso = await loginAs(ADMIN_A_EMAIL);
+      const [receptor, socketIntruso] = await Promise.all([
+        connectReady(guardian.accessToken),
+        connectReady(intruso.accessToken),
+      ]);
+
+      let avisado = false;
+      receptor.on("typing", () => {
+        avisado = true;
+      });
+
+      socketIntruso.emit("typing:start", { conversationId });
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      expect(avisado).toBe(false);
+
+      receptor.disconnect();
+      socketIntruso.disconnect();
+    });
+
+    it("el que escribe no recibe su propio aviso", async () => {
+      const emisor = await connectReady(teacher.accessToken);
+
+      let eco = false;
+      emisor.on("typing", () => {
+        eco = true;
+      });
+
+      emisor.emit("typing:start", { conversationId });
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      expect(eco).toBe(false);
+      emisor.disconnect();
+    });
   });
 
   // ─── Aislamiento del socket ─────────────────────────────────────────────────

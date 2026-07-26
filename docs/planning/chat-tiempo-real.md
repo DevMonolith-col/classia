@@ -339,7 +339,16 @@ Cada fase se cierra con: typecheck limpio (api + web), e2e verdes, y verificaci�
 navegador con **dos sesiones simultáneas** (profesor y acudiente en ventanas distintas) —
 sin eso no se está probando nada de lo que esta feature promete.
 
-**Fase 0 — Paginación (bloqueante, sin UI nueva)**
+**Fase 0 — Paginación (bloqueante, sin UI nueva)** · ✅ completa el 2026-07-26
+
+> Los ítems 1-3 ya estaban hechos antes de esta sesión (ver el recuadro de §1). Los ítems 4 y 5
+> se cerraron acá: `GET /conversations/:id/messages?cursor=&limit=` y el scroll infinito hacia
+> arriba.
+>
+> Cursor y no `skip`/`offset`: el hilo crece por el final mientras se lee hacia atrás, así que
+> con offset la ventana se corre y un mensaje se repite o se salta. Y al anteponer mensajes hay
+> que **compensar `scrollHeight`**, porque el navegador conserva `scrollTop` y el contenido se
+> desliza bajo el cursor — sin eso, cargar más te cambia de lugar en la conversación.
 1. Migración: `Conversation.lastMessageAt` + `directKey` + `@@unique([tenantId, directKey])`
    + `@@index([tenantId, lastMessageAt])`; `ConversationMessage.clientMessageId` +
    `@@unique([conversationId, clientMessageId])`. Backfill y fusión de duplicados.
@@ -401,7 +410,21 @@ sin eso no se está probando nada de lo que esta feature promete.
     **ya existe** (`notifications.controller.ts:22-25`) y **cero archivos de `apps/web` lo
     llaman** — la campanita nunca tuvo badge. Se conecta aquí y se mantiene vivo por socket.
 
-**Fase 3 — "Escribiendo..."**
+**Fase 3 — "Escribiendo..."** · ✅ hecha el 2026-07-26
+
+> `typing:start`/`typing:stop` en `ConversationsGateway`, emisor con debounce en
+> `lib/realtime.ts` y el hueco muerto de `chat-interface.tsx` por fin conectado.
+>
+> **Un handler de socket corre fuera del request**, así que `TenantRlsContextInterceptor` no
+> setea `app.tenant_id` y la consulta de pertenencia devolvía **cero filas** —no un error—: el
+> typing se descartaba siempre, en silencio. Es la tercera aparición de la misma trampa en este
+> repo (feed ICS, processors de BullMQ, y ahora sockets) y acá se pisó al escribirlo. Se
+> resuelve envolviendo la consulta en `runWithTenant(actor.tenantId, ...)`. `message:new` no la
+> sufre porque su dato viaja dentro del evento.
+>
+> El corte automático es doble a propósito: el emisor manda `typing:stop` a los 2 s de
+> inactividad, y el receptor lo apaga solo a los 4 s aunque ese stop nunca llegue. Sin lo
+> segundo, una pestaña cerrada a mitad de frase deja al otro "escribiendo..." para siempre.
 15. `typing:start`/`typing:stop` con debounce (~2s) + relay. Activa el hueco muerto de
     `chat-interface.tsx:474-476`.
 

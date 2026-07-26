@@ -3,13 +3,19 @@ import { ConfigService } from "@nestjs/config";
 import { OnEvent } from "@nestjs/event-emitter";
 import { JwtService } from "@nestjs/jwt";
 import {
+  ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 import { WsJwtGuard, verifyAndDecodeToken } from "../../common/guards/ws-jwt.guard";
+import { RequestUser } from "../../common/types/request-context";
+import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
+import { ConversationsService } from "./conversations.service";
 import {
   MessageReceivedEvent,
   NOTIFICATION_EVENTS,
@@ -49,6 +55,8 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly conversations: ConversationsService,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -102,6 +110,52 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
       this.server.to(this.userRoom(userId)).emit("message:new", {
         conversationId: event.conversationId,
         message: event.message,
+      });
+    }
+  }
+
+  /**
+   * Relay de "escribiendo..." (Fase 3). Efímero: no toca la base ni deja rastro.
+   *
+   * **La pertenencia se valida en el servidor en cada evento.** El `conversationId` lo manda el
+   * cliente por socket, y sin ese chequeo cualquiera con una sesión válida podría avisar que
+   * está escribiendo en un hilo ajeno — y, peor, descubrir que ese hilo existe. Si no es
+   * miembro, el evento se ignora en silencio: en un socket no hay a quién devolverle un 403.
+   *
+   * Va a la sala del destinatario y no a una del hilo: no hacen falta salas por conversación
+   * para esto (ver el comentario de la clase).
+   */
+  @SubscribeMessage("typing:start")
+  handleTypingStart(@ConnectedSocket() client: Socket, @MessageBody() body: { conversationId?: string }) {
+    return this.relayTyping(client, body?.conversationId, true);
+  }
+
+  @SubscribeMessage("typing:stop")
+  handleTypingStop(@ConnectedSocket() client: Socket, @MessageBody() body: { conversationId?: string }) {
+    return this.relayTyping(client, body?.conversationId, false);
+  }
+
+  private async relayTyping(client: Socket, conversationId: string | undefined, isTyping: boolean) {
+    const actor = client.data.user as RequestUser | undefined;
+    if (!actor || !conversationId) return;
+
+    // **Un handler de socket corre fuera del request**, así que `TenantRlsContextInterceptor`
+    // no seteó `app.tenant_id` y con RLS forzado la consulta de pertenencia devuelve cero filas
+    // —no un error—, o sea que el typing se descartaría siempre y en silencio. Es la misma
+    // trampa que el feed ICS y los processors de BullMQ; acá se pisó al escribirlo.
+    //
+    // `message:new` no la sufre porque su dato viaja dentro del evento, justamente para no
+    // depender del contexto acá.
+    const others = await this.tenantRlsContext.runWithTenant(actor.tenantId, () =>
+      this.conversations.resolveOtherMemberUserIds(actor, conversationId),
+    );
+    if (!others) return;
+
+    for (const userId of others) {
+      this.server.to(this.userRoom(userId)).emit("typing", {
+        conversationId,
+        userId: actor.id,
+        isTyping,
       });
     }
   }
