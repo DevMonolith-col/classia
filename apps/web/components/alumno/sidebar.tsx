@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import {
-  Home, ClipboardList, FileText, Vote, FileCheck2, CalendarDays,
+  Home, ClipboardList, FileText, Vote, FileCheck2, CalendarDays, Calendar,
   LogOut, Menu, X,
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
@@ -13,6 +13,7 @@ const navigation = [
   { name: "Mi Panel",       href: "/alumno",               icon: Home },
   { name: "Asignaciones",   href: "/alumno/asignaciones",  icon: FileText },
   { name: "Calendario",     href: "/alumno/calendario",    icon: CalendarDays },
+  { name: "Horario",        href: "/alumno/horario",       icon: Calendar },
   { name: "Calificaciones", href: "/alumno/calificaciones",icon: ClipboardList },
   { name: "Votación",       href: "/alumno/votacion",      icon: Vote },
   { name: "Certificados",   href: "/alumno/certificados",  icon: FileCheck2 },
