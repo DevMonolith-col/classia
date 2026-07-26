@@ -398,6 +398,26 @@ export class ConversationsService {
     return { status: "ok" as const };
   }
 
+  /**
+   * Silencia o reactiva un hilo (Fase 7). `ConversationMember.mutedAt` existía en el schema
+   * desde el principio y **nunca se leyó ni se escribió**: era una columna muerta.
+   *
+   * Silenciar apaga el aviso, **no la entrega**: el mensaje sigue llegando por socket y sigue
+   * contando en el hilo. Lo que deja de pasar es la notificación in-app y el email. Es la
+   * diferencia entre "no me interrumpas" y "no me lo muestres", y confundirlas hace que la
+   * gente pierda mensajes.
+   */
+  async setMuted(actor: RequestUser, conversationId: string, muted: boolean) {
+    await this.assertMember(actor, conversationId);
+
+    await this.prisma.conversationMember.update({
+      where: { conversationId_userId: { conversationId, userId: actor.id } },
+      data: { mutedAt: muted ? new Date() : null },
+    });
+
+    return { muted };
+  }
+
   async softDeleteMessage(
     actor: RequestUser,
     conversationId: string,
@@ -718,6 +738,7 @@ export class ConversationsService {
       otherParticipants,
       unreadCount,
       otherLastReadAt,
+      muted: conversation.members.some((member) => member.userId === actor.id && member.mutedAt !== null),
       // Presencia del interlocutor. En un hilo de grupo no aplica: "en línea" de un grupo no
       // significa nada, así que queda en false y la UI no lo muestra.
       online: otherParticipants.length === 1 ? (presence[otherParticipants[0].id]?.online ?? false) : false,
@@ -741,6 +762,7 @@ export class ConversationsService {
         select: {
           userId: true,
           lastReadAt: true,
+          mutedAt: true,
           user: {
             select: {
               id: true,
@@ -781,6 +803,7 @@ type ConversationWithRelations = {
   members: Array<{
     userId: string;
     lastReadAt: Date | null;
+    mutedAt: Date | null;
     user: {
       id: string;
       firstName: string;

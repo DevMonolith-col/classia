@@ -24,10 +24,12 @@ import {
   BroadcastInput,
   CreateConversationInput,
   type ListMessagesQuery,
+  type MuteConversationInput,
   SendMessageInput,
   broadcastSchema,
   createConversationSchema,
   listMessagesQuerySchema,
+  muteConversationSchema,
   sendMessageSchema,
 } from "./conversations.schemas";
 import { ConversationsService } from "./conversations.service";
@@ -98,6 +100,16 @@ export class ConversationsController {
     @CurrentUser() user: RequestUser,
   ) {
     return this.conversations.sendMessage(user, conversationId, body);
+  }
+
+  @Post(":id/mute")
+  @Permissions(PERMISSIONS.MESSAGING_READ)
+  mute(
+    @Param("id") conversationId: string,
+    @Body(new ZodValidationPipe(muteConversationSchema)) body: MuteConversationInput,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.conversations.setMuted(user, conversationId, body.muted);
   }
 
   @Post(":id/read")

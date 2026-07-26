@@ -47,6 +47,8 @@ type ApiConversation = {
   /** Hasta cuándo leyeron los demás. Null = nadie abrió el hilo todavía. */
   otherLastReadAt: string | null
   online: boolean
+  /** Avisos silenciados por quien consulta. */
+  muted: boolean
   /** Null si nunca se lo vio conectado, o si es un hilo de grupo. */
   lastSeenAt: string | null
   lastMessageAt: string
@@ -130,6 +132,7 @@ function mapConversation(conversation: ApiConversation, currentUserId: string): 
     lastMessageTime: new Date(conversation.lastMessageAt),
     unreadCount: conversation.unreadCount,
     otherLastReadAt,
+    muted: conversation.muted,
     // Solo tiene sentido en un hilo directo: "en línea" de un grupo no significa nada.
     partnerId: conversation.otherParticipants.length === 1 ? conversation.otherParticipants[0].id : null,
     online: conversation.online,
@@ -444,6 +447,27 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
     [conversations, currentUserId],
   )
 
+  const handleToggleMute = useCallback(async (conversationId: string, muted: boolean) => {
+    // Optimista: el toggle tiene que responder al toque, y si el POST falla se revierte. No hay
+    // nada que perder si sale mal, a diferencia de un mensaje.
+    setConversations((current) =>
+      current.map((c) => (c.id === conversationId ? { ...c, muted } : c)),
+    )
+
+    const res = await apiFetch(`/conversations/${conversationId}/mute`, {
+      method: "POST",
+      body: JSON.stringify({ muted }),
+      silent: true,
+    })
+
+    if (!res.ok) {
+      setConversations((current) =>
+        current.map((c) => (c.id === conversationId ? { ...c, muted: !muted } : c)),
+      )
+      toast.error("No se pudo cambiar el silencio de la conversación.")
+    }
+  }, [])
+
   const handleOpenConversation = useCallback(async (conversationId: string) => {
     await apiFetch(`/conversations/${conversationId}/read`, { method: "POST", silent: true })
   }, [])
@@ -513,6 +537,7 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
           onSendMessage={handleSendMessage}
           onLoadOlderMessages={handleLoadOlderMessages}
           onTyping={emitTyping}
+          onToggleMute={handleToggleMute}
           onOpenConversation={handleOpenConversation}
           onStartConversation={handleStartConversation}
           onBroadcast={handleBroadcast}
