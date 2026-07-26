@@ -10,7 +10,7 @@ import {
   UserCog, School, BookMarked, Mail, Briefcase, Vote, FileCheck2, Wallet
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
-import { UnreadBell } from "@/components/shared/unread-bell"
+import { NavUnreadBadge, UnreadBell } from "@/components/shared/unread-bell"
 
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super Administrador",
@@ -233,7 +233,7 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
                 onClick={() => setMobileOpen(false)}
                 title={isCollapsed ? item.name : undefined}
                 className={[
-                  "flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
+                  "relative flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
                   isCollapsed ? "justify-center px-2" : "gap-3 px-3",
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
@@ -242,6 +242,11 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
               >
                 <item.icon className="h-5 w-5 shrink-0" />
                 {!isCollapsed && <span className="truncate">{item.name}</span>}
+                {/* Unico indicador de no leidos en escritorio: el header con la campanita
+                    es lg:hidden. */}
+                {item.href?.endsWith("/notificaciones") && (
+                  <NavUnreadBadge collapsed={isCollapsed} />
+                )}
               </Link>
             )
           })}
