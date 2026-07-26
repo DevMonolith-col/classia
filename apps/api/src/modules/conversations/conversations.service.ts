@@ -205,7 +205,9 @@ export class ConversationsService {
       const message = await runInTenantTransaction(this.prisma, this.tenantRlsContext, actor.tenantId, async (tx) => {
         const created = await tx.conversationMessage.create({
           data: { conversationId, tenantId: actor.tenantId, fromId: actor.id, body: input.body },
-          select: { id: true },
+          // Antes solo traía el id. Ahora el mensaje completo viaja en el evento para que el
+          // gateway lo empuje por socket sin volver a consultarlo (ver MessageReceivedEvent).
+          select: this.messageSelect(),
         });
         await tx.conversation.update({
           where: { id: conversationId },
@@ -224,6 +226,7 @@ export class ConversationsService {
         fromUserId: actor.id,
         recipientUserIds: [recipientId],
         preview: input.body.slice(0, 120),
+        message,
       } satisfies MessageReceivedEvent);
       conversationIds.push(conversationId);
     }
@@ -315,6 +318,7 @@ export class ConversationsService {
         fromUserId: actor.id,
         recipientUserIds: otherMembers.map((member) => member.userId),
         preview: input.body.slice(0, 120),
+        message,
       } satisfies MessageReceivedEvent);
     }
 
