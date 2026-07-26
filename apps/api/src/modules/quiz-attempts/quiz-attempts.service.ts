@@ -6,6 +6,7 @@ import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
 import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
 import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
+import { MarkWriteActor, MarksService } from "../marks/marks.service";
 import { GradeAnswerInput, SaveAnswerInput } from "./quiz-attempts.schemas";
 
 @Injectable()
@@ -14,6 +15,7 @@ export class QuizAttemptsService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly tenantRlsContext: TenantRlsContextService,
+    private readonly marks: MarksService,
   ) {}
 
   async getQuiz(homeworkId: string, actor: RequestUser) {
@@ -194,7 +196,15 @@ export class QuizAttemptsService {
       });
     });
 
-    const result = await this.finalizeAttemptIfComplete(homeworkId, attemptId, student.id);
+    // El actor de la nota es el propio alumno: la nota existe porque él envió el quiz.
+    // La bitácora de la `Mark` registra eso, no un profesor que no intervino.
+    const result = await this.finalizeAttemptIfComplete(
+      homeworkId,
+      attemptId,
+      student.id,
+      { userId: actor.id, role: actor.role, ipAddress: request.ip, userAgent: request.headers["user-agent"] },
+      "STUDENT_SUBMITTED",
+    );
 
     await this.audit.record({
       tenantId: student.tenantId,
@@ -287,7 +297,13 @@ export class QuizAttemptsService {
       },
     });
 
-    const result = await this.finalizeAttemptIfComplete(homeworkId, attemptId, attempt.studentId);
+    const result = await this.finalizeAttemptIfComplete(
+      homeworkId,
+      attemptId,
+      attempt.studentId,
+      { userId: actor.id, role: actor.role, ipAddress: request.ip, userAgent: request.headers["user-agent"] },
+      "TEACHER_GRADED",
+    );
 
     await this.audit.record({
       tenantId: homework.tenantId,
@@ -304,7 +320,19 @@ export class QuizAttemptsService {
     return result;
   }
 
-  private async finalizeAttemptIfComplete(homeworkId: string, attemptId: string, studentId: string) {
+  /**
+   * `trigger` distingue las dos formas de llegar acá, que son situaciones opuestas de
+   * cara al alumno: `STUDENT_SUBMITTED` es el alumno enviando su quiz (está mirando el
+   * resultado), y `TEACHER_GRADED` es el profesor terminando de calificar la última
+   * respuesta abierta (el alumno no está). Solo la segunda le notifica.
+   */
+  private async finalizeAttemptIfComplete(
+    homeworkId: string,
+    attemptId: string,
+    studentId: string,
+    actor: MarkWriteActor,
+    trigger: "STUDENT_SUBMITTED" | "TEACHER_GRADED",
+  ) {
     const homework = await this.prisma.homework.findUniqueOrThrow({
       where: { id: homeworkId },
       select: {
@@ -312,6 +340,7 @@ export class QuizAttemptsService {
         teacherId: true,
         subjectId: true,
         title: true,
+        academicYearId: true,
         questions: { select: { id: true, type: true, points: true } },
       },
     });
@@ -350,30 +379,25 @@ export class QuizAttemptsService {
 
     if (!hasUngraded && maxScore > 0) {
       const value = Math.round((totalScore / maxScore) * 100 * 100) / 100;
-      const existingMark = await this.prisma.mark.findFirst({
-        where: { studentId, homeworkId },
-        select: { id: true },
-      });
-
-      if (existingMark) {
-        await this.prisma.mark.update({
-          where: { id: existingMark.id },
-          data: { value, maxValue: 100 },
-        });
-      } else {
-        await this.prisma.mark.create({
-          data: {
-            tenantId: homework.tenantId,
-            studentId,
-            subjectId: homework.subjectId,
-            teacherId: homework.teacherId,
-            homeworkId,
-            title: homework.title,
-            value,
-            maxValue: 100,
-          },
-        });
-      }
+      await this.marks.upsertMark(
+        {
+          tenantId: homework.tenantId,
+          studentId,
+          subjectId: homework.subjectId,
+          teacherId: homework.teacherId,
+          homeworkId,
+          // El año de la tarea; si no lo tiene, upsertMark cae al año activo del tenant.
+          academicYearId: homework.academicYearId,
+          title: homework.title,
+          value,
+          maxValue: 100,
+        },
+        actor,
+        // Solo se le avisa al alumno cuando el que cerró la calificación fue el
+        // profesor. Si el disparador fue el propio envío del alumno, él ya está
+        // viendo su puntaje en pantalla y la notificación sería ruido.
+        { notifyStudent: trigger === "TEACHER_GRADED" },
+      );
     }
 
     return attempt;

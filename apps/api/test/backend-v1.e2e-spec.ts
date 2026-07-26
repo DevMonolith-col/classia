@@ -16,6 +16,7 @@ const TEACHER_EMAIL = "teacher.e2e@classia.test";
 const GUARDIAN_EMAIL = "guardian.e2e@classia.test";
 const CLASSMATE_GUARDIAN_EMAIL = "classmate-guardian.e2e@classia.test";
 const OTHER_TEACHER_EMAIL = "other-teacher.e2e@classia.test";
+const QUIZ_STUDENT_EMAIL = "quiz-student.e2e@classia.test";
 const SUPPORT_AGENT_EMAIL = "support-agent.e2e@classia.test";
 
 type ApiResponse<T> = {
@@ -81,7 +82,18 @@ type AttendanceSessionItem = {
 };
 
 type GuardianScopingFixtures = {
+  activeYearId: string;
   ownChildHomeworkId: string;
+  ownChildSubmissionId: string;
+  quizHomeworkId: string;
+  quizStudentId: string;
+  quizStudentUserId: string;
+  quizChoiceQuestionId: string;
+  quizChoiceCorrectOptionId: string;
+  quizShortAnswerQuestionId: string;
+  autoQuizHomeworkId: string;
+  autoQuizQuestionId: string;
+  autoQuizCorrectOptionId: string;
   otherGroupHomeworkId: string;
   ownChildMarkId: string;
   classmateMarkId: string;
@@ -795,6 +807,263 @@ describe("Backend v1 e2e", () => {
     expect(deliveries2.filter((d) => d.channel === "EMAIL")).toHaveLength(0);
   });
 
+  // Regresión de un bug real (arreglado 2026-07-25): este writer no seteaba
+  // Mark.academicYearId, y como TODAS las lecturas de notas filtran por año --
+  // incluida la del boletín (report-cards.service.ts) -- la nota quedaba invisible
+  // para el alumno y no sumaba al boletín. El síntoma es "califiqué y no aparece",
+  // que no se nota probando el endpoint contra un 200.
+  it("anchors the mark to the active academic year when grading a submission", async () => {
+    const prisma = app.get(PrismaService);
+    const tenantRlsContext = app.get(TenantRlsContextService);
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: DEMO_TENANT_SLUG } });
+    const { ownChildHomeworkId, ownChildSubmissionId, ownChildStudentId, activeYearId } =
+      guardianFixtures;
+
+    // Se borra la nota ligada a esta tarea para forzar el camino de CREATE. Sin esto
+    // una corrida previa deja la nota existente y el endpoint entra por UPDATE, que
+    // también setea el año: el test pasaría sin ejercitar el camino que tenía el bug.
+    // El filtro lleva homeworkId, así que no toca la nota manual de los tests de
+    // scoping del acudiente (ownChildMarkId, sin homeworkId).
+    await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.mark.deleteMany({ where: { studentId: ownChildStudentId, homeworkId: ownChildHomeworkId } }),
+    );
+
+    const teacher = await loginAs(TEACHER_EMAIL);
+    expect(teacher.status).toBe(201);
+
+    const graded = await api<{ id: string; status: string; gradedAt: string | null }>(
+      `/homework/${ownChildHomeworkId}/submissions/${ownChildSubmissionId}/grade`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+        body: JSON.stringify({ value: 4.2, maxValue: 5, feedbackComment: "Buen trabajo, revisa el punto 3." }),
+      },
+    );
+    expect(graded.status).toBe(200);
+    expect(graded.body.status).toBe("GRADED");
+    expect(graded.body.gradedAt).not.toBeNull();
+
+    const created = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.mark.findFirst({
+        where: { studentId: ownChildStudentId, homeworkId: ownChildHomeworkId },
+      }),
+    );
+    expect(created).not.toBeNull();
+    expect(created?.academicYearId).toBe(activeYearId);
+    expect(created?.value).toBe(4.2);
+    expect(created?.maxValue).toBe(5);
+    expect(created?.comment).toBe("Buen trabajo, revisa el punto 3.");
+
+    // La consecuencia que de verdad importaba: la nota es alcanzable por el mismo
+    // filtro que usa report-cards.service.ts. Con academicYearId nulo esto daba 0.
+    const visibleForReportCard = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.mark.count({
+        where: { studentId: ownChildStudentId, academicYearId: activeYearId, isPublished: true },
+      }),
+    );
+    expect(visibleForReportCard).toBeGreaterThanOrEqual(1);
+
+    // Auditoría SOBRE LA NOTA, no solo sobre la entrega: un cambio de calificación
+    // tiene que dejar rastro en el historial de la `Mark`. Son datos de menores con
+    // retención obligatoria (Ley 1620), así que "quién cambió esta nota y cuándo"
+    // no puede depender de qué pantalla usó el profesor.
+    const markAudit = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.auditLog.findMany({ where: { entityType: "Mark", entityId: created!.id } }),
+    );
+    expect(markAudit.map((row) => row.action)).toContain("mark.created");
+
+    // MARK_PUBLISHED: el alumno se entera de su nota. `ownChild` no tiene User
+    // propio, así que el destinatario es su acudiente (ver studentAndGuardianUserIds).
+    // El listener es asíncrono -- de ahí el waitFor. entityId es el id de una nota
+    // recién creada en esta corrida, así que no puede colarse una de una corrida previa.
+    const guardianUser = await prisma.user.findUniqueOrThrow({
+      where: { email: GUARDIAN_EMAIL },
+      select: { id: true },
+    });
+    const markNotifications = await waitFor(async () => {
+      const rows = await tenantRlsContext.runWithTenant(tenant.id, () =>
+        prisma.notification.findMany({ where: { entityType: "Mark", entityId: created!.id } }),
+      );
+      return rows.length > 0 ? rows : undefined;
+    });
+    expect(markNotifications?.some((row) => row.userId === guardianUser.id)).toBe(true);
+
+    // Y el camino de UPDATE sana una nota que quedó con año nulo antes del arreglo:
+    // recalificarla la vuelve visible sin necesidad de otra migración.
+    await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.mark.update({ where: { id: created!.id }, data: { academicYearId: null } }),
+    );
+
+    const regraded = await api<{ status: string }>(
+      `/homework/${ownChildHomeworkId}/submissions/${ownChildSubmissionId}/grade`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+        body: JSON.stringify({ value: 4.8, maxValue: 5 }),
+      },
+    );
+    expect(regraded.status).toBe(200);
+
+    const healed = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.mark.findUnique({ where: { id: created!.id } }),
+    );
+    expect(healed?.academicYearId).toBe(activeYearId);
+    expect(healed?.value).toBe(4.8);
+  });
+
+  // El mismo `finalizeAttemptIfComplete` corre en dos momentos opuestos, y la nota
+  // debe nacer bien anclada en ambos: cuando el alumno envía el quiz (él está mirando
+  // el resultado) y cuando el profesor califica la última respuesta abierta (el alumno
+  // no está). Solo el segundo le notifica — la asimetría es deliberada, no un olvido.
+  it("grades a quiz through the single writer, notifying only when the teacher closes it", async () => {
+    const prisma = app.get(PrismaService);
+    const tenantRlsContext = app.get(TenantRlsContextService);
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: DEMO_TENANT_SLUG } });
+    const {
+      quizHomeworkId,
+      quizStudentId,
+      quizStudentUserId,
+      quizChoiceQuestionId,
+      quizChoiceCorrectOptionId,
+      quizShortAnswerQuestionId,
+      autoQuizHomeworkId,
+      autoQuizQuestionId,
+      autoQuizCorrectOptionId,
+      activeYearId,
+    } = guardianFixtures;
+
+    const student = await loginAs(QUIZ_STUDENT_EMAIL);
+    expect(student.status).toBe(201);
+    const studentAuth = jsonHeaders(authHeaders(student.body.accessToken));
+
+    const attempt = await api<{ id: string; status: string }>(
+      `/homework/${quizHomeworkId}/quiz/attempts`,
+      { method: "POST", headers: studentAuth },
+    );
+    expect(attempt.status).toBe(201);
+
+    // Responde bien la de selección múltiple (3 puntos) y contesta la abierta (1 punto),
+    // que queda pendiente de calificación humana.
+    for (const body of [
+      { questionId: quizChoiceQuestionId, selectedOptionId: quizChoiceCorrectOptionId },
+      { questionId: quizShortAnswerQuestionId, textAnswer: "Porque dos más dos son cuatro." },
+    ]) {
+      const saved = await api(
+        `/homework/${quizHomeworkId}/quiz/attempts/${attempt.body.id}/answers`,
+        { method: "PATCH", headers: studentAuth, body: JSON.stringify(body) },
+      );
+      expect(saved.status).toBe(200);
+    }
+
+    const submitted = await api<{ status: string }>(
+      `/homework/${quizHomeworkId}/quiz/attempts/${attempt.body.id}/submit`,
+      { method: "POST", headers: studentAuth },
+    );
+    expect(submitted.status).toBe(201);
+
+    // Con una respuesta abierta sin calificar el intento queda SUBMITTED y todavía no
+    // hay nota: la nota nace cuando ya no queda nada pendiente.
+    const afterSubmit = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.quizAttempt.findUniqueOrThrow({ where: { id: attempt.body.id } }),
+    );
+    expect(afterSubmit.status).toBe("SUBMITTED");
+    const markAfterSubmit = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.mark.findFirst({ where: { studentId: quizStudentId, homeworkId: quizHomeworkId } }),
+    );
+    expect(markAfterSubmit).toBeNull();
+
+    // El profesor califica la respuesta abierta: eso cierra el intento y crea la nota.
+    const teacher = await loginAs(TEACHER_EMAIL);
+    const gradedAnswer = await api<{ status: string; score: number | null }>(
+      `/homework/${quizHomeworkId}/quiz/attempts/${attempt.body.id}/questions/${quizShortAnswerQuestionId}/grade`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+        body: JSON.stringify({ pointsAwarded: 1 }),
+      },
+    );
+    expect(gradedAnswer.status).toBe(200);
+    expect(gradedAnswer.body.status).toBe("GRADED");
+
+    // 4/4 puntos normalizado a base 100, anclado al año, y auditado sobre la `Mark`.
+    const mark = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.mark.findFirst({ where: { studentId: quizStudentId, homeworkId: quizHomeworkId } }),
+    );
+    expect(mark).not.toBeNull();
+    expect(mark?.value).toBe(100);
+    expect(mark?.academicYearId).toBe(activeYearId);
+
+    const quizMarkAudit = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.auditLog.findMany({ where: { entityType: "Mark", entityId: mark!.id } }),
+    );
+    expect(quizMarkAudit.map((row) => row.action)).toContain("mark.created");
+
+    // Y el alumno sí se entera, porque no fue él quien cerró la calificación.
+    const notified = await waitFor(async () => {
+      const rows = await tenantRlsContext.runWithTenant(tenant.id, () =>
+        prisma.notification.findMany({ where: { entityType: "Mark", entityId: mark!.id } }),
+      );
+      return rows.length > 0 ? rows : undefined;
+    });
+    expect(notified?.some((row) => row.userId === quizStudentUserId)).toBe(true);
+
+    // ── El otro disparador: el alumno cierra la calificación él mismo ────────────
+    // Quiz sin preguntas abiertas, así que el submit() del alumno crea la nota en el
+    // acto. La nota tiene que nacer igual de bien anclada, pero SIN notificarle: ya
+    // está viendo su puntaje en la respuesta.
+    const autoAttempt = await api<{ id: string }>(
+      `/homework/${autoQuizHomeworkId}/quiz/attempts`,
+      { method: "POST", headers: studentAuth },
+    );
+    expect(autoAttempt.status).toBe(201);
+
+    const autoSaved = await api(
+      `/homework/${autoQuizHomeworkId}/quiz/attempts/${autoAttempt.body.id}/answers`,
+      {
+        method: "PATCH",
+        headers: studentAuth,
+        body: JSON.stringify({
+          questionId: autoQuizQuestionId,
+          selectedOptionId: autoQuizCorrectOptionId,
+        }),
+      },
+    );
+    expect(autoSaved.status).toBe(200);
+
+    const autoSubmitted = await api<{ status: string }>(
+      `/homework/${autoQuizHomeworkId}/quiz/attempts/${autoAttempt.body.id}/submit`,
+      { method: "POST", headers: studentAuth },
+    );
+    expect(autoSubmitted.status).toBe(201);
+    expect(autoSubmitted.body.status).toBe("GRADED");
+
+    const autoMark = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.mark.findFirst({
+        where: { studentId: quizStudentId, homeworkId: autoQuizHomeworkId },
+      }),
+    );
+    expect(autoMark).not.toBeNull();
+    expect(autoMark?.value).toBe(100);
+    expect(autoMark?.academicYearId).toBe(activeYearId);
+
+    // La nota igual queda auditada: no notificar no es lo mismo que no dejar rastro.
+    const autoMarkAudit = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.auditLog.findMany({ where: { entityType: "Mark", entityId: autoMark!.id } }),
+    );
+    expect(autoMarkAudit.map((row) => row.action)).toContain("mark.created");
+
+    // Y no hay notificación. Se espera de verdad antes de afirmar la ausencia: el
+    // listener es asíncrono y aseverar "no hay" sin darle tiempo pasaría igual con el
+    // comportamiento contrario, que es justo lo que este test tiene que distinguir.
+    const lateNotification = await waitFor(async () => {
+      const rows = await tenantRlsContext.runWithTenant(tenant.id, () =>
+        prisma.notification.findMany({ where: { entityType: "Mark", entityId: autoMark!.id } }),
+      );
+      return rows.length > 0 ? rows : undefined;
+    }, 10);
+    expect(lateNotification).toBeUndefined();
+  });
+
   async function loginAs(email: string): Promise<ApiResponse<LoginResponse>> {
     return api<LoginResponse>("/auth/login", {
       method: "POST",
@@ -813,7 +1082,7 @@ describe("Backend v1 e2e", () => {
     const body = text ? (JSON.parse(text) as T) : (undefined as T);
 
     // /auth/login está gateado por ThrottlerGuard (20/min por IP) y esta suite
-    // sola hace 19 logins. Corriendo junto con rls-cross-tenant.e2e-spec.ts
+    // sola hace 20 logins. Corriendo junto con rls-cross-tenant.e2e-spec.ts
     // (mismo proceso jest, misma IP) el cupo se agota y todo lo que venga
     // después cae en cascada con 401 por no tener token. Mismo backoff que usa
     // loginAs() en esa suite: acumulado hasta ~85s, suficiente para cruzar la
@@ -1085,10 +1354,28 @@ async function ensureGuardianScopingFixtures(
   // un año activo (seed.ts lo activa en cada corrida). Se resuelve una vez aquí
   // y se fuerza en create/update para que el fixture sea estable sin importar
   // el orden en que se corran seed y estos tests.
-  const activeYear = await prisma.academicYear.findFirst({
-    where: { tenantId: tenant.id, isActive: true },
-  });
-  const activeYearId = activeYear?.id;
+  // Se crea uno solo si NO hay ninguno activo, y con el mismo nombre que usa
+  // seed.ts ("2026", único por [tenantId, name]) para converger con el seed en vez
+  // de competirle: si el seed corre después, hace upsert sobre esta misma fila.
+  // Crear solo-cuando-no-hay evita dejar dos años activos, que volvería ambiguo el
+  // findFirst de resolveActiveYear(). Sin año activo, calificar responde 403 y el
+  // fallo del test no señalaría la causa.
+  const activeYear =
+    (await prisma.academicYear.findFirst({
+      where: { tenantId: tenant.id, isActive: true },
+    })) ??
+    (await prisma.academicYear.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name: "2026" } },
+      update: { isActive: true },
+      create: {
+        tenantId: tenant.id,
+        name: "2026",
+        startDate: new Date("2026-01-27"),
+        endDate: new Date("2026-11-27"),
+        isActive: true,
+      },
+    }));
+  const activeYearId = activeYear.id;
 
   let ownChildHomework = await prisma.homework.findFirst({
     where: { tenantId: tenant.id, groupId: sharedGroup.id, title: "Tarea Guardian E2E Propia" },
@@ -1108,6 +1395,30 @@ async function ensureGuardianScopingFixtures(
       academicYearId: activeYearId,
       title: "Tarea Guardian E2E Propia",
       dueDate: new Date("2026-08-01T00:00:00.000Z"),
+    },
+  });
+
+  // Entrega lista para calificar. El `update` la devuelve a PENDING en cada corrida:
+  // el test de calificación afirma la transición PENDING -> GRADED, y la BD de dev es
+  // compartida, así que una corrida previa la habría dejado ya calificada.
+  const ownChildSubmission = await prisma.homeworkSubmission.upsert({
+    where: {
+      homeworkId_studentId: { homeworkId: ownChildHomework.id, studentId: ownChild.id },
+    },
+    update: {
+      status: "PENDING",
+      submittedAt: new Date("2026-07-20T10:00:00.000Z"),
+      feedbackComment: null,
+      gradedAt: null,
+    },
+    create: {
+      tenantId: tenant.id,
+      homeworkId: ownChildHomework.id,
+      studentId: ownChild.id,
+      status: "PENDING",
+      attachmentKey: "guardian-e2e/entrega-propia.pdf",
+      attachmentName: "entrega-propia.pdf",
+      submittedAt: new Date("2026-07-20T10:00:00.000Z"),
     },
   });
 
@@ -1198,6 +1509,170 @@ async function ensureGuardianScopingFixtures(
     },
   });
 
+  // ── Quiz con dos preguntas: una autocalificable y una abierta ────────────────
+  // A diferencia de `ownChild`, este alumno SÍ tiene User propio: enviar un quiz
+  // requiere JWT de STUDENT (submit() resuelve el alumno desde el token), y así el
+  // destinatario de la notificación es el alumno mismo y no hay que pasar por un
+  // acudiente para observarla.
+  const quizStudentUser = await ensureUserWithMembership(prisma, {
+    tenantId: tenant.id,
+    email: QUIZ_STUDENT_EMAIL,
+    firstName: "Alumno",
+    lastName: "Quiz E2E",
+    passwordHash,
+    role: UserRole.STUDENT,
+  });
+  const quizStudent = await prisma.student.upsert({
+    where: { tenantId_documentId: { tenantId: tenant.id, documentId: "QUIZ-E2E-STUDENT" } },
+    update: { groupId: sharedGroup.id, userId: quizStudentUser.id },
+    create: {
+      tenantId: tenant.id,
+      userId: quizStudentUser.id,
+      documentId: "QUIZ-E2E-STUDENT",
+      firstName: "Alumno",
+      lastName: "Quiz E2E",
+      groupId: sharedGroup.id,
+    },
+  });
+
+  let quizHomework = await prisma.homework.findFirst({
+    where: { tenantId: tenant.id, groupId: sharedGroup.id, title: "Quiz Guardian E2E" },
+  });
+  if (quizHomework && quizHomework.academicYearId !== activeYearId) {
+    quizHomework = await prisma.homework.update({
+      where: { id: quizHomework.id },
+      data: { academicYearId: activeYearId },
+    });
+  }
+  quizHomework ??= await prisma.homework.create({
+    data: {
+      tenantId: tenant.id,
+      teacherId: teacher.id,
+      subjectId: subject.id,
+      groupId: sharedGroup.id,
+      academicYearId: activeYearId,
+      title: "Quiz Guardian E2E",
+      dueDate: new Date("2026-08-01T00:00:00.000Z"),
+    },
+  });
+
+  // Las preguntas se crean una sola vez (no hay clave única por la cual hacer upsert)
+  // y se reusan entre corridas; lo que se resetea abajo es el intento, no el quiz.
+  let quizChoiceQuestion = await prisma.question.findFirst({
+    where: { homeworkId: quizHomework.id, type: "MULTIPLE_CHOICE" },
+    include: { options: true },
+  });
+  quizChoiceQuestion ??= await prisma.question.create({
+    data: {
+      tenantId: tenant.id,
+      homeworkId: quizHomework.id,
+      type: "MULTIPLE_CHOICE",
+      text: "¿Cuánto es 2 + 2?",
+      points: 3,
+      order: 0,
+      options: {
+        create: [
+          { tenantId: tenant.id, text: "4", isCorrect: true, order: 0 },
+          { tenantId: tenant.id, text: "5", isCorrect: false, order: 1 },
+        ],
+      },
+    },
+    include: { options: true },
+  });
+  const quizChoiceCorrectOption = quizChoiceQuestion.options.find((option) => option.isCorrect);
+  if (!quizChoiceCorrectOption) {
+    throw new Error("El fixture del quiz quedó sin opción correcta.");
+  }
+
+  let quizShortAnswerQuestion = await prisma.question.findFirst({
+    where: { homeworkId: quizHomework.id, type: "SHORT_ANSWER" },
+  });
+  quizShortAnswerQuestion ??= await prisma.question.create({
+    data: {
+      tenantId: tenant.id,
+      homeworkId: quizHomework.id,
+      type: "SHORT_ANSWER",
+      text: "Explica tu razonamiento.",
+      points: 1,
+      order: 1,
+    },
+  });
+
+  // Segundo quiz, sin preguntas abiertas: al enviarlo queda GRADED en el acto y la nota
+  // nace dentro del propio submit() del alumno. Es el único camino donde se puede
+  // observar que ESE disparador no le notifica.
+  let autoQuizHomework = await prisma.homework.findFirst({
+    where: { tenantId: tenant.id, groupId: sharedGroup.id, title: "Quiz Autocalificable E2E" },
+  });
+  if (autoQuizHomework && autoQuizHomework.academicYearId !== activeYearId) {
+    autoQuizHomework = await prisma.homework.update({
+      where: { id: autoQuizHomework.id },
+      data: { academicYearId: activeYearId },
+    });
+  }
+  autoQuizHomework ??= await prisma.homework.create({
+    data: {
+      tenantId: tenant.id,
+      teacherId: teacher.id,
+      subjectId: subject.id,
+      groupId: sharedGroup.id,
+      academicYearId: activeYearId,
+      title: "Quiz Autocalificable E2E",
+      dueDate: new Date("2026-08-01T00:00:00.000Z"),
+    },
+  });
+
+  let autoQuizQuestion = await prisma.question.findFirst({
+    where: { homeworkId: autoQuizHomework.id, type: "MULTIPLE_CHOICE" },
+    include: { options: true },
+  });
+  autoQuizQuestion ??= await prisma.question.create({
+    data: {
+      tenantId: tenant.id,
+      homeworkId: autoQuizHomework.id,
+      type: "MULTIPLE_CHOICE",
+      text: "¿Capital de Colombia?",
+      points: 2,
+      order: 0,
+      options: {
+        create: [
+          { tenantId: tenant.id, text: "Bogotá", isCorrect: true, order: 0 },
+          { tenantId: tenant.id, text: "Medellín", isCorrect: false, order: 1 },
+        ],
+      },
+    },
+    include: { options: true },
+  });
+  const autoQuizCorrectOption = autoQuizQuestion.options.find((option) => option.isCorrect);
+  if (!autoQuizCorrectOption) {
+    throw new Error("El fixture del quiz autocalificable quedó sin opción correcta.");
+  }
+
+  const previousAutoAttempt = await prisma.quizAttempt.findUnique({
+    where: { homeworkId_studentId: { homeworkId: autoQuizHomework.id, studentId: quizStudent.id } },
+  });
+  if (previousAutoAttempt) {
+    await prisma.quizAnswer.deleteMany({ where: { attemptId: previousAutoAttempt.id } });
+    await prisma.quizAttempt.delete({ where: { id: previousAutoAttempt.id } });
+  }
+  await prisma.mark.deleteMany({
+    where: { studentId: quizStudent.id, homeworkId: autoQuizHomework.id },
+  });
+
+  // Reset del intento y de la nota: `QuizAttempt` es único por [homeworkId, studentId],
+  // así que sin borrarlo la segunda corrida choca con "this quiz has already been
+  // submitted". La nota se borra para que el test ejercite el camino de creación.
+  const previousAttempt = await prisma.quizAttempt.findUnique({
+    where: { homeworkId_studentId: { homeworkId: quizHomework.id, studentId: quizStudent.id } },
+  });
+  if (previousAttempt) {
+    await prisma.quizAnswer.deleteMany({ where: { attemptId: previousAttempt.id } });
+    await prisma.quizAttempt.delete({ where: { id: previousAttempt.id } });
+  }
+  await prisma.mark.deleteMany({
+    where: { studentId: quizStudent.id, homeworkId: quizHomework.id },
+  });
+
   let sharedSession = await prisma.attendanceSession.findFirst({
     where: { tenantId: tenant.id, groupId: sharedGroup.id },
   });
@@ -1263,7 +1738,18 @@ async function ensureGuardianScopingFixtures(
   });
 
   return {
+    activeYearId,
     ownChildHomeworkId: ownChildHomework.id,
+    ownChildSubmissionId: ownChildSubmission.id,
+    quizHomeworkId: quizHomework.id,
+    quizStudentId: quizStudent.id,
+    quizStudentUserId: quizStudentUser.id,
+    quizChoiceQuestionId: quizChoiceQuestion.id,
+    quizChoiceCorrectOptionId: quizChoiceCorrectOption.id,
+    quizShortAnswerQuestionId: quizShortAnswerQuestion.id,
+    autoQuizHomeworkId: autoQuizHomework.id,
+    autoQuizQuestionId: autoQuizQuestion.id,
+    autoQuizCorrectOptionId: autoQuizCorrectOption.id,
     otherGroupHomeworkId: otherGroupHomework.id,
     ownChildMarkId: ownChildMark.id,
     classmateMarkId: classmateMark.id,
