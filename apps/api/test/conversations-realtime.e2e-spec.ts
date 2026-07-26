@@ -418,6 +418,69 @@ describe("Mensajería en tiempo real", () => {
     });
   });
 
+  // ─── Checks de leído (Fase 5) ───────────────────────────────────────────────
+
+  describe("checks de leído", () => {
+    type ReadEvent = { conversationId: string; userId: string; lastReadAt: string };
+    type Conv = { id: string; otherLastReadAt: string | null };
+
+    async function conversationsOf(session: LoginResponse) {
+      const res = await api<Conv[]>("/conversations", { headers: authHeaders(session) });
+      expect(res.status).toBe(200);
+      return res.body.find((c) => c.id === conversationId)!;
+    }
+
+    // Reversión verificada: devolviendo `otherLastReadAt: null` fijo desde mapConversation,
+    // este test falla — que es el estado en el que estaba el producto, con la UI poniendo
+    // "leído" en todo por su cuenta.
+    it("expone hasta cuándo leyó el otro", async () => {
+      await api<unknown>(`/conversations/${conversationId}/read`, {
+        method: "POST",
+        headers: authHeaders(guardian),
+      });
+
+      const paraElProfesor = await conversationsOf(teacher);
+      expect(paraElProfesor.otherLastReadAt).toBeTruthy();
+      expect(new Date(paraElProfesor.otherLastReadAt!).toString()).not.toBe("Invalid Date");
+    });
+
+    // Reversión verificada: quitando el `@OnEvent(CONVERSATION_READ)` del gateway, este test
+    // falla por timeout — los checks solo se pondrían azules al recargar.
+    it("avisa en vivo cuando el otro abre el hilo", async () => {
+      const socketProfesor = await connectReady(teacher.accessToken);
+
+      const avisado = waitFor<ReadEvent>(socketProfesor, "conversation:read");
+      await api<unknown>(`/conversations/${conversationId}/read`, {
+        method: "POST",
+        headers: authHeaders(guardian),
+      });
+      const payload = await avisado;
+
+      expect(payload.conversationId).toBe(conversationId);
+      expect(payload.lastReadAt).toBeTruthy();
+
+      socketProfesor.disconnect();
+    });
+
+    it("quien lee no recibe su propio aviso", async () => {
+      const socketAcudiente = await connectReady(guardian.accessToken);
+
+      let eco = false;
+      socketAcudiente.on("conversation:read", () => {
+        eco = true;
+      });
+
+      await api<unknown>(`/conversations/${conversationId}/read`, {
+        method: "POST",
+        headers: authHeaders(guardian),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      expect(eco).toBe(false);
+      socketAcudiente.disconnect();
+    });
+  });
+
   // ─── Aislamiento del socket ─────────────────────────────────────────────────
 
   // Salas `user:{id}`: el emisor no está en `recipientUserIds`, así que no recibe su propio

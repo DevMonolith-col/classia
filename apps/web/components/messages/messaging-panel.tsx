@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { getCurrentUser } from "@/lib/auth"
 import {
+  useConversationReadEvents,
   useConversationsSocket,
   useTypingEmitter,
   useTypingEvents,
@@ -41,6 +42,8 @@ type ApiConversation = {
   participants: ApiParticipant[]
   otherParticipants: ApiParticipant[]
   unreadCount: number
+  /** Hasta cuándo leyeron los demás. Null = nadie abrió el hilo todavía. */
+  otherLastReadAt: string | null
   lastMessageAt: string
   messages: ApiMessage[]
 }
@@ -99,12 +102,16 @@ function mapConversation(conversation: ApiConversation, currentUserId: string): 
       ? `${conversation.participants.length} participantes`
       : roleLabel(other?.role)
 
+  const otherLastReadAt = conversation.otherLastReadAt
+    ? new Date(conversation.otherLastReadAt)
+    : null
+
   const messages: Message[] = conversation.messages.map((message) => ({
     id: message.id,
     content: message.body,
     timestamp: new Date(message.createdAt),
     sender: message.fromId === currentUserId ? "user" : "other",
-    status: "read",
+    status: readStatusOf(message, currentUserId, otherLastReadAt),
     type: "text",
   }))
 
@@ -117,9 +124,30 @@ function mapConversation(conversation: ApiConversation, currentUserId: string): 
     lastMessage,
     lastMessageTime: new Date(conversation.lastMessageAt),
     unreadCount: conversation.unreadCount,
+    otherLastReadAt,
     messages,
     role: role || undefined,
   }
+}
+
+/**
+ * Estado real de un mensaje propio: leído si el otro abrió el hilo **después** de que se envió.
+ *
+ * Antes esto era el literal `"read"` para todos los mensajes, así que la UI mostraba los dos
+ * checks azules siempre — incluso en un mensaje que el destinatario nunca abrió. El dato
+ * necesario (`ConversationMember.lastReadAt`) ya existía en el modelo; solo faltaba exponerlo
+ * y dejar de inventar.
+ *
+ * Para los mensajes ajenos el estado es indiferente: los checks solo se pintan en los propios.
+ */
+function readStatusOf(
+  message: ApiMessage,
+  currentUserId: string,
+  otherLastReadAt: Date | null,
+): Message["status"] {
+  if (message.fromId !== currentUserId) return "read"
+  if (!otherLastReadAt) return "delivered"
+  return otherLastReadAt.getTime() >= new Date(message.createdAt).getTime() ? "read" : "delivered"
 }
 
 function mapContact(contact: ApiContact): Contact {
@@ -290,6 +318,33 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
       timers.clear()
     }
   }, [])
+
+  /**
+   * El otro leyó: se recalculan los checks de los mensajes propios con el nuevo `lastReadAt`,
+   * sin volver a pedir nada. Antes esto no existía y todo se veía leído desde siempre.
+   */
+  useConversationReadEvents(
+    useCallback(
+      ({ conversationId, lastReadAt }) => {
+        const readAt = new Date(lastReadAt)
+        setConversations((current) =>
+          current.map((conversation) => {
+            if (conversation.id !== conversationId) return conversation
+            return {
+              ...conversation,
+              otherLastReadAt: readAt,
+              messages: conversation.messages.map((message) =>
+                message.sender === "user" && message.timestamp.getTime() <= readAt.getTime()
+                  ? { ...message, status: "read" }
+                  : message,
+              ),
+            }
+          }),
+        )
+      },
+      [],
+    ),
+  )
 
   const emitTyping = useTypingEmitter()
 

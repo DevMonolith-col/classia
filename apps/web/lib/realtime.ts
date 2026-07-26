@@ -114,6 +114,17 @@ export function useNotificationPing(onPing: () => void) {
   useRealtimeEvent<void>("notification:new", onPing)
 }
 
+export type ConversationReadEvent = {
+  conversationId: string
+  userId: string
+  lastReadAt: string
+}
+
+/** El otro abrió el hilo: los checks de los mensajes propios pasan a azul. */
+export function useConversationReadEvents(onRead: (event: ConversationReadEvent) => void) {
+  useRealtimeEvent<ConversationReadEvent>("conversation:read", onRead)
+}
+
 export type TypingEvent = {
   conversationId: string
   userId: string

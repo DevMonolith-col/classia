@@ -19,7 +19,17 @@ export const NOTIFICATION_EVENTS = {
    * evento y mensaje, no solo para el chat.
    */
   NOTIFICATION_CREATED: "notification.created",
+  /** Alguien abrió un hilo. Lo relaya el gateway para volver azules los checks del otro. */
+  CONVERSATION_READ: "conversation.read",
 } as const;
+
+export type ConversationReadEvent = {
+  conversationId: string;
+  readerUserId: string;
+  lastReadAt: Date;
+  /** Los otros miembros del hilo: a ellos les cambian los checks. */
+  recipientUserIds: string[];
+};
 
 export type MarkPublishedEvent = {
   tenantId: string;
