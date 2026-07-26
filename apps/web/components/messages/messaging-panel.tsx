@@ -22,7 +22,6 @@ import {
   type Message,
   type MessageAttachment,
 } from "@/components/messages/chat-interface"
-import { IMAGE_FILE_PATTERN } from "@/lib/upload"
 
 type ApiParticipant = {
   id: string
@@ -162,7 +161,6 @@ function mapMessage(
     timestamp: new Date(message.createdAt),
     sender: message.fromId === currentUserId ? "user" : "other",
     status: readStatusOf(message, currentUserId, otherLastReadAt),
-    type: attachment ? (IMAGE_FILE_PATTERN.test(attachment.name) ? "image" : "file") : "text",
     attachment,
   }
 }
