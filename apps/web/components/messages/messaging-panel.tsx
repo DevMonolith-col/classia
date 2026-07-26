@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { getCurrentUser } from "@/lib/auth"
+import { useConversationsSocket, type IncomingMessage } from "@/lib/realtime"
 import {
   ChatInterface,
   type BroadcastTarget,
@@ -180,6 +181,56 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
   useEffect(() => {
     void loadData()
   }, [loadData])
+
+  /**
+   * Entrega en vivo. Lo importante es lo que **no** hace: no llama a `loadData()`.
+   *
+   * Recargar la bandeja entera con cada mensaje entrante convertiría "una consulta por tecla"
+   * en "una consulta por mensaje de cualquier persona", que es peor. El mensaje llega completo
+   * dentro del evento y se inserta en el hilo que corresponde.
+   *
+   * Se suscribe acá y no en `ChatInterface` porque este componente es el dueño de los datos;
+   * `ChatInterface` sincroniza su copia local cuando cambia la prop.
+   */
+  const handleIncomingMessage = useCallback(
+    ({ conversationId, message }: IncomingMessage) => {
+      setConversations((current) =>
+        current.map((conversation) => {
+          if (conversation.id !== conversationId) return conversation
+          // Una reconexión puede reentregar algo ya visible: se deduplica por id.
+          if (conversation.messages.some((existing) => existing.id === message.id)) {
+            return conversation
+          }
+
+          const incoming: Message = {
+            id: message.id,
+            content: message.body,
+            timestamp: new Date(message.createdAt),
+            // El backend excluye al remitente de `recipientUserIds`, así que por socket solo
+            // llega lo que escribió otro. La comparación queda igual por si eso cambia.
+            sender: message.fromId === currentUserId ? "user" : "other",
+            status: "read",
+            type: "text",
+          }
+
+          return {
+            ...conversation,
+            messages: [...conversation.messages, incoming],
+            lastMessage: incoming.content,
+            lastMessageTime: incoming.timestamp,
+            // Si el hilo está abierto, la persona lo está viendo: no se le suma un no leído.
+            unreadCount:
+              conversationId === activeConversationId
+                ? conversation.unreadCount
+                : conversation.unreadCount + 1,
+          }
+        }),
+      )
+    },
+    [currentUserId, activeConversationId],
+  )
+
+  useConversationsSocket(handleIncomingMessage)
 
   const handleSendMessage = useCallback(
     async (conversationId: string, message: string): Promise<boolean> => {

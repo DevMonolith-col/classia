@@ -6,11 +6,12 @@ import { DataScopeModule } from "../../common/guards/data-scope.module";
 import { AudienceCoreModule } from "../../common/audience/audience-core.module";
 import { AuditCoreModule } from "../../core/audit/audit-core.module";
 import { ConversationsController } from "./conversations.controller";
+import { ConversationsGateway } from "./conversations.gateway";
 import { ConversationsService } from "./conversations.service";
 
 @Module({
   imports: [AuditCoreModule, AudienceCoreModule, DataScopeModule, JwtModule.register({})],
   controllers: [ConversationsController],
-  providers: [JwtAuthGuard, PermissionsGuard, ConversationsService],
+  providers: [JwtAuthGuard, PermissionsGuard, ConversationsService, ConversationsGateway],
 })
 export class ConversationsModule {}

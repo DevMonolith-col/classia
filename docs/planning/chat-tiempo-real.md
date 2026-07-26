@@ -12,6 +12,41 @@
 
 ## 1. Punto de partida
 
+> ### ⚠️ Re-auditado el 2026-07-26: esta sección está obsoleta
+>
+> El párrafo de abajo ("tiempo real hoy: cero") era cierto el 2026-07-16 y **ya no lo es**.
+> Entre esa fecha y hoy se construyó el chat de soporte B2B, que trajo consigo **toda la
+> infraestructura de tiempo real que este plan daba por inexistente**. Verificado archivo por
+> archivo:
+>
+> | Afirmación original | Estado real (2026-07-26) |
+> |---|---|
+> | "cero dependencias" | `socket.io`, `@nestjs/websockets`, `@nestjs/platform-socket.io`, `@socket.io/redis-adapter` en `apps/api`; `socket.io-client` en `apps/web` |
+> | "cero código" | `core/realtime/redis-io.adapter.ts`, `common/guards/ws-jwt.guard.ts`, `modules/support/support.gateway.ts`, `apps/web/lib/socket.ts` |
+> | Fase 1 ítem 7 (extraer CORS) | **Hecho**: `buildCorsOptions()` en `app.setup.ts`, usada por Express y por el adapter |
+> | Fase 1 ítem 8 (RedisIoAdapter) | **Hecho** y cableado en `main.ts` con `useWebSocketAdapter` |
+> | Fase 1 ítem 9 (`WsJwtGuard`) | **Hecho** |
+> | §4 "el token expira a los 15 minutos" | **Resuelto**: el gateway emite `token_expired` y `apps/web/lib/socket.ts#attachTokenRefresh` refresca y reconecta |
+> | Fase 0 ítems 1-3 (paginación) | **Hechos**: `Conversation.lastMessageAt` y `directKey` existen con su `@@unique` e índice; `listConversations` ordena y pagina en Postgres (`take: CONVERSATION_LIST_PAGE_SIZE`), los mensajes vienen acotados a `MESSAGE_PAGE_SIZE` y el `unreadCount` se calcula aparte; `getOrCreateDirectConversationId` usa `upsert` sobre `directKey` |
+>
+> **El escenario catastrófico de §2 —12.000 mensajes por tecla— ya no existe.**
+>
+> Lo que sigue pendiente, y es todo lo que queda de este plan:
+>
+> - **`ConversationsGateway` no existe.** El único gateway es el de soporte. La mensajería del
+>   colegio sigue sin tiempo real.
+> - **`ConversationMessage.clientMessageId` no existe** (§3), así que no hay con qué reconciliar
+>   el eco del socket contra el mensaje optimista.
+> - **`GET /conversations/:id/messages?cursor=` no existe** (Fase 0 ítem 4): no se puede
+>   scrollear más atrás de `MESSAGE_PAGE_SIZE`.
+> - **El frontend está intacto**: `messaging-panel.tsx` llama `loadData()` en cinco lugares,
+>   no importa ningún socket, y **nadie en `apps/web` llama a `/notifications/unread-count`**
+>   (la campanita sigue sin badge, tal como decía la Fase 2 ítem 14).
+>
+> Conclusión práctica: **este plan es hoy bastante más barato de lo que se escribió.** Las
+> fases 0 y 1 están en su mayor parte hechas, y el trabajo real empieza en el gateway de
+> conversaciones y la entrega en vivo — el corazón de la Fase 2.
+
 **Tiempo real hoy: cero.** No hay WebSocket, ni SSE, ni siquiera polling. Verificado por
 grep exhaustivo de `socket.io` / `@nestjs/websockets` / `ws` / `EventSource` /
 `text/event-stream` / `@WebSocketGateway` / `pusher` / `ably` sobre `apps/api/src`,
@@ -330,7 +365,24 @@ sin eso no se está probando nada de lo que esta feature promete.
 11. `lib/realtime.ts` en el front. Criterio de cierre de la fase: el socket conecta,
     autentica, sobrevive a un refresh de token y reconecta al caerse la red.
 
-**Fase 2 — Entrega en vivo** (el corazón: aquí deja de hacer falta el F5)
+**Fase 2 — Entrega en vivo** (el corazón: aquí deja de hacer falta el F5) · ✅ ítems 12-13 hechos el 2026-07-26
+
+> `conversations.gateway.ts`, `apps/web/lib/realtime.ts` y la inserción en `MessagingPanel`.
+> Falta el ítem 14 (badge de no leídos en vivo en los tres sidebars).
+>
+> - **El mensaje viaja dentro del evento** (`MessageReceivedEvent.message`) en vez de que el
+>   gateway lo relea de la base. Un `@OnEvent` puede resolverse fuera del contexto de tenant
+>   del request que lo emitió, y con RLS forzado esa consulta devolvería cero filas sin error:
+>   el mensaje no llegaría a nadie y no habría nada en los logs.
+> - **La verificación "con dos sesiones simultáneas" que pide este plan no se puede hacer con
+>   dos pestañas**: comparten `localStorage`, o sea la misma sesión. Se sustituyó por algo más
+>   fuerte y repetible — `test/conversations-realtime.e2e-spec.ts` levanta un **cliente
+>   socket.io real** como acudiente mientras el profesor envía por HTTP.
+> - **El adapter de Redis dejaba a jest colgado.** Los clientes pub/sub son `duplicate()` del
+>   cliente global, así que `app.close()` no los conoce. Se le agregó `disconnectFromRedis()`
+>   al adapter en vez de ponerle `--forceExit` al script de e2e, que taparía la próxima fuga.
+> - §7 ítem 1 de este plan ("el optimistic update no hace rollback") **también estaba
+>   obsoleto**: `chat-interface.tsx` ya maneja `sending`/`sent`/`failed` con `updateMessage`.
 12. `@OnEvent(MESSAGE_RECEIVED)` en el gateway → `message:new` a cada destinatario.
 13. `MessagingPanel` inserta el mensaje (sin `loadData()`), reconcilia por `clientMessageId`,
     y hace rollback del optimistic si el POST falla.

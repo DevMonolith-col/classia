@@ -45,6 +45,24 @@ export type MessageReceivedEvent = {
   fromUserId: string;
   recipientUserIds: string[];
   preview: string;
+  /**
+   * El mensaje completo, para que `ConversationsGateway` lo empuje por socket sin volver a
+   * consultarlo.
+   *
+   * No es redundancia con `preview`: ese es el texto recortado que va al email y a la
+   * notificación in-app, y esto es la fila que el cliente inserta en el hilo. Se manda en el
+   * evento en vez de que el gateway lo lea de la base porque un `@OnEvent` puede resolverse
+   * fuera del contexto de tenant del request que lo emitió, y ahí la consulta devolvería cero
+   * filas en silencio (RLS falla cerrado).
+   */
+  message: {
+    id: string;
+    fromId: string;
+    body: string;
+    attachmentKey: string | null;
+    attachmentName: string | null;
+    createdAt: Date;
+  };
 };
 
 export type AnnouncementPublishedEvent = {
