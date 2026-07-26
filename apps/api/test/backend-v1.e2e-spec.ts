@@ -105,10 +105,18 @@ type GuardianScopingFixtures = {
   otherGroupSessionId: string;
   childTeacherUserId: string;
   otherTeacherUserId: string;
+  ownScheduleId: string;
+  otherTeacherScheduleId: string;
   sharedGroupId: string;
   otherGroupId: string;
 };
 
+type ScheduleListItem = {
+  id: string;
+  dayOfWeek: number;
+  group: { id: string };
+  teacher: { id: string };
+};
 type OwnStudentItem = {
   id: string;
   firstName: string;
@@ -371,6 +379,53 @@ describe("Backend v1 e2e", () => {
     });
     expect(otherRead.status).toBe(403);
     expect(otherRead.body.message).toBe("You can only view assignments for your own children's group.");
+  });
+
+  it("scopes a TEACHER to their own schedules, and blocks reading a colleague's", async () => {
+    const teacher = await loginAs(TEACHER_EMAIL);
+    expect(teacher.status).toBe(201);
+
+    const list = await api<ScheduleListItem[]>("/schedules", {
+      headers: authHeaders(teacher.body.accessToken),
+    });
+    expect(list.status).toBe(200);
+    const listedIds = list.body.map((s) => s.id);
+    expect(listedIds).toContain(guardianFixtures.ownScheduleId);
+    expect(listedIds).not.toContain(guardianFixtures.otherTeacherScheduleId);
+
+    // El query no puede ensanchar el alcance: pedir explícitamente al otro profesor
+    // devuelve vacío en vez de sus clases.
+    const probe = await api<ScheduleListItem[]>("/schedules?groupId=" + guardianFixtures.otherGroupId, {
+      headers: authHeaders(teacher.body.accessToken),
+    });
+    expect(probe.status).toBe(200);
+    expect(probe.body).toHaveLength(0);
+
+    const ownRead = await api<ScheduleListItem>(`/schedules/${guardianFixtures.ownScheduleId}`, {
+      headers: authHeaders(teacher.body.accessToken),
+    });
+    expect(ownRead.status).toBe(200);
+
+    const otherRead = await api<ErrorResponse>(
+      `/schedules/${guardianFixtures.otherTeacherScheduleId}`,
+      { headers: authHeaders(teacher.body.accessToken) },
+    );
+    expect(otherRead.status).toBe(403);
+    expect(otherRead.body.message).toBe("You can only view schedules for your own classes.");
+  });
+
+  it("still lets the administration see the whole school's schedule", async () => {
+    const admin = await loginAs(TENANT_ADMIN_EMAIL);
+
+    const list = await api<ScheduleListItem[]>("/schedules", {
+      headers: authHeaders(admin.body.accessToken),
+    });
+    expect(list.status).toBe(200);
+    const listedIds = list.body.map((s) => s.id);
+    // El fix acota a los roles con alcance propio; el administrativo sigue viendo todo, que es
+    // lo que hace útil al módulo de horarios.
+    expect(listedIds).toContain(guardianFixtures.ownScheduleId);
+    expect(listedIds).toContain(guardianFixtures.otherTeacherScheduleId);
   });
 
   it("scopes GET /students/mine to the guardian's own children, not to their group", async () => {
@@ -1754,7 +1809,7 @@ async function ensureGuardianScopingFixtures(
   });
 
   // El teacher da clase al grupo del hijo del guardian -> es contacto válido para mensajería.
-  await findOrCreateSchedule(prisma, {
+  const ownSchedule = await findOrCreateSchedule(prisma, {
     tenantId: tenant.id,
     groupId: sharedGroup.id,
     subjectId: subject.id,
@@ -1775,7 +1830,7 @@ async function ensureGuardianScopingFixtures(
     update: { tenantId: tenant.id },
     create: { userId: otherTeacherUser.id, tenantId: tenant.id },
   });
-  await findOrCreateSchedule(prisma, {
+  const otherTeacherSchedule = await findOrCreateSchedule(prisma, {
     tenantId: tenant.id,
     groupId: otherGroup.id,
     subjectId: subject.id,
@@ -1806,6 +1861,8 @@ async function ensureGuardianScopingFixtures(
     otherGroupSessionId: otherGroupSession.id,
     childTeacherUserId: teacherUser.id,
     otherTeacherUserId: otherTeacherUser.id,
+    ownScheduleId: ownSchedule.id,
+    otherTeacherScheduleId: otherTeacherSchedule.id,
     sharedGroupId: sharedGroup.id,
     otherGroupId: otherGroup.id,
   };

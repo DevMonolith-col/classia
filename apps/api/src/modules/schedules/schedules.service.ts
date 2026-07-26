@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
+import { AudienceScopeService } from "../../common/audience/audience-scope.service";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
@@ -23,10 +24,14 @@ export class SchedulesService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly audience: AudienceScopeService,
   ) {}
 
-  list(actor: RequestUser, query: ListSchedulesQuery) {
+  async list(actor: RequestUser, query: ListSchedulesQuery) {
     const scopedTenantId = this.resolveTenantScope(actor, query.tenantId);
+
+    const roleScope = await this.resolveRoleScope(actor);
+    if (!roleScope) return [];
 
     return this.prisma.schedule.findMany({
       where: {
@@ -35,6 +40,9 @@ export class SchedulesService {
         ...(query.teacherId ? { teacherId: query.teacherId } : {}),
         ...(query.subjectId ? { subjectId: query.subjectId } : {}),
         ...(query.dayOfWeek !== undefined ? { dayOfWeek: query.dayOfWeek } : {}),
+        // Último a propósito: el alcance del rol pisa lo que haya pedido el query, nunca al
+        // revés. Un `?teacherId=` ajeno no puede ensanchar lo que el actor ya tenía permitido.
+        ...roleScope,
       },
       select: this.scheduleSelect(),
       orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
@@ -48,8 +56,56 @@ export class SchedulesService {
     });
 
     this.assertCanAccessTenant(schedule.tenantId, actor);
+    await this.assertRoleCanSee(schedule, actor);
 
     return schedule;
+  }
+
+  /**
+   * Filtro adicional por rol, o `null` si el actor no tiene por qué ver ningún horario.
+   *
+   * Existe porque `SCHEDULES_LIST` abre la ruta pero no dice **cuánto** de ella: hasta el
+   * 2026-07-26 `list()` filtraba solo por tenant, así que cualquier profesor podía listar el
+   * horario completo del colegio (y `findOne` leer el de cualquier otro). RLS no atrapa eso —
+   * es un IDOR intra-tenant, y las políticas de Postgres defienden contra el filtro olvidado,
+   * no contra el rol que pide de más.
+   *
+   * Devuelve `{}` para los roles con alcance de colegio completo (administrativos y soporte,
+   * que ya pasaron el guard del permiso). Los tres roles acotados fallan cerrado: sin ficha
+   * de profesor o sin grupo, no ven nada en vez de verlo todo.
+   */
+  private async resolveRoleScope(actor: RequestUser): Promise<Prisma.ScheduleWhereInput | null> {
+    if (actor.role === UserRole.TEACHER) {
+      const teacherId = await this.audience.resolveOwnTeacherId(actor);
+      return teacherId ? { teacherId } : null;
+    }
+
+    if (actor.role === UserRole.STUDENT || actor.role === UserRole.GUARDIAN) {
+      const groupIds = await this.audience.resolveUserGroupIds(actor);
+      return groupIds.length > 0 ? { groupId: { in: groupIds } } : null;
+    }
+
+    return {};
+  }
+
+  private async assertRoleCanSee(
+    schedule: { teacher: { id: string }; group: { id: string } },
+    actor: RequestUser,
+  ) {
+    if (actor.role === UserRole.TEACHER) {
+      const teacherId = await this.audience.resolveOwnTeacherId(actor);
+      if (teacherId !== schedule.teacher.id) {
+        throw new ForbiddenException("You can only view schedules for your own classes.");
+      }
+      return;
+    }
+
+    if (actor.role === UserRole.STUDENT || actor.role === UserRole.GUARDIAN) {
+      const groupIds = await this.audience.resolveUserGroupIds(actor);
+      if (!groupIds.includes(schedule.group.id)) {
+        throw new ForbiddenException("You can only view schedules for your own group.");
+      }
+    }
   }
 
   async create(input: CreateScheduleInput, actor: RequestUser, request: Request) {

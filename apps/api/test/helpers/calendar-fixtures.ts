@@ -22,6 +22,12 @@ export const TEACHER_2_EMAIL = "events-e2e-teacher-2@classia.test";
 export const GUARDIAN_EMAIL = "events-e2e-guardian@classia.test";
 export const STUDENT_EMAIL = "events-e2e-student@classia.test";
 export const ADMIN_B_EMAIL = "events-e2e-admin-b@classia.test";
+/**
+ * Rol TEACHER con membresía pero **sin fila `Teacher`**. Es el caso que hacía fallar abierto a
+ * la fuente `schedule` del calendario: sin ficha no hay grupos, y "no tengo grupos" se leía
+ * como "soy administrativo, mostrame el colegio entero".
+ */
+export const TEACHER_NO_PROFILE_EMAIL = "events-e2e-teacher-sin-ficha@classia.test";
 
 export type Fixtures = {
   tenantAId: string;
@@ -41,6 +47,8 @@ export type Fixtures = {
   academicYearId: string;
   /** Horario del profesor 1 en el grupo uno — para abrir sesiones de asistencia. */
   scheduleOneId: string;
+  /** Horario del profesor 2 en el grupo dos — el que el profesor 1 no debe ver. */
+  scheduleTwoId: string;
   tenantBEventId: string;
 };
 
@@ -87,6 +95,7 @@ export async function ensureFixtures(
   const guardianUser = await upsertUser(GUARDIAN_EMAIL, "Acudiente");
   const studentUser = await upsertUser(STUDENT_EMAIL, "Alumno");
   const adminBUser = await upsertUser(ADMIN_B_EMAIL, "Rector B");
+  const teacherNoProfileUser = await upsertUser(TEACHER_NO_PROFILE_EMAIL, "Profesor Sin Ficha");
 
   // Todo lo de acá para abajo toca tablas con RLS forzado, así que va dentro de
   // runWithTenant: sin contexto de tenant estas escrituras no fallan, escriben cero filas.
@@ -95,6 +104,8 @@ export async function ensureFixtures(
       [adminAUser, UserRole.TENANT_ADMIN],
       [teacher1User, UserRole.TEACHER],
       [teacher2User, UserRole.TEACHER],
+      // Deliberadamente sin `prisma.teacher` más abajo: es el rol sin ficha.
+      [teacherNoProfileUser, UserRole.TEACHER],
       [guardianUser, UserRole.GUARDIAN],
       [studentUser, UserRole.STUDENT],
     ] as const) {
@@ -125,7 +136,7 @@ export async function ensureFixtures(
     // horario el profesor no tiene grupos y todos los tests de alcance darían 403 por la
     // razón equivocada.
     const scheduleOne = await upsertSchedule(prisma, tenantA.id, groupOne.id, subject.id, teacher1.id, 1);
-    await upsertSchedule(prisma, tenantA.id, groupTwo.id, subject.id, teacher2.id, 2);
+    const scheduleTwo = await upsertSchedule(prisma, tenantA.id, groupTwo.id, subject.id, teacher2.id, 2);
 
     const guardian = await prisma.guardian.upsert({
       where: { userId: guardianUser.id },
@@ -192,6 +203,7 @@ export async function ensureFixtures(
       groupOneId: groupOne.id,
       groupTwoId: groupTwo.id,
       scheduleOneId: scheduleOne.id,
+      scheduleTwoId: scheduleTwo.id,
       teacher1Id: teacher1.id,
       subjectId: subject.id,
       studentId: student.id,
@@ -244,6 +256,7 @@ export async function ensureFixtures(
     otherStudentId: scoped.otherStudentId,
     academicYearId: scoped.academicYearId,
     scheduleOneId: scoped.scheduleOneId,
+    scheduleTwoId: scoped.scheduleTwoId,
     tenantBEventId,
   };
 }
