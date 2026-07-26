@@ -9,6 +9,7 @@ import {
   LogOut, Menu, X, Bell, ClipboardCheck, Megaphone,
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
+import { UnreadBell } from "@/components/shared/unread-bell"
 
 const ROLE_LABELS: Record<string, string> = {
   TEACHER: "Docente",
@@ -60,10 +61,7 @@ export function ProfesorSidebar({ isCollapsed, onToggle }: Props) {
           </div>
           <span className="font-bold">Classia</span>
         </div>
-        <button className="relative rounded-md p-2 text-foreground">
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
-        </button>
+        <UnreadBell href="/profesor/notificaciones" />
       </header>
 
       {/* ── Overlay móvil ──────────────────────────────────────── */}

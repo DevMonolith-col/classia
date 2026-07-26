@@ -3,9 +3,11 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { NotificationChannel, NotificationEventType } from "@prisma/client";
 import { Queue } from "bullmq";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { RequestUser } from "../../common/types/request-context";
 import { buildJobId } from "../../core/queue/job-id";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { NOTIFICATION_EVENTS, type NotificationCreatedEvent } from "./notifications.events";
 import { UpdatePreferenceInput } from "./notifications.schemas";
 
 export const NOTIFICATIONS_QUEUE = "notifications";
@@ -27,6 +29,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(NOTIFICATIONS_QUEUE) private readonly queue: Queue,
+    private readonly events: EventEmitter2,
   ) {}
 
   /**
@@ -66,6 +69,13 @@ export class NotificationsService {
       const deliveryRows = notifRows
         .filter((n) => !emailDisabled.has(n.userId))
         .map((n) => ({ id: randomUUID(), notificationId: n.id, tenantId: n.tenantId, channel: NotificationChannel.EMAIL }));
+
+      // Después de persistir, no antes: si el createMany falla, nadie debe recibir un aviso
+      // de que le llegó algo que no existe.
+      this.events.emit(NOTIFICATION_EVENTS.NOTIFICATION_CREATED, {
+        tenantId: params.tenantId,
+        recipientUserIds: recipients,
+      } satisfies NotificationCreatedEvent);
 
       if (deliveryRows.length > 0) {
         await this.prisma.notificationDelivery.createMany({ data: deliveryRows });
