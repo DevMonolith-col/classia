@@ -16,11 +16,23 @@ import {
   AlertCircle,
   RotateCw,
   ChevronRight,
+  Loader2,
+  X,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { AttachmentPreviewDialog } from "@/components/shared/attachment-preview-dialog"
+import { RemoteImage } from "@/components/shared/remote-image"
+import { IMAGE_FILE_PATTERN, uploadFile } from "@/lib/upload"
 import { cn } from "@/lib/utils"
+
+/** Archivo que acompaña a un mensaje. La clave se resuelve a URL firmada al abrirlo. */
+export interface MessageAttachment {
+  key: string
+  name: string
+}
 
 export interface Message {
   id: string
@@ -29,6 +41,17 @@ export interface Message {
   sender: "user" | "other"
   status: "sending" | "sent" | "delivered" | "read" | "failed"
   type: "text" | "image" | "file"
+  /** Null en la enorme mayoría de mensajes; presente solo si se envió un archivo. */
+  attachment?: MessageAttachment | null
+}
+
+/**
+ * Cómo se describe un mensaje en la lista de hilos. Un mensaje que es solo un archivo no tiene
+ * texto, y sin esto la conversación aparecería con la vista previa vacía.
+ */
+export function messagePreview(message: Pick<Message, "content" | "attachment">): string {
+  if (message.content) return message.content
+  return message.attachment ? `📎 ${message.attachment.name}` : ""
 }
 
 export interface Conversation {
@@ -76,7 +99,11 @@ interface ChatInterfaceProps {
   activeConversationId?: string | null
   canBroadcast?: boolean
   broadcastTargets?: BroadcastTarget[]
-  onSendMessage?: (conversationId: string, message: string) => Promise<boolean> | boolean
+  onSendMessage?: (
+    conversationId: string,
+    message: string,
+    attachment?: MessageAttachment | null,
+  ) => Promise<boolean> | boolean
   /** Carga la página anterior del hilo. Devuelve si agregó algo (false = ya no hay más). */
   onLoadOlderMessages?: (conversationId: string) => Promise<boolean>
   /** Avisa que esta persona está escribiendo en el hilo. El debounce vive en el emisor. */
@@ -118,6 +145,12 @@ export function ChatInterface({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  // Adjunto ya subido y esperando el envío: se sube al elegirlo, no al enviar, para que la
+  // demora de red ocurra mientras la persona escribe el texto.
+  const [pendingAttachment, setPendingAttachment] = useState<MessageAttachment | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [preview, setPreview] = useState<MessageAttachment | null>(null)
 
   /**
    * Trae la página anterior al llegar arriba del hilo.
@@ -248,26 +281,54 @@ export function ChatInterface({
   const deliverMessage = async (conversationId: string, message: Message) => {
     updateMessage(conversationId, message.id, { status: "sending" })
     try {
-      const ok = await onSendMessage?.(conversationId, message.content)
+      const ok = await onSendMessage?.(conversationId, message.content, message.attachment)
       updateMessage(conversationId, message.id, { status: ok === false ? "failed" : "sent" })
     } catch {
       updateMessage(conversationId, message.id, { status: "failed" })
     }
   }
 
+  /**
+   * Sube el archivo elegido y lo deja pendiente. Se sube de inmediato —y no al enviar— porque
+   * así el error de subida se ve antes de escribir el mensaje, y no como una burbuja fallida.
+   */
+  const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    // Se limpia el input para que elegir el mismo archivo dos veces vuelva a disparar el change.
+    event.target.value = ""
+    if (!file) return
+
+    setUploading(true)
+    try {
+      const uploaded = await uploadFile(file)
+      setPendingAttachment({ key: uploaded.key, name: uploaded.name })
+    } catch (err) {
+      toast.error("No se pudo adjuntar el archivo", {
+        description: err instanceof Error ? err.message : "Intenta de nuevo.",
+      })
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const handleSendMessage = () => {
-    if (!messageInput.trim() || !selectedConversation) return
+    // Un archivo sin texto es un mensaje válido; el backend acepta cuerpo vacío si hay adjunto.
+    if ((!messageInput.trim() && !pendingAttachment) || !selectedConversation) return
 
     const conversationId = selectedConversation.id
     const content = messageInput.trim()
+    const attachment = pendingAttachment
     const newMessage: Message = {
       id: `pending-${Date.now()}`,
       content,
       timestamp: new Date(),
       sender: "user",
       status: "sending",
-      type: "text",
+      type: attachment ? (IMAGE_FILE_PATTERN.test(attachment.name) ? "image" : "file") : "text",
+      attachment,
     }
+
+    const preview = messagePreview(newMessage)
 
     setConversations((prev) =>
       prev.map((c) =>
@@ -275,7 +336,7 @@ export function ChatInterface({
           ? {
               ...c,
               messages: [...c.messages, newMessage],
-              lastMessage: newMessage.content,
+              lastMessage: preview,
               lastMessageTime: newMessage.timestamp,
             }
           : c
@@ -283,10 +344,11 @@ export function ChatInterface({
     )
 
     setSelectedConversation((prev) =>
-      prev ? { ...prev, messages: [...prev.messages, newMessage], lastMessage: newMessage.content, lastMessageTime: newMessage.timestamp } : null
+      prev ? { ...prev, messages: [...prev.messages, newMessage], lastMessage: preview, lastMessageTime: newMessage.timestamp } : null
     )
 
     setMessageInput("")
+    setPendingAttachment(null)
     void deliverMessage(conversationId, newMessage)
   }
 
@@ -730,7 +792,41 @@ export function ChatInterface({
                             isLastInGroup && !isUser && "rounded-bl-[20px]"
                           )}
                         >
-                          <p className="text-[15px] leading-relaxed">{message.content}</p>
+                          {message.attachment && (
+                            <div className={cn(message.content && "mb-2")}>
+                              {IMAGE_FILE_PATTERN.test(message.attachment.name) ? (
+                                <button
+                                  onClick={() => setPreview(message.attachment ?? null)}
+                                  className={cn(
+                                    "block overflow-hidden rounded-lg border",
+                                    isUser ? "border-white/20" : "border-border"
+                                  )}
+                                >
+                                  <RemoteImage
+                                    fileKey={message.attachment.key}
+                                    alt={message.attachment.name}
+                                    className="max-h-[280px] max-w-full object-contain"
+                                  />
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => setPreview(message.attachment ?? null)}
+                                  className={cn(
+                                    "flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs transition-colors",
+                                    isUser
+                                      ? "border-white/30 bg-white/20 text-white hover:bg-white/30"
+                                      : "border-border bg-background text-foreground hover:bg-muted"
+                                  )}
+                                >
+                                  <Paperclip className="h-4 w-4 shrink-0" />
+                                  <span className="max-w-[180px] truncate">{message.attachment.name}</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {message.content && (
+                            <p className="text-[15px] leading-relaxed">{message.content}</p>
+                          )}
                           <div className={cn(
                             "mt-1 flex items-center justify-end gap-1",
                             isUser ? "text-white/70" : "text-muted-foreground"
@@ -757,9 +853,43 @@ export function ChatInterface({
 
             {/* Message Input - iOS Style */}
             <div className="border-t border-border bg-card p-3">
+              {pendingAttachment && (
+                <div className="mb-2 flex items-center gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2">
+                  {IMAGE_FILE_PATTERN.test(pendingAttachment.name) ? (
+                    <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="flex-1 truncate text-xs text-foreground">{pendingAttachment.name}</span>
+                  <button
+                    onClick={() => setPendingAttachment(null)}
+                    className="text-muted-foreground transition-colors hover:text-foreground"
+                    aria-label="Quitar el archivo adjunto"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
               <div className="flex items-end gap-2">
-                <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0 rounded-full text-blue-500">
-                  <Plus className="h-6 w-6" />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileSelected}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 rounded-full text-blue-500"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Adjuntar un archivo"
+                >
+                  {uploading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Plus className="h-6 w-6" />
+                  )}
                 </Button>
                 <div className="relative flex-1">
                   <Input
@@ -777,7 +907,7 @@ export function ChatInterface({
                 <Button
                   size="icon"
                   className="h-9 w-9 shrink-0 rounded-full bg-blue-500 hover:bg-blue-600"
-                  disabled={!messageInput.trim()}
+                  disabled={!messageInput.trim() && !pendingAttachment}
                   onClick={handleSendMessage}
                 >
                   <Send className="h-4 w-4" />
@@ -799,6 +929,13 @@ export function ChatInterface({
           </div>
         )}
       </div>
+
+      <AttachmentPreviewDialog
+        open={preview !== null}
+        onOpenChange={(open) => !open && setPreview(null)}
+        fileKey={preview?.key ?? null}
+        fileName={preview?.name ?? null}
+      />
     </div>
   )
 }

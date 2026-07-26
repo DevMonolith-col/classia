@@ -36,7 +36,14 @@ type LoginResponse = {
 
 type IncomingMessage = {
   conversationId: string;
-  message: { id: string; fromId: string; body: string; createdAt: string };
+  message: {
+    id: string;
+    fromId: string;
+    body: string;
+    attachmentKey: string | null;
+    attachmentName: string | null;
+    createdAt: string;
+  };
 };
 
 describe("Mensajería en tiempo real", () => {
@@ -627,6 +634,122 @@ describe("Mensajería en tiempo real", () => {
         headers: authHeaders(guardian),
       });
       expect(despues.body.count).toBe(antes.body.count);
+    });
+  });
+
+  // ─── Adjuntos (Fase 6) ──────────────────────────────────────────────────────
+
+  describe("adjuntos", () => {
+    // La clave no se sube a MinIO en estos tests: `sendMessage` guarda la referencia y no toca el
+    // almacenamiento —quien la resuelve es `GET /files/url`, que ya tiene sus propios tests. Lo
+    // que se prueba acá es el contrato del mensaje, así que basta con una clave con la forma
+    // correcta. El prefijo `tenants/{tenantId}/` sí es parte del contrato y se afirma abajo.
+    function keyFor(tenantId: string, name: string) {
+      return `tenants/${tenantId}/00000000-0000-4000-8000-000000000000-${name}`;
+    }
+
+    type SentMessage = { id: string; attachmentKey: string | null; attachmentName: string | null };
+
+    async function post(session: LoginResponse, payload: Record<string, unknown>) {
+      const res = await api<SentMessage & { message?: unknown }>(
+        `/conversations/${conversationId}/messages`,
+        { method: "POST", headers: authHeaders(session, true), body: JSON.stringify(payload) },
+      );
+      if (res.status === 201) createdMessageIds.push(res.body.id);
+      return res;
+    }
+
+    // Reversión verificada: devolviendo `body: z.string().min(1)` en `sendMessageSchema`, este
+    // test falla con 400 — que es lo que pasaba antes y por lo que un archivo sin comentario era
+    // imposible de enviar.
+    it("acepta un mensaje que es solo un archivo, sin texto", async () => {
+      const key = keyFor(fixtures.tenantAId, "circular.pdf");
+      const res = await post(teacher, {
+        body: "",
+        attachmentKey: key,
+        attachmentName: "circular.pdf",
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.attachmentKey).toBe(key);
+      expect(res.body.attachmentName).toBe("circular.pdf");
+    });
+
+    // Reversión verificada: quitando el primer `.refine`, este test devuelve 201 y falla — se
+    // podrían crear mensajes completamente vacíos, que en la lista de hilos se ven como una
+    // conversación sin último mensaje.
+    it("rechaza un mensaje sin texto y sin archivo", async () => {
+      const res = await post(teacher, { body: "   " });
+      expect(res.status).toBe(400);
+    });
+
+    // Reversión verificada: quitando el segundo `.refine`, esto pasa a 201 y el mensaje queda con
+    // un archivo que la UI no puede ni etiquetar ni decidir cómo abrir.
+    it("rechaza una clave de archivo sin nombre", async () => {
+      const res = await post(teacher, {
+        body: "Mirá esto",
+        attachmentKey: keyFor(fixtures.tenantAId, "sin-nombre.pdf"),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    // Reversión verificada: quitando la comprobación del prefijo en `sendMessage`, esto devuelve
+    // 201 y el mensaje queda apuntando a un archivo de otro colegio.
+    //
+    // No sería una fuga —`FilesService` exige el mismo prefijo al firmar la URL— pero sí un
+    // adjunto que nadie puede abrir, y el error aparecería recién al hacer clic.
+    it("rechaza una clave de archivo de otro colegio", async () => {
+      const res = await post(teacher, {
+        body: "",
+        attachmentKey: keyFor(fixtures.tenantBId, "ajeno.pdf"),
+        attachmentName: "ajeno.pdf",
+      });
+      expect(res.status).toBe(403);
+    });
+
+    // Reversión verificada: sacando `attachmentKey`/`attachmentName` de `messageSelect()`, este
+    // test falla — y el destinatario vería una burbuja vacía hasta recargar la página, porque el
+    // frontend arma el mensaje con lo que trae el evento y no vuelve a pedirlo.
+    it("el adjunto viaja en el evento de socket", async () => {
+      const socket = await connectReady(guardian.accessToken);
+      const recibido = waitFor<IncomingMessage>(socket, "message:new");
+
+      const key = keyFor(fixtures.tenantAId, "foto-del-acto.jpg");
+      await post(teacher, { body: "", attachmentKey: key, attachmentName: "foto-del-acto.jpg" });
+
+      const payload = await recibido;
+      expect(payload.message.attachmentKey).toBe(key);
+      expect(payload.message.attachmentName).toBe("foto-del-acto.jpg");
+
+      socket.disconnect();
+    });
+
+    // Reversión verificada: volviendo a `preview: input.body.slice(0, 120)`, la notificación
+    // llega con el cuerpo vacío y este test falla. Se ve en la campanita como un aviso en blanco.
+    //
+    // El nombre del archivo lleva un sufijo único por corrida, y **eso es lo que hace que el test
+    // sirva**: con un nombre fijo pasaba igual al revertir el arreglo, porque encontraba la
+    // notificación que había dejado una corrida anterior. Las notificaciones no se limpian entre
+    // corridas —el `afterAll` solo borra mensajes— así que buscar por un texto reutilizable no
+    // prueba nada sobre el mensaje que este test acaba de enviar.
+    it("la notificación de un mensaje sin texto describe el archivo", async () => {
+      const nombre = `boletin-${Date.now()}.pdf`;
+      const socket = await connectReady(guardian.accessToken);
+      const pinged = waitFor(socket, "notification:new");
+
+      await post(teacher, {
+        body: "",
+        attachmentKey: keyFor(fixtures.tenantAId, nombre),
+        attachmentName: nombre,
+      });
+      await pinged;
+      socket.disconnect();
+
+      const res = await api<Array<{ body: string }>>("/notifications", {
+        headers: authHeaders(guardian),
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.some((item) => item.body === `Archivo adjunto: ${nombre}`)).toBe(true);
     });
   });
 

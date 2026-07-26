@@ -3,7 +3,7 @@
 import { useRef, useState } from "react"
 import { FileText, Loader2, Paperclip, X } from "lucide-react"
 import { toast } from "sonner"
-import { apiFetch } from "@/lib/api-client"
+import { uploadFile } from "@/lib/upload"
 import { Button } from "@/components/ui/button"
 
 export type UploadedFileValue = {
@@ -36,22 +36,7 @@ export function FileUploadField({ value, onChange, accept, disabled }: Props) {
 
     setUploading(true)
     try {
-      const formData = new FormData()
-      formData.append("file", file)
-
-      const res = await apiFetch("/files", {
-        method: "POST",
-        body: formData,
-        silent: true,
-      })
-
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { message?: string | string[] }
-        const message = Array.isArray(body.message) ? body.message.join(" ") : body.message
-        throw new Error(message || "No se pudo subir el archivo.")
-      }
-
-      const data = (await res.json()) as { key: string; name: string; size: number }
+      const data = await uploadFile(file)
       setSizeLabel(formatSize(data.size))
       onChange({ key: data.key, name: data.name })
       toast.success("Archivo subido", { description: data.name })

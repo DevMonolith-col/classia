@@ -297,6 +297,15 @@ export class ConversationsService {
       throw new ForbiddenException("Esta conversación está archivada.");
     }
 
+    // La clave del adjunto la elige el cliente: viene de una subida previa a `POST /files`, que
+    // la emite como `tenants/{tenantId}/...`. Sin esta comprobación se podría guardar en el
+    // mensaje la clave de otro colegio. No sería una fuga —`FilesService#getDownloadUrl` exige
+    // el mismo prefijo al abrirla— pero sí un adjunto muerto que nadie puede descargar, y
+    // rechazarlo al enviar es mucho más fácil de entender que un 403 al hacer clic.
+    if (input.attachmentKey && !input.attachmentKey.startsWith(`tenants/${actor.tenantId}/`)) {
+      throw new ForbiddenException("El archivo adjunto no pertenece a este colegio.");
+    }
+
     const message = await runInTenantTransaction(this.prisma, this.tenantRlsContext, actor.tenantId, async (tx) => {
       const created = await tx.conversationMessage.create({
         data: {
@@ -332,7 +341,12 @@ export class ConversationsService {
         messageId: message.id,
         fromUserId: actor.id,
         recipientUserIds: otherMembers.map((member) => member.userId),
-        preview: input.body.slice(0, 120),
+        // Un mensaje que es solo un archivo no tiene texto que previsualizar; sin esto la
+        // notificación llegaría con el cuerpo vacío.
+        preview:
+          input.body.trim().length > 0
+            ? input.body.slice(0, 120)
+            : `Archivo adjunto: ${input.attachmentName}`,
         message,
       } satisfies MessageReceivedEvent);
     }
