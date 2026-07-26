@@ -113,3 +113,50 @@ export function useConversationsSocket(onMessage: (event: IncomingMessage) => vo
 export function useNotificationPing(onPing: () => void) {
   useRealtimeEvent<void>("notification:new", onPing)
 }
+
+export type TypingEvent = {
+  conversationId: string
+  userId: string
+  isTyping: boolean
+}
+
+/** Avisos de "escribiendo..." de los hilos en los que participa esta persona. */
+export function useTypingEvents(onTyping: (event: TypingEvent) => void) {
+  useRealtimeEvent<TypingEvent>("typing", onTyping)
+}
+
+/**
+ * Emisor de "escribiendo..." con corte automático.
+ *
+ * Dos cosas que evitan inundar el socket: solo se manda `typing:start` en el primer tecleo de
+ * una ráfaga (no en cada letra), y siempre se programa un `typing:stop` a los 2 s. Sin ese
+ * corte, quien escribe una frase y se va a hacer otra cosa queda "escribiendo..." para siempre
+ * del otro lado.
+ */
+export function useTypingEmitter() {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const activeRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  return (conversationId: string) => {
+    const socket = shared
+    if (!socket) return
+
+    if (activeRef.current !== conversationId) {
+      socket.emit("typing:start", { conversationId })
+      activeRef.current = conversationId
+    }
+
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => {
+      socket.emit("typing:stop", { conversationId })
+      activeRef.current = null
+      timerRef.current = null
+    }, 2000)
+  }
+}
