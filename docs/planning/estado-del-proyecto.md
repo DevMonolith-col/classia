@@ -166,7 +166,15 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
 - `configuracion`: sin conectar.
 - `horario`: **conectado** el 2026-07-26 contra `GET /schedules/mine`, con la vista extraída
   a `components/shared/schedule/portal-schedule-page.tsx` y reusada por familia y alumno.
-- `page.tsx` (Mi Panel): ya conectado, pero calcula los pendientes por calificar con un **fan-out N+1** (`GET /homework` y luego un `GET /homework/:id/submissions` por cada tarea).
+- `page.tsx` (Mi Panel): conectado, y el **fan-out N+1 de los pendientes por calificar se
+  eliminó el 2026-07-26**. Pedía `GET /homework/:id/submissions` por cada tarea para contar algo
+  que ya venía en los `_count` de `GET /homework` (`submissions - marks`); el fan-out se había
+  vuelto caro ese mismo día, cuando esa ruta pasó a devolver el roster completo del curso en vez
+  de solo las entregas (~2 KB con 3 alumnos, ~20 KB con 35, **por tarea**). Medido en el
+  navegador: de 1 petición a 0 con el fixture actual, y de N a 0 en general.
+  **Queda un segundo fan-out** en la misma pantalla: `GET /students?groupId=` una vez por grupo
+  del profesor. Es mucho más chico (acotado por el número de grupos, no de tareas) y no hay hoy
+  un endpoint que acepte varios grupos, así que se dejó a conciencia.
 
 ### Otros
 - `/registro`: formulario de planes estático, no crea un tenant real (el endpoint `POST /tenants` existe pero requiere permiso de administrador — no hay alta autoservicio).
