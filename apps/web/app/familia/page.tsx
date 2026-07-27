@@ -1,12 +1,11 @@
 "use client"
 
 // Pasa a client component el 2026-07-26: el card "Próximos Eventos" dejó de ser un array
-// hardcodeado y ahora consulta la API. El resto de la pantalla sigue siendo maqueta.
-import { useEffect, useState } from "react"
+// hardcodeado y ahora consulta la API. Ese mismo día cae el resto de la maqueta — el
+// estudiante, los indicadores, las notas recientes, las tareas próximas y las notificaciones.
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
-  TrendingUp,
-  TrendingDown,
   Calendar,
   FileText,
   MessageSquare,
@@ -20,91 +19,39 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { apiFetch } from "@/lib/api-client"
 
-const studentInfo = {
-  name: "María García López",
-  grade: "5to Grado A",
-  avatar: "MG",
-  teacher: "Prof. Juan López",
+type OwnStudent = {
+  id: string
+  firstName: string
+  lastName: string
+  group: { id: string; name: string } | null
 }
 
-const quickStats = [
-  {
-    title: "Promedio General",
-    value: "91.4",
-    change: "+2.3",
-    trend: "up",
-    subtitle: "vs. periodo anterior",
-  },
-  {
-    title: "Asistencia",
-    value: "96%",
-    change: "+1%",
-    trend: "up",
-    subtitle: "este mes",
-  },
-  {
-    title: "Tareas Entregadas",
-    value: "18/20",
-    change: "-2",
-    trend: "down",
-    subtitle: "pendientes",
-  },
-]
+type Mark = {
+  id: string
+  title: string
+  value: number
+  maxValue: number
+  date: string
+  subject: { id: string; name: string }
+}
 
-const recentGrades = [
-  {
-    id: 1,
-    subject: "Matemáticas",
-    assignment: "Examen Parcial 2",
-    grade: 95,
-    date: "Hoy",
-  },
-  {
-    id: 2,
-    subject: "Español",
-    assignment: "Ensayo Literario",
-    grade: 88,
-    date: "Ayer",
-  },
-  {
-    id: 3,
-    subject: "Ciencias",
-    assignment: "Proyecto Ecosistemas",
-    grade: 92,
-    date: "10 Mar",
-  },
-  {
-    id: 4,
-    subject: "Historia",
-    assignment: "Cuestionario Cap. 5",
-    grade: 85,
-    date: "8 Mar",
-  },
-]
+type Homework = {
+  id: string
+  title: string
+  dueDate: string
+  subject: { id: string; name: string }
+}
 
-const pendingTasks = [
-  {
-    id: 1,
-    subject: "Matemáticas",
-    title: "Ejercicios: Fracciones mixtas",
-    dueDate: "Mañana",
-    status: "pending",
-  },
-  {
-    id: 2,
-    subject: "Español",
-    title: "Lectura: Capítulo 8",
-    dueDate: "14 Mar",
-    status: "pending",
-  },
-  {
-    id: 3,
-    subject: "Ciencias",
-    title: "Investigación: Energías renovables",
-    dueDate: "18 Mar",
-    status: "in-progress",
-  },
-]
+type AttendanceRecord = { studentId: string; status: string }
+type AttendanceSession = { id: string; date: string; records: AttendanceRecord[] }
+
+type NotificationItem = {
+  id: string
+  title: string
+  body: string
+  isRead: boolean
+  createdAt: string
+}
 
 // Los próximos eventos ya no son un array hardcodeado: salen de GET /events, filtrados por el
 // backend según la audiencia del acudiente (rol y grupos de sus hijos).
@@ -144,29 +91,27 @@ function useUpcomingEvents() {
   return { events, loading, error }
 }
 
-const notifications = [
-  {
-    id: 1,
-    type: "grade",
-    message: "Nueva calificación en Matemáticas: 95",
-    time: "Hace 2 horas",
-    read: false,
-  },
-  {
-    id: 2,
-    type: "message",
-    message: "Mensaje de Prof. López",
-    time: "Hace 5 horas",
-    read: false,
-  },
-  {
-    id: 3,
-    type: "event",
-    message: "Recordatorio: Reunión de padres el 15 de marzo",
-    time: "Ayer",
-    read: true,
-  },
-]
+/** Notas normalizadas a base 100: un 8/10 y un 80/100 son el mismo desempeño. */
+function percentOf(mark: Mark) {
+  if (!mark.maxValue) return 0
+  return (mark.value / mark.maxValue) * 100
+}
+
+function relativeDate(iso: string) {
+  const date = new Date(iso)
+  const days = Math.floor((Date.now() - date.getTime()) / 86_400_000)
+  if (days <= 0) return "Hoy"
+  if (days === 1) return "Ayer"
+  return date.toLocaleDateString("es-CO", { day: "numeric", month: "short" })
+}
+
+function dueLabel(iso: string) {
+  const date = new Date(iso)
+  const days = Math.ceil((date.getTime() - Date.now()) / 86_400_000)
+  if (days <= 0) return "Hoy"
+  if (days === 1) return "Mañana"
+  return date.toLocaleDateString("es-CO", { day: "numeric", month: "short" })
+}
 
 export default function FamiliaDashboardPage() {
   const {
@@ -174,6 +119,93 @@ export default function FamiliaDashboardPage() {
     loading: upcomingLoading,
     error: upcomingError,
   } = useUpcomingEvents()
+
+  const [student, setStudent] = useState<OwnStudent | null>(null)
+  const [marks, setMarks] = useState<Mark[]>([])
+  const [homework, setHomework] = useState<Homework[]>([])
+  const [sessions, setSessions] = useState<AttendanceSession[]>([])
+  const [notifications, setNotifications] = useState<NotificationItem[]>([])
+
+  const load = useCallback(async () => {
+    const studentsRes = await apiFetch("/students/mine", { silent: true })
+    if (!studentsRes.ok) return
+    const own = (await studentsRes.json()) as OwnStudent[]
+    // El dashboard es un resumen, así que muestra al primer hijo. El selector para elegir
+    // entre varios vive en cada pantalla de detalle.
+    const first = own[0]
+    if (!first) return
+    setStudent(first)
+
+    const [marksRes, homeworkRes, sessionsRes, notificationsRes] = await Promise.all([
+      apiFetch(`/marks?studentId=${first.id}`, { silent: true }),
+      apiFetch("/homework", { silent: true }),
+      apiFetch("/attendance/sessions", { silent: true }),
+      apiFetch("/notifications", { silent: true }),
+    ])
+
+    if (marksRes.ok) setMarks((await marksRes.json()) as Mark[])
+    if (sessionsRes.ok) setSessions((await sessionsRes.json()) as AttendanceSession[])
+    if (notificationsRes.ok) {
+      const payload = (await notificationsRes.json()) as NotificationItem[] | { items: NotificationItem[] }
+      setNotifications(Array.isArray(payload) ? payload : payload.items ?? [])
+    }
+    if (homeworkRes.ok) setHomework((await homeworkRes.json()) as Homework[])
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const average = useMemo(() => {
+    if (marks.length === 0) return null
+    return marks.reduce((sum, mark) => sum + percentOf(mark), 0) / marks.length
+  }, [marks])
+
+  const attendanceRate = useMemo(() => {
+    const records = sessions
+      .flatMap((session) => session.records)
+      .filter((record) => record.studentId === student?.id)
+    if (records.length === 0) return null
+    return (records.filter((r) => r.status === "PRESENT").length / records.length) * 100
+  }, [sessions, student])
+
+  const upcomingTasks = useMemo(() => {
+    return homework
+      .filter((item) => new Date(item.dueDate).getTime() >= Date.now())
+      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+      .slice(0, 3)
+  }, [homework])
+
+  const recentGrades = useMemo(
+    () =>
+      [...marks]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 4),
+    [marks],
+  )
+
+  const recentNotifications = useMemo(() => notifications.slice(0, 3), [notifications])
+
+  // Los indicadores de tendencia del mock ("+2.3 vs. periodo anterior") eran inventados y no
+  // hay de dónde calcularlos sin comparar periodos cerrados, así que se van: un delta falso es
+  // peor que ninguno. Queda el valor, y "—" cuando todavía no hay con qué calcularlo.
+  const quickStats = [
+    {
+      title: "Promedio General",
+      value: average === null ? "—" : average.toFixed(1),
+      subtitle: marks.length === 1 ? "1 nota registrada" : `${marks.length} notas registradas`,
+    },
+    {
+      title: "Asistencia",
+      value: attendanceRate === null ? "—" : `${Math.round(attendanceRate)}%`,
+      subtitle: "sobre la asistencia registrada",
+    },
+    {
+      title: "Tareas Próximas",
+      value: String(upcomingTasks.length),
+      subtitle: "sin vencer",
+    },
+  ]
 
   const getGradeColor = (grade: number) => {
     if (grade >= 90) return "text-success"
@@ -187,15 +219,15 @@ export default function FamiliaDashboardPage() {
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
-            {studentInfo.avatar}
+            {student ? `${student.firstName[0]}${student.lastName[0]}`.toUpperCase() : "··"}
           </div>
           <div>
             <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-              {studentInfo.name}
+              {student ? `${student.firstName} ${student.lastName}` : "Portal de familia"}
             </h1>
-            <p className="text-muted-foreground">
-              {studentInfo.grade} • Tutor: {studentInfo.teacher}
-            </p>
+            {/* Sin "Tutor:": `Group` no tiene director de grupo en el modelo, así que ese dato
+                del mock no existe en ningún lado del que pudiera salir. */}
+            <p className="text-muted-foreground">{student?.group?.name ?? "Sin grupo asignado"}</p>
           </div>
         </div>
         <Button asChild>
@@ -208,21 +240,7 @@ export default function FamiliaDashboardPage() {
         {quickStats.map((stat) => (
           <Card key={stat.title}>
             <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-muted-foreground">{stat.title}</p>
-                <div
-                  className={`flex items-center gap-1 text-sm font-medium ${
-                    stat.trend === "up" ? "text-success" : "text-destructive"
-                  }`}
-                >
-                  {stat.trend === "up" ? (
-                    <TrendingUp className="h-4 w-4" />
-                  ) : (
-                    <TrendingDown className="h-4 w-4" />
-                  )}
-                  {stat.change}
-                </div>
-              </div>
+              <p className="text-sm font-medium text-muted-foreground">{stat.title}</p>
               <p className="mt-2 text-3xl font-bold text-foreground">{stat.value}</p>
               <p className="text-xs text-muted-foreground">{stat.subtitle}</p>
             </CardContent>
@@ -245,20 +263,30 @@ export default function FamiliaDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentGrades.map((grade) => (
+              {recentGrades.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Todavía no hay calificaciones registradas.
+                </p>
+              )}
+              {recentGrades.map((mark) => (
                 <div
-                  key={grade.id}
+                  key={mark.id}
                   className="flex items-center justify-between rounded-lg border border-border p-4"
                 >
-                  <div className="flex-1">
-                    <p className="font-medium text-foreground">{grade.subject}</p>
-                    <p className="text-sm text-muted-foreground">{grade.assignment}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-foreground">{mark.subject.name}</p>
+                    <p className="truncate text-sm text-muted-foreground">{mark.title}</p>
                   </div>
-                  <div className="text-right">
-                    <p className={`text-2xl font-bold ${getGradeColor(grade.grade)}`}>
-                      {grade.grade}
+                  <div className="pl-4 text-right">
+                    <p className={`text-2xl font-bold ${getGradeColor(percentOf(mark))}`}>
+                      {mark.value}
+                      {mark.maxValue !== 100 && (
+                        <span className="text-sm font-normal text-muted-foreground">
+                          /{mark.maxValue}
+                        </span>
+                      )}
                     </p>
-                    <p className="text-xs text-muted-foreground">{grade.date}</p>
+                    <p className="text-xs text-muted-foreground">{relativeDate(mark.date)}</p>
                   </div>
                 </div>
               ))}
@@ -281,17 +309,20 @@ export default function FamiliaDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {notifications.map((notification) => (
+              {recentNotifications.length === 0 && (
+                <p className="text-sm text-muted-foreground">No hay notificaciones.</p>
+              )}
+              {recentNotifications.map((notification) => (
                 <div
                   key={notification.id}
                   className={`rounded-lg border p-3 ${
-                    notification.read
-                      ? "border-border"
-                      : "border-primary/30 bg-primary/5"
+                    notification.isRead ? "border-border" : "border-primary/30 bg-primary/5"
                   }`}
                 >
-                  <p className="text-sm text-foreground">{notification.message}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{notification.time}</p>
+                  <p className="text-sm text-foreground">{notification.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {relativeDate(notification.createdAt)}
+                  </p>
                 </div>
               ))}
             </div>
@@ -301,9 +332,12 @@ export default function FamiliaDashboardPage() {
         {/* Pending Tasks */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
+            {/* "Próximas" y no "Pendientes": saber si ya entregó exige una consulta por tarea
+                (GET /homework no trae la entrega), y eso es trabajo del detalle, no del
+                resumen. Decir "pendientes" sin mirar las entregas seria mentir. */}
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
-              Tareas Pendientes
+              Tareas Próximas
             </CardTitle>
             <Button variant="ghost" size="sm" asChild>
               <Link href="/familia/tareas">
@@ -313,28 +347,38 @@ export default function FamiliaDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {pendingTasks.map((task) => (
-                <div key={task.id} className="rounded-lg border border-border p-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{task.title}</p>
-                      <p className="text-xs text-muted-foreground">{task.subject}</p>
+              {upcomingTasks.length === 0 && (
+                <p className="text-sm text-muted-foreground">No hay tareas por vencer.</p>
+              )}
+              {upcomingTasks.map((task) => {
+                const label = dueLabel(task.dueDate)
+                const isSoon = label === "Hoy" || label === "Mañana"
+
+                return (
+                  <div key={task.id} className="rounded-lg border border-border p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">{task.title}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {task.subject.name}
+                        </p>
+                      </div>
+                      {isSoon ? (
+                        <Clock className="h-4 w-4 shrink-0 text-warning" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
                     </div>
-                    {task.status === "in-progress" ? (
-                      <Clock className="h-4 w-4 text-warning" />
-                    ) : (
-                      <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                    )}
+                    <p
+                      className={`mt-2 text-xs font-medium ${
+                        isSoon ? "text-warning" : "text-muted-foreground"
+                      }`}
+                    >
+                      Entrega: {label}
+                    </p>
                   </div>
-                  <p
-                    className={`mt-2 text-xs font-medium ${
-                      task.dueDate === "Mañana" ? "text-warning" : "text-muted-foreground"
-                    }`}
-                  >
-                    Entrega: {task.dueDate}
-                  </p>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </CardContent>
         </Card>
