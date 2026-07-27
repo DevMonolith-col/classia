@@ -15,7 +15,14 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Bajado de 20 a 10 el 2026-07-27. La suite completa corre en ~60 s contra una base recién
+    # migrada, y el job entero verde tardaba 3m42s, así que 10 deja margen de sobra.
+    #
+    # Lo que se está acotando no es el caso feliz sino el malo: cuando el `beforeAll` de una
+    # suite lanza, la app de Nest queda a medio construir, `app.close()` falla también y jest
+    # no termina nunca. Con el tope en 20 cada rojo costaba 20 minutos **y enterraba el error**
+    # — así estuvo CI nueve commits, tapando un import faltante que se ve en 30 segundos.
+    timeout-minutes: 10
 
     # Credenciales de servicios efímeros de CI, no secretos reales (mismas que
     # docker-compose.yml usa en local). MinIO se levanta aparte (ver abajo)
