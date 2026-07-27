@@ -345,12 +345,19 @@ describe("Backend v1 e2e", () => {
 
     // Solo se le mandó correo al que existe. El del correo desconocido no genera envío, que
     // es la otra mitad de "no filtrar": responder igual pero mandar un correo delataría.
-    expect(sentEmails).toHaveLength(1);
-    expect(sentEmails[0].to).toBe(GUARDIAN_EMAIL);
+    //
+    // Se filtra por el enlace de restablecimiento en vez de contar `sentEmails` entero, y no
+    // es cosmético: el spy está sobre el **singleton** de `EmailService`, así que también
+    // atrapa los correos que la cola de BullMQ entrega de fondo (avisos de calendario de otras
+    // suites del mismo proceso). Contar el total hacía que este test dependiera de que nadie
+    // más mandara un correo en esa ventana — falló así, con 5 capturados y 4 ajenos.
+    const resetEmails = () => sentEmails.filter((mail) => mail.html.includes("restablecer-password"));
+    expect(resetEmails()).toHaveLength(1);
+    expect(resetEmails()[0].to).toBe(GUARDIAN_EMAIL);
 
     // El token en claro se saca del enlace del correo, igual que lo haría la persona. La API
     // no lo devuelve nunca — esa es justamente la propiedad que se está probando.
-    const rawToken = sentEmails[0].html.match(/restablecer-password\?token=([^"&\s]+)/)?.[1];
+    const rawToken = resetEmails()[0].html.match(/restablecer-password\?token=([^"&\s]+)/)?.[1];
     expect(rawToken).toBeDefined();
 
     const row = await tenantRlsContext.runWithTenant(tenant.id, () =>
@@ -408,7 +415,7 @@ describe("Backend v1 e2e", () => {
       headers: jsonHeaders(tenantHeaders()),
       body: JSON.stringify({ email: GUARDIAN_EMAIL }),
     });
-    const restoreToken = sentEmails.at(-1)!.html.match(/restablecer-password\?token=([^"&\s]+)/)?.[1];
+    const restoreToken = resetEmails().at(-1)!.html.match(/restablecer-password\?token=([^"&\s]+)/)?.[1];
     const restored = await api<{ status: string }>("/auth/reset-password", {
       method: "POST",
       headers: jsonHeaders(tenantHeaders()),
@@ -419,6 +426,55 @@ describe("Backend v1 e2e", () => {
 
     const backToNormal = await loginAs(GUARDIAN_EMAIL);
     expect(backToNormal.status).toBe(201);
+  });
+
+  // La quinta propiedad, que faltaba: **no filtrar qué correos existen tampoco por el reloj**.
+  //
+  // El test de arriba compara cuerpo y status, y ahí los dos caminos ya eran idénticos. Lo que
+  // no comparaba es el tiempo: el envío del correo solo ocurre para una cuenta real, y con
+  // `EMAIL_PROVIDER=resend` es una llamada de red. Si se espera, cronometrar el endpoint
+  // reconstruye el padrón que el mensaje genérico oculta.
+  //
+  // No se afirma sobre milisegundos —eso sería un test que falla los martes— sino sobre el
+  // **orden**: el envío tarda 400 ms deliberados y lo que se exige es que la respuesta llegue
+  // antes. Con `await` el orden se invierte y el test cae.
+  //
+  // El primer intento de este test dejaba la promesa del envío **sin resolver nunca**, para no
+  // depender del reloj en absoluto. Pasaba, pero después `app.close()` se colgaba 120 s y la
+  // suite entera fallaba en el `afterAll`: Nest no cierra mientras quede esa promesa viva. Un
+  // temporizador que sí termina evita el problema sin perder la propiedad.
+  //
+  // Reversión verificada: devolviendo el `await this.email.send(...)`, este test falla.
+  it("does not wait for the reset email, so timing cannot reveal which accounts exist", async () => {
+    const orden: string[] = [];
+    const emailSpy = jest.spyOn(app.get(EmailService), "send").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            orden.push("correo");
+            resolve({ status: "skipped" as const });
+          }, 400);
+        }),
+    );
+
+    try {
+      const asked = await api<{ status: string }>("/auth/forgot-password", {
+        method: "POST",
+        headers: jsonHeaders(tenantHeaders()),
+        body: JSON.stringify({ email: GUARDIAN_EMAIL }),
+      });
+      orden.push("respuesta");
+
+      expect(asked.status).toBe(201);
+      // La afirmación: el endpoint contestó sin esperar al correo. Si esperara, el envío
+      // (400 ms) habría terminado primero y `orden` empezaría por "correo".
+      expect(orden).toEqual(["respuesta"]);
+    } finally {
+      // Se espera a que el temporizador termine antes de restaurar el spy, para no dejar nada
+      // colgado en el cierre de la app.
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      emailSpy.mockRestore();
+    }
   });
 
   it("refreshes and revokes refresh tokens on logout", async () => {
@@ -1609,6 +1665,23 @@ describe("Backend v1 e2e", () => {
     // ventana completa de 60s del throttle.
     if (response.status === 429 && path === "/auth/login" && attempt < 8) {
       await new Promise((resolve) => setTimeout(resolve, attempt * 4000));
+      return api<T>(path, init, attempt + 1);
+    }
+
+    // `/auth/forgot-password` tiene su propio cupo, más estrecho (5/min por IP, porque cada
+    // intento manda un correo), y esta suite gasta 4 entre el flujo de reseteo y la prueba de
+    // que el correo no se espera.
+    //
+    // Lo que lo vuelve traicionero: **el almacenamiento del throttler es Redis**, no memoria
+    // (`app.module.ts:73`). O sea que el contador **sobrevive entre corridas de jest**. Dos
+    // corridas seguidas dentro del mismo minuto —exactamente lo que se hace al verificar un
+    // test por reversión— y la segunda arranca con el cupo ya gastado. Se descubrió así: la
+    // suite completa falló con 429 justo después de una corrida filtrada que había pasado.
+    //
+    // Se reintenta con espera creciente hasta cruzar la ventana de 60 s, sin acercarse al
+    // `testTimeout` de 120 s: 15+20+25+30 = 90 s acumulados como techo.
+    if (response.status === 429 && path === "/auth/forgot-password" && attempt < 5) {
+      await new Promise((resolve) => setTimeout(resolve, 10_000 + attempt * 5000));
       return api<T>(path, init, attempt + 1);
     }
 

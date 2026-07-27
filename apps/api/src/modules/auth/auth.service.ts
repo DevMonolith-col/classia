@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { ForbiddenException, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { AccessScope, MembershipStatus, UserRole, UserStatus } from "@prisma/client";
@@ -28,6 +28,8 @@ type CreateSessionInput = AuthTokenPayload & {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly audit: AuditService,
     private readonly config: ConfigService,
@@ -48,9 +50,10 @@ export class AuthService {
    *
    * La respuesta es idéntica exista o no la cuenta, y eso no es cosmético: si dijera "ese
    * correo no está registrado", cualquiera podría averiguar qué familias pertenecen a un
-   * colegio probando direcciones. Por el mismo motivo no cambia el tiempo de respuesta de
-   * forma observable — el trabajo real (crear el token, mandar el correo) es lo único que
-   * varía, y ocurre en el mismo orden.
+   * colegio probando direcciones.
+   *
+   * Que el **cuerpo** sea idéntico no alcanza: el envío del correo va sin `await` para que el
+   * tiempo de respuesta tampoco delate. Ver el comentario largo sobre eso más abajo.
    *
    * Cada emisión invalida las anteriores: pedir el enlace tres veces no deja tres llaves
    * vivas.
@@ -100,10 +103,22 @@ export class AuthService {
     const webUrl = this.config.get<string>("app.webUrl") ?? "http://localhost:3000";
     const link = `${webUrl}/restablecer-password?token=${encodeURIComponent(token)}`;
 
-    await this.email.send({
-      to: user.email,
-      subject: `Restablece tu contraseña · ${tenant.name}`,
-      html: `
+    // **Sin `await` a propósito, y esto es parte de no filtrar qué correos existen.**
+    //
+    // Con `EMAIL_PROVIDER=resend` el envío es una llamada de red a la API de Resend: cientos
+    // de milisegundos. Esperarla ataba el tiempo de respuesta a si la cuenta existe —el correo
+    // desconocido volvía de inmediato y el real tardaba— así que cronometrar el endpoint
+    // reconstruía exactamente el padrón que el mensaje genérico oculta. Los tests no lo veían
+    // porque afirman sobre el cuerpo y el status, y ahí el flujo ya era idéntico.
+    //
+    // Queda la diferencia de dos consultas a la base, que es de milisegundos contra una red.
+    // `EmailService.send` no lanza (atrapa todo y devuelve `failed`), pero el `.catch` va
+    // igual: una promesa suelta sin catch tumba el proceso si algún día empieza a lanzar.
+    void this.email
+      .send({
+        to: user.email,
+        subject: `Restablece tu contraseña · ${tenant.name}`,
+        html: `
         <p>Hola ${user.firstName},</p>
         <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en
         <strong>${tenant.name}</strong>.</p>
@@ -111,7 +126,12 @@ export class AuthService {
         <p>El enlace vence en una hora y solo se puede usar una vez.</p>
         <p>Si no fuiste tú, ignora este correo: tu contraseña actual sigue funcionando.</p>
       `,
-    });
+      })
+      .catch((error: unknown) => {
+        this.logger.error(
+          `No se pudo enviar el correo de restablecimiento: ${(error as Error).message}`,
+        );
+      });
 
     // La auditoría va sobre el usuario y **sin el token**: el registro sirve para investigar
     // "¿quién pidió resetear esta cuenta?", no para poder usarlo.
