@@ -4,14 +4,19 @@ import { JwtModule } from "@nestjs/jwt";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { DataScopeModule } from "../../common/guards/data-scope.module";
-import { EmailService } from "./email/email.service";
+import { EmailModule } from "./email/email.module";
 import { NotificationsController } from "./notifications.controller";
 import { NotificationsListeners } from "./notifications.listeners";
 import { NotificationsProcessor } from "./notifications.processor";
 import { NOTIFICATIONS_QUEUE, NotificationsService } from "./notifications.service";
 
 @Module({
-  imports: [BullModule.registerQueue({ name: NOTIFICATIONS_QUEUE }), DataScopeModule, JwtModule.register({})],
+  imports: [
+    BullModule.registerQueue({ name: NOTIFICATIONS_QUEUE }),
+    DataScopeModule,
+    EmailModule,
+    JwtModule.register({}),
+  ],
   controllers: [NotificationsController],
   providers: [
     JwtAuthGuard,
@@ -19,8 +24,7 @@ import { NOTIFICATIONS_QUEUE, NotificationsService } from "./notifications.servi
     NotificationsService,
     NotificationsListeners,
     NotificationsProcessor,
-    EmailService,
   ],
-  exports: [EmailService, NotificationsService],
+  exports: [EmailModule, NotificationsService],
 })
 export class NotificationsModule {}

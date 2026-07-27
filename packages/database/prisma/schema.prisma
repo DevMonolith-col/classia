@@ -84,6 +84,7 @@ model Tenant {
   announcements     Announcement[]
   events            Event[]
   calendarFeedTokens CalendarFeedToken[]
+  passwordResetTokens PasswordResetToken[]
   academicYears     AcademicYear[]
   academicPeriods   AcademicPeriod[]
   gradingScales     GradingScale[]
@@ -156,6 +157,7 @@ model User {
   accessSessionsApproved  AccessSession[]          @relation("AccessSessionApprovedBy")
   eventsCreated           Event[]
   calendarFeedTokens      CalendarFeedToken[]
+  passwordResetTokens     PasswordResetToken[]
 
   @@map("users")
 }
@@ -860,6 +862,36 @@ model CalendarFeedToken {
 
   @@index([tenantId, userId])
   @@map("calendar_feed_tokens")
+}
+
+/// Token de un solo uso para restablecer la contraseña olvidada.
+///
+/// Es tenant-owned aunque la contraseña que termina cambiando viva en `users`, que es global:
+/// el token se emite desde el colegio por el que la persona entró, y acotarlo ahí evita que
+/// pedir un reseteo en un colegio produzca una credencial utilizable desde otro. Un usuario en
+/// dos colegios tiene una sola contraseña, pero dos tokens distintos si la pide dos veces.
+///
+/// Solo se guarda el hash: si la base se filtra, los tokens vivos no sirven. Mismo criterio
+/// que `AuthSession.refreshTokenHash` y `CalendarFeedToken.tokenHash`.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  tenantId  String
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  /// Marca el consumo. La fila se conserva en vez de borrarse para que un segundo intento con
+  /// el mismo enlace se distinga de un token que nunca existió.
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  ipAddress String?
+  userAgent String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 model Announcement {

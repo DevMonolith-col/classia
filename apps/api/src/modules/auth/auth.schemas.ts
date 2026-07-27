@@ -13,6 +13,27 @@ export const loginSchema = z.object({
 
 export type LoginInput = z.infer<typeof loginSchema>;
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email().transform((email) => email.toLowerCase()),
+  tenantSlug: z
+    .string()
+    .min(3)
+    .max(50)
+    .regex(/^[a-z0-9-]+$/)
+    .optional(),
+});
+
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(32).max(200),
+  // Mismo mínimo que `loginSchema`: subir el listón acá y no en la creación de usuarios
+  // dejaría cuentas que no pueden restablecer la contraseña que ya tienen.
+  password: z.string().min(6).max(128),
+});
+
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
 export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(32),
 });

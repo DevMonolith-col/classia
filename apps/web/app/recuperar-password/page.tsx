@@ -2,14 +2,45 @@
 
 import Link from "next/link"
 import { useState } from "react"
-import { ArrowLeft, Mail, CheckCircle2 } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Loader2, Mail, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { apiFetch } from "@/lib/api-client"
 
 export default function RecuperarPasswordPage() {
   const [submitted, setSubmitted] = useState(false)
   const [email, setEmail] = useState("")
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState("")
+
+  /**
+   * La pantalla de confirmación se muestra pase lo que pase con la cuenta: el backend
+   * responde igual exista o no el correo, y contradecirlo acá volvería a filtrar por la UI
+   * lo que el API se cuida de no decir. Solo un fallo de red o un 429 rompen ese silencio,
+   * porque son sobre la petición, no sobre la cuenta.
+   */
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setSending(true)
+    setError("")
+    try {
+      const res = await apiFetch("/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+        silent: true,
+      })
+      if (res.status === 429) {
+        throw new Error("Demasiados intentos. Espera un minuto e inténtalo de nuevo.")
+      }
+      if (!res.ok) throw new Error("No se pudo enviar el correo. Inténtalo de nuevo.")
+      setSubmitted(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
+    } finally {
+      setSending(false)
+    }
+  }
 
   if (submitted) {
     return (
@@ -89,13 +120,14 @@ export default function RecuperarPasswordPage() {
             </p>
           </CardHeader>
           <CardContent>
-            <form
-              className="space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault()
-                setSubmitted(true)
-              }}
-            >
+            {error && (
+              <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>{error}</p>
+              </div>
+            )}
+
+            <form className="space-y-4" onSubmit={handleSubmit}>
               <div>
                 <label
                   htmlFor="email"
@@ -117,7 +149,8 @@ export default function RecuperarPasswordPage() {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full">
+              <Button type="submit" className="w-full" disabled={sending}>
+                {sending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Enviar Instrucciones
               </Button>
             </form>

@@ -7,6 +7,7 @@ import { AppModule } from "../src/app.module";
 import { setupApp } from "../src/app.setup";
 import { PrismaService } from "../src/core/prisma/prisma.service";
 import { TenantRlsContextService } from "../src/core/prisma/tenant-rls-context.service";
+import { EmailService } from "../src/modules/notifications/email/email.service";
 import { NotificationsProcessor } from "../src/modules/notifications/notifications.processor";
 
 const DEMO_TENANT_SLUG = "demo";
@@ -300,6 +301,124 @@ describe("Backend v1 e2e", () => {
     expect(missingToken.body.message).toBe("Access token is required.");
     expect(missingToken.body.path).toBe("/auth/me");
     expect(missingToken.body.stack).toBeUndefined();
+  });
+
+  // El flujo de contraseña olvidada. Lo que se prueba no es que "funcione" sino las cuatro
+  // propiedades de las que depende que sea seguro: no filtra qué correos existen, el enlace
+  // sirve una sola vez, la contraseña vieja muere, y las sesiones abiertas se caen.
+  it("resets a forgotten password: single-use link, old password dead, sessions revoked", async () => {
+    const prisma = app.get(PrismaService);
+    const tenantRlsContext = app.get(TenantRlsContextService);
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: DEMO_TENANT_SLUG } });
+
+    // Se intercepta el envío para leer el enlace como lo leería la persona. De paso, deja
+    // comprobable a quién se le escribió — y a quién no.
+    const sentEmails: { to: string; html: string }[] = [];
+    const emailSpy = jest
+      .spyOn(app.get(EmailService), "send")
+      .mockImplementation(async (message) => {
+        sentEmails.push({ to: message.to, html: message.html });
+        return { status: "skipped" as const };
+      });
+
+    // Una sesión viva de antes, para comprobar que el reseteo la mata.
+    const before = await loginAs(GUARDIAN_EMAIL);
+    expect(before.status).toBe(201);
+    const oldRefreshToken = before.body.refreshToken;
+
+    const asked = await api<{ status: string; message: string }>("/auth/forgot-password", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ email: GUARDIAN_EMAIL }),
+    });
+    expect(asked.status).toBe(201);
+
+    // Un correo que no existe responde **exactamente igual**: si el mensaje o el status
+    // cambiaran, bastaría con probar direcciones para saber quién pertenece al colegio.
+    const unknown = await api<{ status: string; message: string }>("/auth/forgot-password", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ email: "no-existe-jamas@classia.test" }),
+    });
+    expect(unknown.status).toBe(asked.status);
+    expect(unknown.body).toEqual(asked.body);
+
+    // Solo se le mandó correo al que existe. El del correo desconocido no genera envío, que
+    // es la otra mitad de "no filtrar": responder igual pero mandar un correo delataría.
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0].to).toBe(GUARDIAN_EMAIL);
+
+    // El token en claro se saca del enlace del correo, igual que lo haría la persona. La API
+    // no lo devuelve nunca — esa es justamente la propiedad que se está probando.
+    const rawToken = sentEmails[0].html.match(/restablecer-password\?token=([^"&\s]+)/)?.[1];
+    expect(rawToken).toBeDefined();
+
+    const row = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.passwordResetToken.findFirst({
+        where: { user: { email: GUARDIAN_EMAIL }, usedAt: null },
+        orderBy: { createdAt: "desc" },
+      }),
+    );
+    expect(row).not.toBeNull();
+    // Guardado hasheado y distinto del token del enlace: si la base se filtra, los enlaces
+    // vivos no sirven.
+    expect(row!.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(row!.tokenHash).not.toBe(rawToken);
+
+    const NEW_PASSWORD = "ClaveNueva2026!";
+    const reset = await api<{ status: string }>("/auth/reset-password", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ token: rawToken, password: NEW_PASSWORD }),
+    });
+    expect(reset.status).toBe(201);
+
+    // El mismo enlace, otra vez: ya no sirve.
+    const replay = await api<ErrorResponse>("/auth/reset-password", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ token: rawToken, password: "OtraClave2026!" }),
+    });
+    expect(replay.status).toBe(401);
+
+    // La contraseña vieja dejó de servir y la nueva entra.
+    const withOld = await loginAs(GUARDIAN_EMAIL);
+    expect(withOld.status).toBe(401);
+
+    const withNew = await api<LoginResponse>("/auth/login", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ email: GUARDIAN_EMAIL, password: NEW_PASSWORD }),
+    });
+    expect(withNew.status).toBe(201);
+
+    // Y la sesión que ya estaba abierta murió: sin esto, quien robó la cuenta sigue adentro
+    // después de que el dueño "recupera" el acceso.
+    const staleRefresh = await api<ErrorResponse>("/auth/refresh", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ refreshToken: oldRefreshToken }),
+    });
+    expect(staleRefresh.status).toBe(401);
+
+    // Se devuelve la contraseña del fixture a su valor original: la base de dev es compartida
+    // y el resto de la suite (y la corrida siguiente) inician sesión con ella.
+    await api<{ status: string }>("/auth/forgot-password", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ email: GUARDIAN_EMAIL }),
+    });
+    const restoreToken = sentEmails.at(-1)!.html.match(/restablecer-password\?token=([^"&\s]+)/)?.[1];
+    const restored = await api<{ status: string }>("/auth/reset-password", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ token: restoreToken, password: DEMO_PASSWORD }),
+    });
+    expect(restored.status).toBe(201);
+    emailSpy.mockRestore();
+
+    const backToNormal = await loginAs(GUARDIAN_EMAIL);
+    expect(backToNormal.status).toBe(201);
   });
 
   it("refreshes and revokes refresh tokens on logout", async () => {

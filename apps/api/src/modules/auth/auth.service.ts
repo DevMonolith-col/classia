@@ -11,7 +11,14 @@ import { PrismaService } from "../../core/prisma/prisma.service";
 import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
 import { TenantContextService } from "../../core/tenant-context/tenant-context.service";
 import { AccessControlService } from "../access-control/access-control.service";
-import { LoginInput, RefreshTokenInput, ImpersonateInput } from "./auth.schemas";
+import { EmailService } from "../notifications/email/email.service";
+import {
+  ForgotPasswordInput,
+  ImpersonateInput,
+  LoginInput,
+  RefreshTokenInput,
+  ResetPasswordInput,
+} from "./auth.schemas";
 import { AuthTokenPayload } from "./auth.types";
 import { RequestUser } from "../../common/types/request-context";
 
@@ -30,7 +37,184 @@ export class AuthService {
     private readonly accessControl: AccessControlService,
     private readonly platformAdmin: PlatformAdminPrismaService,
     private readonly tenantRlsContext: TenantRlsContextService,
+    private readonly email: EmailService,
   ) {}
+
+  /** Una hora: suficiente para leer el correo, corto para un enlace que abre una cuenta. */
+  private static readonly RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+  /**
+   * Emite un enlace de restablecimiento, **si corresponde**.
+   *
+   * La respuesta es idéntica exista o no la cuenta, y eso no es cosmético: si dijera "ese
+   * correo no está registrado", cualquiera podría averiguar qué familias pertenecen a un
+   * colegio probando direcciones. Por el mismo motivo no cambia el tiempo de respuesta de
+   * forma observable — el trabajo real (crear el token, mandar el correo) es lo único que
+   * varía, y ocurre en el mismo orden.
+   *
+   * Cada emisión invalida las anteriores: pedir el enlace tres veces no deja tres llaves
+   * vivas.
+   */
+  async forgotPassword(input: ForgotPasswordInput, request: Request) {
+    const genericResponse = {
+      status: "ok" as const,
+      message: "Si el correo está registrado, enviaremos las instrucciones.",
+    };
+
+    const tenant = input.tenantSlug
+      ? await this.tenantContext.resolveTenantBySlug(input.tenantSlug)
+      : await this.tenantContext.resolveTenant(request);
+
+    const user = await this.prisma.user.findUnique({ where: { email: input.email } });
+    if (!user || user.status !== UserStatus.ACTIVE) return genericResponse;
+
+    // Tiene que ser miembro del colegio desde el que pide el enlace. Sin esto, alguien de un
+    // colegio podría emitir tokens contra cuentas de otro con solo conocer el correo.
+    const membership = await this.tenantRlsContext.runWithTenant(tenant.id, () =>
+      this.prisma.tenantMembership.findUnique({
+        where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
+      }),
+    );
+    if (!membership || membership.status !== MembershipStatus.ACTIVE) return genericResponse;
+
+    const token = randomBytes(48).toString("base64url");
+    const tokenHash = this.hashRefreshToken(token);
+
+    await this.tenantRlsContext.runWithTenant(tenant.id, async () => {
+      await this.prisma.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      await this.prisma.passwordResetToken.create({
+        data: {
+          tenantId: tenant.id,
+          userId: user.id,
+          tokenHash,
+          expiresAt: new Date(Date.now() + AuthService.RESET_TOKEN_TTL_MS),
+          ipAddress: request.ip,
+          userAgent: request.headers["user-agent"],
+        },
+      });
+    });
+
+    const webUrl = this.config.get<string>("app.webUrl") ?? "http://localhost:3000";
+    const link = `${webUrl}/restablecer-password?token=${encodeURIComponent(token)}`;
+
+    await this.email.send({
+      to: user.email,
+      subject: `Restablece tu contraseña · ${tenant.name}`,
+      html: `
+        <p>Hola ${user.firstName},</p>
+        <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en
+        <strong>${tenant.name}</strong>.</p>
+        <p><a href="${link}">Crear una contraseña nueva</a></p>
+        <p>El enlace vence en una hora y solo se puede usar una vez.</p>
+        <p>Si no fuiste tú, ignora este correo: tu contraseña actual sigue funcionando.</p>
+      `,
+    });
+
+    // La auditoría va sobre el usuario y **sin el token**: el registro sirve para investigar
+    // "¿quién pidió resetear esta cuenta?", no para poder usarlo.
+    //
+    // Dentro de `runWithTenant` porque este endpoint es público y corre sin JWT: no hay
+    // contexto ambiente que el interceptor haya puesto, y `audit_logs` tiene FORCE RLS, así
+    // que el insert lo rechaza la política con 42501 en vez de fallar por "cero filas".
+    await this.tenantRlsContext.runWithTenant(tenant.id, () =>
+      this.audit.record({
+        tenantId: tenant.id,
+        userId: user.id,
+        actorRole: membership.role,
+        action: "auth.password_reset_requested",
+        entityType: "User",
+        entityId: user.id,
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      }),
+    );
+
+    return genericResponse;
+  }
+
+  /**
+   * Consume el enlace y cambia la contraseña.
+   *
+   * El enlace se abre **sin sesión**, así que no hay contexto de tenant y la política de RLS
+   * de `password_reset_tokens` devolvería cero filas. Ese único lookup va por el rol de
+   * bypass, buscando por hash exacto y trayendo lo mínimo; todo lo que viene después ocurre
+   * dentro de `runWithTenant` con el tenant que salió del token. Mismo patrón que
+   * `CalendarFeedService#resolveTokenAcrossTenants`.
+   */
+  async resetPassword(input: ResetPasswordInput, request: Request) {
+    const tokenHash = this.hashRefreshToken(input.token);
+
+    const record = await this.platformAdmin.get().passwordResetToken.findUnique({
+      where: { tokenHash },
+      select: {
+        id: true,
+        tenantId: true,
+        userId: true,
+        expiresAt: true,
+        usedAt: true,
+      },
+    });
+
+    // Un solo mensaje para "no existe", "ya se usó" y "venció": distinguirlos le diría a
+    // quien pruebe enlaces al azar cuáles existieron alguna vez.
+    if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
+      throw new UnauthorizedException("El enlace no es válido o ya venció.");
+    }
+
+    const passwordHash = await bcrypt.hash(input.password, 12);
+
+    await this.tenantRlsContext.runWithTenant(record.tenantId, async () => {
+      // Marcar por id **y** exigir que siga sin usar: si dos peticiones con el mismo enlace
+      // llegan a la vez, la segunda actualiza cero filas y no cambia nada.
+      const consumed = await this.prisma.passwordResetToken.updateMany({
+        where: { id: record.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      if (consumed.count === 0) {
+        throw new UnauthorizedException("El enlace no es válido o ya venció.");
+      }
+
+      await this.prisma.user.update({
+        where: { id: record.userId },
+        data: { passwordHash },
+      });
+    });
+
+    // La contraseña es global (vive en `users`), así que cerrar sesiones también tiene que
+    // serlo: quien pidió el reseteo porque le robaron la cuenta no gana nada si la sesión del
+    // atacante en otro colegio sigue viva. De ahí el bypass, y de ahí el nombre.
+    await this.revokeAllSessionsAcrossTenants(record.userId);
+
+    // Mismo motivo que en `forgotPassword`: sin JWT no hay contexto ambiente y `audit_logs`
+    // tiene FORCE RLS.
+    await this.tenantRlsContext.runWithTenant(record.tenantId, () =>
+      this.audit.record({
+        tenantId: record.tenantId,
+        userId: record.userId,
+        // Sin rol: quien consume el enlace no tiene sesión ni membresía resuelta, y ponerle un
+        // rol inventado le mentiría a la bitácora sobre con qué autoridad se hizo el cambio.
+        actorRole: undefined,
+        action: "auth.password_reset_completed",
+        entityType: "User",
+        entityId: record.userId,
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      }),
+    );
+
+    return { status: "ok" as const, message: "Tu contraseña quedó actualizada." };
+  }
+
+  /** Revoca todas las sesiones del usuario, en todos los colegios. Ver `resetPassword`. */
+  private async revokeAllSessionsAcrossTenants(userId: string) {
+    await this.platformAdmin.get().authSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
 
   // AuthSession.tenantId es nullable (sesiones de plataforma sin colegio
   // asociado) -- si es null, la política de RLS de auth_sessions ya deja
