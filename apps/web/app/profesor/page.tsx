@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api-client"
 import type { Schedule } from "@/components/admin/academic-types"
-import type { Homework, RosterEntry } from "@/components/profesor/homework-types"
+import type { Homework } from "@/components/profesor/homework-types"
 import type { Student } from "@/components/admin/student-types"
 
 type PendingGradingItem = { homework: Homework; pendingCount: number }
@@ -83,24 +83,29 @@ function useProfesorDashboard() {
         )
         const uniqueStudentIds = new Set(studentsByGroup.flat().map((s) => s.id))
 
-        const gradableHomework = homework.filter(
-          (h) => h.type !== "QUIZ" && (h._count?.submissions ?? 0) > 0,
-        )
-        const pendingResults = await Promise.all(
-          gradableHomework.map(async (h) => {
-            const res = await apiFetch(`/homework/${h.id}/submissions`, { silent: true })
-            if (!res.ok) return { homework: h, pendingCount: 0 }
-            // Desde el 2026-07-26 esto es el roster completo, no solo las entregas: hay filas
-            // con `submission: null` (no entregó), que no cuentan como pendientes por calificar.
-            const roster = (await res.json()) as RosterEntry[]
-            const pendingCount = roster.filter(
-              (entry) =>
-                entry.submission?.status === "SUBMITTED" || entry.submission?.status === "LATE",
-            ).length
-            return { homework: h, pendingCount }
-          }),
-        )
-        const pendingGrading = pendingResults.filter((r) => r.pendingCount > 0)
+        // Los pendientes salen de los `_count` que `GET /homework` ya trae: entregas menos
+        // notas son las que están esperando corrección. Hasta el 2026-07-26 esto se calculaba
+        // pidiendo `/homework/:id/submissions` **por cada tarea**, y ese fan-out se volvió caro
+        // cuando esa ruta pasó a devolver el roster completo: cada llamada arrastra el curso
+        // entero (~2 KB con 3 alumnos, ~20 KB con 35) para terminar contando un número que ya
+        // venía en la respuesta anterior. Mismo criterio que el botón "Calificar (N)" de
+        // /profesor/asignaciones, que ya se calculaba así.
+        //
+        // Cambia el resultado en un caso: una nota puesta desde /profesor/calificaciones no
+        // marca la entrega como GRADED (el "estado divergente" del Bug 2 de
+        // asignaciones-calificacion-en-linea.md §3), así que antes seguía contando como
+        // pendiente aunque ya tuviera nota. Contar por `marks` es lo correcto: si ya está
+        // calificada, no está pendiente de calificar.
+        const pendingGrading = homework
+          .filter((h) => h.type !== "QUIZ")
+          .map((h) => ({
+            homework: h,
+            pendingCount: Math.max(
+              (h._count?.submissions ?? 0) - (h._count?.marks ?? 0),
+              0,
+            ),
+          }))
+          .filter((r) => r.pendingCount > 0)
 
         const allRecords = sessions.flatMap((s) => s.records)
         const present = allRecords.filter((r) => r.status === "PRESENT" || r.status === "LATE").length
