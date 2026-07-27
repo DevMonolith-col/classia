@@ -1770,7 +1770,12 @@ async function ensureGuardianScopingFixtures(
       homeworkId: ownChildHomework.id,
       studentId: ownChild.id,
       status: "SUBMITTED",
-      attachmentKey: "guardian-e2e/entrega-propia.pdf",
+      // El formato importa: `FilesService#getDownloadUrl` exige el prefijo
+      // `tenants/<tenantId>/` y responde 403 a cualquier otra cosa. La key anterior
+      // ("guardian-e2e/entrega-propia.pdf") no lo cumplía, así que "Ver archivo" fallaba con un
+      // 403 desconcertante en dev. El objeto no existe en el bucket -- esto es un fixture de
+      // metadatos -- pero al menos la key es de la forma que el backend acepta.
+      attachmentKey: `tenants/${tenant.id}/guardian-e2e-entrega-propia.pdf`,
       attachmentName: "entrega-propia.pdf",
       submittedAt: new Date("2026-07-20T10:00:00.000Z"),
     },

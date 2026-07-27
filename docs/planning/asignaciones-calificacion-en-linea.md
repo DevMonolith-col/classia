@@ -362,11 +362,23 @@ navegador como profesor.
    profesor le crea entrega y le escribe una `Mark` de una materia que no cursa — verificado
    revirtiéndolo.
 
-**Fase 3 — El workbench** (el corazón: aquí deja de doler)
-8. Ruta `/profesor/asignaciones/[homeworkId]/entregas` con el layout de 3 paneles.
-9. `PdfViewer` inline + "Guardar y siguiente".
-10. Botón "Calificar (N)" en `AssignmentCard` → la puerta propia.
-11. Responsive: colapso a un panel en móvil.
+**Fase 3 — El workbench** (el corazón: aquí deja de doler) — **hecha el 2026-07-26.**
+8. ~~Ruta `/profesor/asignaciones/[homeworkId]/entregas` con el layout de 3 paneles.~~ Hecho.
+9. ~~`PdfViewer` inline + "Guardar y siguiente".~~ Hecho. El salto va al siguiente **sin
+   calificar** dentro del filtro activo, circular: en la lista completa el que falta puede haber
+   quedado atrás.
+10. ~~Botón "Calificar (N)" en `AssignmentCard`.~~ Hecho, con el conteo derivado de los `_count`
+    que la lista ya trae (`submissions - marks`), sin llamadas extra. Los quices quedan fuera:
+    se autocalifican, no tienen cola de corrección.
+11. ~~Responsive.~~ Hecho.
+
+Además, **la lista de entregas del editor se fue**: quedó un resumen con la puerta al
+workbench. Mantener dos UIs para calificar es lo que dejó a una de ellas precargando 100 y
+pisando notas durante meses.
+
+Y se corrigió el `attachmentKey` del fixture, que era `guardian-e2e/entrega-propia.pdf`:
+`FilesService#getDownloadUrl` exige el prefijo `tenants/<tenantId>/` y respondía 403, así que
+"Ver archivo" llevaba roto en dev desde siempre por un dato de prueba mal formado.
 
 **Fase 4 — Devolver el trabajo corregido**
 12. Cablear `FileUploadField` a `feedbackKey`/`feedbackName` (backend **ya listo**,

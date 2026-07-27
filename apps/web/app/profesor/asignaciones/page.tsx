@@ -3,7 +3,15 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { AlertTriangle, BookOpen, ChevronLeft, ChevronRight, FileText, Plus } from "lucide-react"
+import {
+  AlertTriangle,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardCheck,
+  FileText,
+  Plus,
+} from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -218,6 +226,28 @@ function AsignacionesProfesorPageContent() {
                         homework={homework}
                         editHref={`/profesor/asignaciones/${homework.id}`}
                         onAttachmentClick={openAttachment}
+                        actionButton={
+                          // Los quices se autocalifican, así que no tienen cola de corrección.
+                          // El conteo sale de los `_count` que ya trae la lista: entregas menos
+                          // notas son las que están esperando. Sin llamadas extra.
+                          homework.type !== "QUIZ" && (homework._count?.submissions ?? 0) > 0 ? (
+                            <Button asChild variant="outline" size="sm" className="gap-1.5">
+                              <Link href={`/profesor/asignaciones/${homework.id}/entregas`}>
+                                <ClipboardCheck className="h-3.5 w-3.5" />
+                                Calificar
+                                {Math.max(
+                                  (homework._count?.submissions ?? 0) -
+                                    (homework._count?.marks ?? 0),
+                                  0,
+                                ) > 0 &&
+                                  ` (${
+                                    (homework._count?.submissions ?? 0) -
+                                    (homework._count?.marks ?? 0)
+                                  })`}
+                              </Link>
+                            </Button>
+                          ) : undefined
+                        }
                       />
                     ))}
                   </div>
