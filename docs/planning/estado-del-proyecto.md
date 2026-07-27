@@ -309,12 +309,15 @@ Lo que sí sigue declarado y muerto, verificado por grep:
       A favor de la maqueta: `plugins.md` §1 fija que Classia **no carga código de terceros en
       caliente** (solo feature flags por `tenantId`), así que el modelo de amenazas es acotado.
     - **`/registro`** — ver punto 7.
-    - **`/profesor/configuracion`** — 420 líneas, 0 `apiFetch`. Es el **gemelo exacto** de lo que
-      era `/familia/ajustes` antes del 2026-07-27, con los mismos datos inventados (incluido un
-      teléfono peruano, `+51 987 654 321`, en un producto colombiano). A diferencia de plugins,
-      **esto sí es deuda y sí hay que arreglarlo**: la receta ya está escrita y probada en
-      `familia/ajustes`, y hoy hay una asimetría abierta — el acudiente puede cambiar su
-      contraseña y el profesor no, aunque `POST /auth/change-password` no exige ningún permiso
-      (solo `JwtAuthGuard`) y ya le serviría tal cual. Es el siguiente trabajo natural.
+    - ~~**`/profesor/configuracion`**~~ — **hecho el 2026-07-27**, mismo día y misma receta que
+      `/familia/ajustes`. Tenía los mismos datos inventados (incluido otro teléfono peruano,
+      `+51 987 654 321`) y encima una tarjeta académica con cuatro cifras falsas. Ahora la carga
+      académica se **deriva de `GET /schedules/mine`** —materias, cursos, clases por semana y
+      horas, contando las franjas del horario— que es la misma fuente de `/profesor/horario`. Se
+      quitó "estudiantes": no se puede calcular sin pedir el roster de cada grupo, y una cifra
+      inventada era justamente el problema. De paso se corrigió que la página traía su propio
+      `<main className="lg:pl-64">`: el layout ya aplica el desplazamiento **y reacciona al
+      colapso del sidebar** (`lg:pl-16`), así que el padding propio lo duplicaba y se
+      desalineaba al colapsar.
     - No confundir con `/login`, que aparece en ese barrido como falso positivo: usa el helper
       `login()` de `lib/auth`, no `apiFetch`, y funciona.
