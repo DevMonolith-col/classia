@@ -5,6 +5,7 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
+import { ForgotPasswordThrottlerGuard } from "./forgot-password-throttler.guard";
 import {
   ChangePasswordInput,
   ForgotPasswordInput,
@@ -42,8 +43,9 @@ export class AuthController {
   // Más estricto que login (5/min contra 20): acá cada intento manda un correo, así que el
   // abuso no es solo adivinar credenciales sino usar el endpoint para bombardear una bandeja
   // ajena. Y a diferencia del login, nadie necesita pedir el enlace veinte veces por minuto.
+  // Trackeado por email (no por IP): ver ForgotPasswordThrottlerGuard.
   @Post("forgot-password")
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(ForgotPasswordThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   forgotPassword(
     @Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput,
