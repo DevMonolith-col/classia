@@ -193,6 +193,11 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
     el endpoint reconstruía el padrón que el mensaje genérico oculta. El envío va sin `await`.
     Los tests no lo veían porque afirmaban sobre cuerpo y status, donde los dos caminos ya eran
     idénticos: **la propiedad estaba bien elegida y mal medida**.
+  - **Barrido de tokens vencidos** (2026-07-27): la migración creó el índice sobre `expiresAt`
+    "para poder barrer los vencidos" y ese barrido no existía — la tabla crecía una fila por
+    solicitud, para siempre. Job repetible diario (`password-reset-cleanup`), retención de 30
+    días después del vencimiento. Va en módulo propio y no en `AuthModule` para no deshacer la
+    decisión de no atar el arranque de la autenticación a Redis (ver `email.module.ts`).
 
 ---
 
