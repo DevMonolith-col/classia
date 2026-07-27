@@ -121,9 +121,18 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
 > funcionar. Lo resuelve `GET /students/mine` (`STUDENTS_READ_SELF`).
 
 - **Conectadas**: `page.tsx` (dashboard), `calificaciones`, `tareas`, `asistencia`,
-  `horario`, `calendario`, `mensajes`, `comunicados`, `notificaciones`, `certificados`.
-- **Todavía mock**: `incapacidades`, `ajustes`. Ojo con `incapacidades`: **no está en el
-  sidebar**, así que hoy es una pantalla huérfana a la que no se llega navegando.
+  `horario`, `calendario`, `mensajes`, `comunicados`, `notificaciones`, `certificados`,
+  y desde el **2026-07-27** `pagos` y `ajustes`.
+- **Todavía mock**: `incapacidades`. **No está en el sidebar**, así que hoy es una pantalla
+  huérfana a la que no se llega navegando. No tiene backend de ningún tipo: no existe modelo
+  de incapacidad ni de justificación en `schema.prisma` (verificado el 2026-07-27), y lo único
+  relacionado son los valores `JUSTIFIED` y `PERMISSION` del enum `AttendanceStatus` — que ya
+  funcionan de punta a punta: el profesor los puede marcar (`profesor/asistencia`) y la familia
+  los ve, sin contar como ausencia. Construir el módulo (subir el certificado médico) roza
+  **enfermería**, que no está aprobada, y mete datos de salud de menores (categoría especial,
+  Ley 1581 arts. 5-6) sobre una infraestructura de archivos donde `FILES_READ` significa
+  "descargá cualquier archivo del colegio cuya key conozcas". **Decisión de producto pendiente**,
+  no deuda técnica.
 - Permisos nuevos del 2026-07-26, todos con alcance en el nombre y ruta propia en vez de
   abrir la de administración: `STUDENTS_READ_SELF` (`GET /students/mine`),
   `SCHEDULES_READ_SELF` (`GET /schedules/mine`) y `HOMEWORK_SUBMISSIONS_READ_SELF`
@@ -251,14 +260,37 @@ Lo que sí sigue declarado y muerto, verificado por grep:
 
 **Sin documento todavía:**
 
-5. ~~**Terminar el portal de familia**~~ — **hecho el 2026-07-26** salvo `incapacidades` y
-   `ajustes`. Dashboard, `tareas`, `asistencia` y `horario` quedaron conectados, y de paso se
-   arregló `calificaciones`, que figuraba como conectada y estaba rota (§3). Se creó además
-   `/alumno/horario`, que no existía. `incapacidades` sigue mock **y sin entrada en el
-   sidebar**: antes de conectarla hay que decidir si el flujo de justificar una inasistencia
-   se quiere, porque hoy nadie llega a esa pantalla.
+5. ~~**Terminar el portal de familia**~~ — **hecho el 2026-07-26**, y `pagos` + `ajustes` el
+   **2026-07-27**. Dashboard, `tareas`, `asistencia` y `horario` quedaron conectados, y de paso
+   se arregló `calificaciones`, que figuraba como conectada y estaba rota (§3). Se creó además
+   `/alumno/horario`, que no existía. Queda **solo `incapacidades`**, mock y sin entrada en el
+   sidebar: no es deuda técnica sino una decisión de producto sin tomar (ver §3).
 6. ~~**`pnpm lint` está roto en todo el repo** por falta de `eslint.config.js` (ESLint v9).~~ **Resuelto** (corrección del 2026-07-25): los configs se agregaron en `e27e4b9` y CI tiene paso de lint desde `94a502b`.
 7. **`/registro`** (alta autoservicio de tenant): sin flujo real. (`/recuperar-password` **ya
    está hecho** — 2026-07-27, ver §3.)
 8. **App móvil (React Native/Expo): sigue en el roadmap, sin fecha** — confirmado con el dueño del producto el 2026-07-25. Nunca se inicializó `apps/mobile`; las variables `EXPO_PUBLIC_*` de `.env.example` están reservadas para cuando arranque. No está descartada, pero tampoco hay nada construido, así que **no se debe escribir código web "preparando" la paridad con una app que no existe**. El brief original que la mandaba "desde la primera versión profesional" está en `archive/01-arquitecto-saas.md`.
-9. **Estado de cuenta para familias**: `PAYMENTS_READ_SELF` está concedido a `GUARDIAN` y `STUDENT` (`permissions.ts:524,545`) y `GET /students/:studentId/balance` existe y valida propiedad con `assertCanAccessStudent` — pero **no hay UI**: solo existe `/admin/pagos`, no `/familia/pagos`. Las familias no pueden ver lo que deben. Mismo patrón que `GET /notifications/unread-count` en §4: backend adelantado al frontend. Decisión de producto pendiente, no olvido técnico — sin recaudo en línea (ver `CLAUDE.md`, frontera de Pagos), la pantalla diría "esto debes, ve a pagarlo al banco".
+9. ~~**Estado de cuenta para familias**~~ — **hecho el 2026-07-27**. `/familia/pagos` existe y
+   consume `GET /students/:studentId/balance` (uno por hijo, igual que
+   `CalendarAggregationService#invoiceItems`, para que cada llamada revalide la pertenencia).
+   Muestra los totales consolidados de la familia y el detalle agrupado por hijo. Tres cosas que
+   conviene saber antes de tocarla:
+   - **`getStudentBalance` no calcula ningún balance pese al nombre**: devuelve las facturas
+     crudas con sus pagos, **incluidas las `CANCELLED`**. Los totales los arma la pantalla, y
+     excluir las anuladas es responsabilidad suya.
+   - El criterio de "pendiente" (`PENDING || PARTIAL`) está **duplicado a propósito** con
+     `CalendarAggregationService#isPendingInvoice`. Si se cambia uno hay que cambiar el otro:
+     si divergen, el calendario y el estado de cuenta le dicen cosas distintas a la misma
+     familia sobre la misma factura.
+   - **No hay botón de pagar y no debe haberlo**: recaudar en línea no está aprobado
+     (`CLAUDE.md`, frontera de Pagos). La pantalla dice qué se debe y cuándo vence, y remite al
+     colegio. Ojo: `/admin/pagos` formatea `dueDate` en hora local, sin `timeZone: "UTC"`, así
+     que muestra las fechas un día antes en Colombia; `/familia/pagos` sí lo hace bien.
+10. **Cambio de contraseña autenticado** — **hecho el 2026-07-27**. `POST /auth/change-password`
+    (`auth.controller.ts`), consumido desde `/familia/ajustes`. Antes solo existía el reseteo por
+    correo, así que quien sabía su clave tenía que fingir que la había olvidado. Comparte con
+    `resetPassword` el rehasheo y la revocación de sesiones en todos los colegios, pero conserva
+    la sesión que hace el cambio (identificada por su refresh token, porque el JWT no lleva id de
+    sesión). **Responde 403 —no 401— cuando la contraseña actual no coincide**, y eso es
+    contrato, no estilo: `api-client.ts` trata todo 401 como "token vencido", intenta renovar y
+    al fallar borra los tokens y manda a `/login`. Con 401, equivocarse al escribir la contraseña
+    cerraba la sesión del usuario.
