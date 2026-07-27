@@ -7,6 +7,7 @@ import { AccessControlModule } from "../access-control/access-control.module";
 import { EmailModule } from "../notifications/email/email.module";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
+import { ForgotPasswordThrottlerGuard } from "./forgot-password-throttler.guard";
 
 @Module({
   imports: [
@@ -19,7 +20,7 @@ import { AuthService } from "./auth.service";
     AccessControlModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard],
+  providers: [AuthService, JwtAuthGuard, ForgotPasswordThrottlerGuard],
   exports: [AuthService, JwtAuthGuard, JwtModule],
 })
 export class AuthModule {}
