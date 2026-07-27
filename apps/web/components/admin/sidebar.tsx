@@ -5,12 +5,13 @@ import { usePathname, useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Calendar,
-  MessageSquare, BarChart3, Settings, LogOut, Menu, X,
+  MessageSquare, BarChart3, Settings,
   Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone, SlidersHorizontal, LifeBuoy, ChevronDown,
   UserCog, School, BookMarked, Mail, Briefcase, Vote, FileCheck2, Wallet, UploadCloud
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 import { NavUnreadBadge, UnreadBell } from "@/components/shared/unread-bell"
+import { PortalSidebar } from "@/components/shared/portal-sidebar"
 
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super Administrador",
@@ -83,7 +84,6 @@ interface Props { isCollapsed: boolean; onToggle: () => void }
 export function AdminSidebar({ isCollapsed, onToggle }: Props) {
   const pathname  = usePathname()
   const router    = useRouter()
-  const [mobileOpen, setMobileOpen] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     "Académico": false,
     "Comunidad": false,
@@ -114,69 +114,29 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
 
   const handleLogout = async () => { await logout(); router.push("/login") }
 
+  const brandInitial = user?.tenantName ? user.tenantName[0].toUpperCase() : "C"
+  const brandName = user?.tenantName || "Classia"
+
   return (
-    <>
-      {/* ── Top bar solo móvil ─────────────────────────────────── */}
-      <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background px-4 lg:hidden">
-        <button onClick={() => setMobileOpen(true)} className="rounded-md p-2 text-foreground" aria-label="Abrir menú">
-          <Menu className="h-5 w-5" />
-        </button>
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <span className="text-sm font-bold text-primary-foreground">{user?.tenantName ? user.tenantName[0].toUpperCase() : "C"}</span>
-          </div>
-          <span className="font-bold truncate max-w-[150px]">{user?.tenantName || "Classia"}</span>
-        </div>
-        <UnreadBell href="/admin/notificaciones" />
-      </header>
-
-      {/* ── Overlay móvil ──────────────────────────────────────── */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setMobileOpen(false)} />
-      )}
-
-      {/* ── Sidebar ────────────────────────────────────────────── */}
-      <aside className={[
-        "fixed inset-y-0 left-0 z-40 flex flex-col bg-sidebar transition-all duration-300",
-        "w-64",                                          // ancho en móvil siempre 64
-        isCollapsed ? "lg:w-16" : "lg:w-64",            // desktop: colapsa a 16
-        mobileOpen  ? "translate-x-0" : "-translate-x-full", // móvil: open/close
-        "lg:translate-x-0",                             // desktop: siempre visible
-      ].join(" ")}>
-
-        {/* Header del sidebar */}
-        <div className={`flex h-16 shrink-0 items-center border-b border-sidebar-border ${isCollapsed ? "justify-center px-2" : "px-4"}`}>
-          {!isCollapsed && (
-            <div className="flex flex-1 items-center gap-2 overflow-hidden">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary">
-                <span className="text-sm font-bold text-sidebar-primary-foreground">{user?.tenantName ? user.tenantName[0].toUpperCase() : "C"}</span>
-              </div>
-              <span className="truncate font-bold text-sidebar-foreground">{user?.tenantName || "Classia"}</span>
-            </div>
-          )}
-          {/* Botón hamburguesa desktop */}
-          <button
-            onClick={onToggle}
-            className="hidden shrink-0 rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-          {/* Botón cerrar móvil */}
-          <button
-            onClick={() => setMobileOpen(false)}
-            className="shrink-0 rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:hidden"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Navegación */}
+    <PortalSidebar
+      isCollapsed={isCollapsed}
+      onToggle={onToggle}
+      brandInitial={brandInitial}
+      brandName={brandName}
+      mobileTopBarRightSlot={<UnreadBell href="/admin/notificaciones" />}
+      initials={initials}
+      displayName={displayName}
+      roleLabel={roleLabel}
+      onLogout={handleLogout}
+      showUserInfo={!!user}
+    >
+      {(closeMobileMenu) => (
         <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
           {navigation.map((item) => {
             if (item.children) {
               const isExpanded = expanded[item.name]
               const hasActiveChild = item.children.some(child => pathname === child.href || pathname.startsWith(`${child.href}/`))
-              
+
               return (
                 <div key={item.name} className="space-y-0.5">
                   <button
@@ -198,7 +158,7 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
                       </>
                     )}
                   </button>
-                  
+
                   {!isCollapsed && isExpanded && (
                     <div className="mt-1 space-y-0.5 pl-9 pr-1">
                       {item.children.map(child => {
@@ -207,7 +167,7 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
                           <Link
                             key={child.name}
                             href={child.href}
-                            onClick={() => setMobileOpen(false)}
+                            onClick={closeMobileMenu}
                             className={[
                               "flex items-center gap-2 truncate rounded-md px-3 py-2 text-xs font-medium transition-colors",
                               childActive
@@ -231,7 +191,7 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
               <Link
                 key={item.name}
                 href={item.href!}
-                onClick={() => setMobileOpen(false)}
+                onClick={closeMobileMenu}
                 title={isCollapsed ? item.name : undefined}
                 className={[
                   "relative flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
@@ -252,33 +212,7 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
             )
           })}
         </nav>
-
-        {/* Usuario + logout */}
-        <div className="shrink-0 space-y-1 border-t border-sidebar-border p-3">
-          {!isCollapsed && user && (
-            <div className="flex items-center gap-2 px-3 py-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent">
-                <span className="text-xs font-semibold text-sidebar-accent-foreground">{initials}</span>
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
-                <p className="truncate text-xs font-medium uppercase tracking-wide text-sidebar-foreground/50">{roleLabel}</p>
-              </div>
-            </div>
-          )}
-          <button
-            onClick={handleLogout}
-            title={isCollapsed ? "Cerrar sesión" : undefined}
-            className={[
-              "flex w-full items-center rounded-lg py-2 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
-              isCollapsed ? "justify-center px-2" : "gap-2 px-3",
-            ].join(" ")}
-          >
-            <LogOut className="h-4 w-4 shrink-0" />
-            {!isCollapsed && "Cerrar sesión"}
-          </button>
-        </div>
-      </aside>
-    </>
+      )}
+    </PortalSidebar>
   )
 }
