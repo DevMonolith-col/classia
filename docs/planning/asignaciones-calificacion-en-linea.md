@@ -283,8 +283,33 @@ roster, que es más honesto que fabricar filas fantasma.
 
 ### Permiso de GUARDIAN
 
-`GUARDIAN` no tiene **ningún** `HOMEWORK_SUBMISSIONS_*` (`permissions.ts:477-492`) → un
-acudiente no puede ver la entrega ni la retroalimentación de su hijo. Agregar
+> **Resuelto el 2026-07-26, y no como decía acá.** Lo que sigue se conserva porque el
+> razonamiento equivocado es la parte útil.
+>
+> Esta sección (y el paso 14 de §6) decían que bastaba con concederle
+> `HOMEWORK_SUBMISSIONS_READ` a `GUARDIAN` "con scope de hijo propio". **No bastaba:** ese
+> permiso solo abre `GET /submissions/me`, y `findMine` resuelve la fila `Student` por el
+> `userId` del actor. Un acudiente no tiene ninguna, así que la ruta le responde
+> `403 This account has no student profile.` — concederle el permiso no le habría dado
+> absolutamente nada.
+>
+> Lo que se hizo: ruta hermana `GET /homework/:homeworkId/submissions/by-student/:studentId`
+> con permiso propio `HOMEWORK_SUBMISSIONS_READ_SELF`, validando la pertenencia contra
+> `resolveOwnStudentIds`. `HOMEWORK_SUBMISSIONS_LIST` queda fuera a propósito: devuelve las
+> entregas de todo el curso.
+>
+> Y una cola que este plan no veía: los **adjuntos**. `GUARDIAN` no tiene `FILES_READ`, y
+> concedérselo habría sido peor que el problema — `FilesService#getDownloadUrl` solo valida
+> que la key empiece con el prefijo del tenant, sin noción de dueño del archivo, así que ese
+> permiso significa "descargá cualquier archivo del colegio cuya key conozcas". El endpoint
+> devuelve URLs **ya firmadas** y la key no sale nunca de la API.
+>
+> La referencia de líneas de abajo (`permissions.ts:477-492`) ya estaba desactualizada
+> cuando se escribió esto: el bloque de `GUARDIAN` estaba en `:522-541`. El hecho que
+> afirmaba sí era correcto.
+
+`GUARDIAN` no tenía **ningún** `HOMEWORK_SUBMISSIONS_*` (`permissions.ts:477-492`) → un
+acudiente no podía ver la entrega ni la retroalimentación de su hijo. Agregar
 `HOMEWORK_SUBMISSIONS_READ` con scope de hijo propio desbloquea `familia/tareas` (hoy 100%
 mock, `mockTasks` en `app/familia/tareas/page.tsx:38-112`).
 
@@ -320,10 +345,14 @@ navegador como profesor.
     `service:113-114`).
 13. Mostrar el archivo devuelto en `app/alumno/tarea/[homeworkId]/page.tsx`.
 
-**Fase 5 — Desbloquear a la familia** (coordinar `permissions.ts` antes)
-14. `HOMEWORK_SUBMISSIONS_READ` para GUARDIAN con scope de hijo propio, siguiendo el patrón
-    `resolveOwnChildIds` que ya existe en homework/marks/attendance desde `4e3517c`.
-15. e2e de scoping: un acudiente no ve la entrega de un compañero de curso.
+**Fase 5 — Desbloquear a la familia** (coordinar `permissions.ts` antes) — **hecha el
+2026-07-26**, con la corrección de §5: no era `HOMEWORK_SUBMISSIONS_READ` sobre `/me`, sino
+`HOMEWORK_SUBMISSIONS_READ_SELF` sobre una ruta `by-student` nueva, con los adjuntos
+firmados en el endpoint para no conceder `FILES_READ`.
+14. ~~`HOMEWORK_SUBMISSIONS_READ` para GUARDIAN con scope de hijo propio~~ → ver §5.
+15. e2e de scoping: un acudiente no ve la entrega de un compañero de curso. **Hecho**, y el
+    caso elegido es el compañero del *mismo grupo* en la *misma tarea*: un scoping por grupo
+    responde 200 y solo ahí se delata.
 
 **Fuera de alcance, con dueño** — los 5 puntos del contrato de §2 (notas y reportes).
 

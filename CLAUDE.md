@@ -48,6 +48,24 @@ RLS defiende contra "me olvidé el filtro", no contra "resolví el tenant equivo
 arriba. El scoping por rol (el acudiente solo ve sus hijos, el profesor solo sus grupos)
 sigue siendo responsabilidad del código: `apps/api/src/common/permissions/permissions.ts`.
 
+**Cuando un rol acotado necesita "lo mío", va ruta propia y no un permiso más sobre la ruta
+de administración.** El idioma del repo es `GET .../mine` + un permiso `*_READ_SELF`
+(`students`, `schedules`, `documents`, `homework-submissions`). El motivo: `list()` acepta
+`groupId`, `teacherId` y `tenantId` del query — su contrato es "listame lo que yo filtre",
+así que abrirla obliga a defender cada parámetro que alguien le agregue después. Dos reglas
+que hacen que valga la pena: el resolvedor devuelve **`null` y no `{}`** cuando no puede
+resolver el alcance (un endpoint llamado "mine" que ante la duda muestra el colegio entero
+es peor que no tenerlo), y **la falta de contexto no significa acceso total** — el fail-open
+de `calendar-aggregation` el 2026-07-26 fue exactamente eso, y le mostraba a un profesor sin
+ficha las 130 clases del colegio. Precedente completo en
+`docs/planning/auditoria-seguridad-2026-07.md` (apéndice).
+
+Si lo que hay que exponer es un **archivo**, no alcanza con el permiso: `FILES_READ` significa
+"descargá cualquier archivo del colegio cuya key conozcas" — `FilesService#getDownloadUrl`
+solo valida el prefijo del tenant, sin noción de dueño. Firmar la URL en el endpoint dueño
+del dato (como hace `homework-submissions`) deja el alcance atado a lo que el actor ya probó
+poder ver.
+
 ## Gotchas que cuestan una hora si no se saben
 
 - **No existe `apps/mobile`.** Solo hay `apps/api` y `apps/web`. La app Expo **sigue en el
