@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
@@ -6,6 +6,7 @@ import { AudienceScopeService } from "../../common/audience/audience-scope.servi
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
+import { StorageService } from "../../core/storage/storage.service";
 import {
   HomeworkAssignedEvent,
   NOTIFICATION_EVENTS,
@@ -19,6 +20,7 @@ export class HomeworkService {
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
     private readonly audience: AudienceScopeService,
+    private readonly storage: StorageService,
   ) {}
 
   async list(actor: RequestUser, query: ListHomeworkQuery) {
@@ -91,6 +93,44 @@ export class HomeworkService {
     await this.assertCanAccessHomework(homework.tenantId, homework.teacher.id, homework.group.id, actor);
 
     return homework;
+  }
+
+  /**
+   * URL firmada temporal para el adjunto de la tarea (el enunciado que sube el
+   * profesor, `Homework.attachmentKey` -- no confundir con el archivo que
+   * entrega el estudiante, que resuelve `homework-submissions.service.ts`).
+   *
+   * Backlog "Seguridad y Permisos" 2.1: las familias no tienen `FILES_READ`
+   * (ese permiso es "descargar cualquier archivo del colegio cuya key
+   * conozcas" -- `FilesService#getDownloadUrl` solo valida el prefijo del
+   * tenant, sin noción de dueño), así que el botón de descarga del acudiente
+   * fallaba. Mismo patrón que `homework-submissions.service.ts#findForOwnStudent`:
+   * el alcance de esta URL queda atado a lo que `assertCanAccessHomework` ya
+   * probó que el actor puede ver (para GUARDIAN, que tenga un hijo en el
+   * grupo de esta tarea), no a un permiso global de storage.
+   */
+  async getAttachmentUrl(homeworkId: string, actor: RequestUser) {
+    const homework = await this.prisma.homework.findUniqueOrThrow({
+      where: { id: homeworkId },
+      select: {
+        tenantId: true,
+        attachmentKey: true,
+        attachmentName: true,
+        teacher: { select: { id: true } },
+        group: { select: { id: true } },
+      },
+    });
+
+    await this.assertCanAccessHomework(homework.tenantId, homework.teacher.id, homework.group.id, actor);
+
+    if (!homework.attachmentKey) {
+      throw new NotFoundException("This assignment has no attachment.");
+    }
+
+    return {
+      url: await this.storage.getSignedDownloadUrl(homework.attachmentKey),
+      name: homework.attachmentName,
+    };
   }
 
   async create(input: CreateHomeworkInput, actor: RequestUser, request: Request) {

@@ -490,9 +490,49 @@ export function MessagingPanel({ userRole }: MessagingPanelProps) {
     }
   }, [])
 
-  const handleOpenConversation = useCallback(async (conversationId: string) => {
-    await apiFetch(`/conversations/${conversationId}/read`, { method: "POST", silent: true })
-  }, [])
+  /**
+   * Al entrar a un hilo: marca como leído (si hacía falta) y trae el historial
+   * reciente completo (hasta 50 mensajes) vía GET /conversations/:id/messages.
+   *
+   * GET /conversations (la bandeja) ahora solo trae el último mensaje de cada
+   * hilo para el snippet -- ver conversations.service.ts#LIST_SNIPPET_SIZE,
+   * backlog "Rendimiento y Escalabilidad" punto 1.1 -- así que sin este fetch
+   * el chat se abriría mostrando un único mensaje.
+   */
+  const handleOpenConversation = useCallback(
+    async (conversationId: string) => {
+      const conversation = conversations.find((c) => c.id === conversationId)
+      if (conversation && conversation.unreadCount > 0) {
+        void apiFetch(`/conversations/${conversationId}/read`, { method: "POST", silent: true })
+      }
+
+      try {
+        const res = await apiFetch(`/conversations/${conversationId}/messages`, { silent: true })
+        if (!res.ok) return
+
+        const data = (await res.json()) as { messages: ApiMessage[]; nextCursor: string | null }
+        if (data.nextCursor === null) exhaustedThreads.current.add(conversationId)
+        else exhaustedThreads.current.delete(conversationId)
+
+        // El API devuelve del más nuevo al más viejo (así se pagina hacia atrás); la vista los
+        // quiere al revés -- mismo mapeo que handleLoadOlderMessages.
+        const recent: Message[] = data.messages
+          .slice()
+          .reverse()
+          .map((message) =>
+            mapMessage(message, currentUserId, conversation?.otherLastReadAt ?? null),
+          )
+
+        setConversations((current) =>
+          current.map((c) => (c.id === conversationId ? { ...c, messages: recent } : c)),
+        )
+      } catch {
+        // Silencioso: si falla, el usuario sigue viendo el último mensaje que ya
+        // traía el listado en vez de quedar con el chat vacío.
+      }
+    },
+    [conversations, currentUserId],
+  )
 
   const handleStartConversation = useCallback(
     async (contactId: string) => {
