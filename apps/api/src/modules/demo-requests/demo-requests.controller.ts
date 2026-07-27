@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { AccessScope } from "@prisma/client";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Throttle } from "@nestjs/throttler";
 import { Request } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { DataScope } from "../../common/decorators/data-scope.decorator";
@@ -36,11 +36,16 @@ export class DemoRequestsController {
    * Responde 201 **sin cuerpo**: devolver el id le daría a cualquiera en internet un
    * identificador válido de una fila que solo el equipo interno puede leer.
    *
-   * 5 por minuto por IP: un colegio manda una, quizá dos si se equivoca. Es el mismo orden
-   * que el login (5/min) y bastante más apretado que el refresh (20/min).
+   * 5 por minuto por IP: un colegio manda una, quizá dos si se equivoca. Mismo límite que
+   * `forgot-password`, que es el otro endpoint público que "cuesta" algo del lado de acá, y
+   * más estricto que el login (20/min, que tiene que tolerar una red escolar compartida).
+   *
+   * El `@Throttle` va **sin `@UseGuards(ThrottlerGuard)`**: el guard es global (`APP_GUARD`
+   * en `app.module.ts`) y declararlo además por ruta lo hace correr dos veces sobre la misma
+   * clave — cada request contaría doble y el límite real sería la mitad. Verificado en vivo:
+   * con las dos declaraciones, la tercera solicitud ya devolvía 429.
    */
   @Post()
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async create(
     @Body(new ZodValidationPipe(createDemoRequestSchema)) body: CreateDemoRequestInput,
