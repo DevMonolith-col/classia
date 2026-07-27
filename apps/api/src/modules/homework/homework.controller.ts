@@ -47,6 +47,16 @@ export class HomeworkController {
     return this.homework.findOne(homeworkId, user);
   }
 
+  // Mismo permiso que el detalle (HOMEWORK_READ, que GUARDIAN/STUDENT/TEACHER
+  // ya tienen): el alcance real no lo da el permiso, lo da
+  // assertCanAccessHomework() adentro del service -- ver el comentario de
+  // getAttachmentUrl.
+  @Get(":id/attachment-url")
+  @Permissions(PERMISSIONS.HOMEWORK_READ)
+  getAttachmentUrl(@Param("id") homeworkId: string, @CurrentUser() user: RequestUser) {
+    return this.homework.getAttachmentUrl(homeworkId, user);
+  }
+
   @Post()
   @Permissions(PERMISSIONS.HOMEWORK_CREATE)
   create(
