@@ -1749,6 +1749,10 @@ describe("Backend v1 e2e", () => {
     //
     // Se reintenta con espera creciente hasta cruzar la ventana de 60 s, sin acercarse al
     // `testTimeout` de 120 s: 15+20+25+30 = 90 s acumulados como techo.
+    //
+    // Hoy esto **no debería dispararse nunca**: el throttler se saltea entero cuando
+    // `NODE_ENV=test` (ver el `skipIf` de `app.module.ts`, que bajó la suite de 296 s a 57 s).
+    // Se deja igual como red: si ese `skipIf` se rompe, la suite se pone lenta en vez de roja.
     if (response.status === 429 && path === "/auth/forgot-password" && attempt < 5) {
       await new Promise((resolve) => setTimeout(resolve, 10_000 + attempt * 5000));
       return api<T>(path, init, attempt + 1);
