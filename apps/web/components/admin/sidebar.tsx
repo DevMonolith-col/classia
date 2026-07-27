@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Calendar,
   MessageSquare, BarChart3, Settings, LogOut, Menu, X,
   Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone, SlidersHorizontal, LifeBuoy, ChevronDown,
-  UserCog, School, BookMarked, Mail, Briefcase, Vote, FileCheck2, Wallet
+  UserCog, School, BookMarked, Mail, Briefcase, Vote, FileCheck2, Wallet, UploadCloud
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 import { NavUnreadBadge, UnreadBell } from "@/components/shared/unread-bell"
@@ -37,6 +37,7 @@ const navigation: NavItem[] = [
     children: [
       { name: "Estudiantes", href: "/admin/estudiantes", icon: GraduationCap },
       { name: "Profesores", href: "/admin/profesores", icon: UserCog },
+      { name: "Onboarding masivo", href: "/admin/onboarding", icon: UploadCloud },
     ]
   },
   {
