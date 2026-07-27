@@ -72,6 +72,20 @@ import { AccessControlModule } from "./modules/access-control/access-control.mod
       useFactory: (config: ConfigService) => ({
         throttlers: [{ ttl: 60_000, limit: 30 }],
         storage: new ThrottlerStorageRedisService(config.get<string>("redis.url") ?? "redis://localhost:6379"),
+        // **Apagado en tests, y no por comodidad: el rate-limit no prueba nada acá y cuesta
+        // minutos.** Ninguna suite afirma un 429 — lo que hacen las cuatro que tocan endpoints
+        // limitados es *reintentar con espera creciente* hasta cruzar la ventana de 60 s. Eso
+        // es tiempo dormido puro: `calendar-feed` se llevaba 130 s de los 296 de la suite
+        // completa por dos bucles de backoff (login y emisión de token) de hasta 112 s cada
+        // uno, y CI se pasaba de sus 20 minutos por esto.
+        //
+        // Que el almacén sea Redis lo empeora: el contador **sobrevive entre corridas**, así
+        // que verificar un test por reversión —correr dos veces seguidas— arranca la segunda
+        // con el cupo ya gastado.
+        //
+        // Si alguna vez hay que probar el límite en sí, el test tiene que levantar su propio
+        // módulo con esto desactivado; no alcanza con quitar esta línea.
+        skipIf: () => config.get<string>("app.nodeEnv") === "test",
       }),
     }),
     PrismaModule,
