@@ -432,6 +432,133 @@ describe("Backend v1 e2e", () => {
     expect(backToNormal.status).toBe(201);
   });
 
+  // Cambio de contraseña **con sesión**, que hasta ahora no existía: quien sabía su clave y
+  // quería otra tenía que fingir que la había olvidado y esperar un correo.
+  //
+  // Comparte el cambio de estado con `resetPassword` y por eso repite sus garantías, pero la
+  // propiedad propia —la que no tiene el reseteo— es la del final: cierra las **demás**
+  // sesiones y deja viva la que hizo el cambio. Las dos mitades se afirman por separado a
+  // propósito, porque cada una se rompe con un error distinto (revocar todo / no revocar nada).
+  it("changes the password of a signed-in user, killing every other session but its own", async () => {
+    const NEW_PASSWORD = "CambioConSesion2026!";
+
+    // Dos sesiones vivas de la misma cuenta: la que hará el cambio y otra cualquiera, que es
+    // la que representa al atacante o al dispositivo perdido.
+    const changing = await loginAs(GUARDIAN_EMAIL);
+    expect(changing.status).toBe(201);
+    const other = await loginAs(GUARDIAN_EMAIL);
+    expect(other.status).toBe(201);
+
+    const changePassword = (body: unknown, accessToken?: string) =>
+      api<{ status: string }>("/auth/change-password", {
+        method: "POST",
+        headers: accessToken
+          ? jsonHeaders({ ...tenantHeaders(), ...authHeaders(accessToken) })
+          : jsonHeaders(tenantHeaders()),
+        body: JSON.stringify(body),
+      });
+
+    // Sin sesión no se entra: es lo único que separa este endpoint del reseteo por correo.
+    const anonymous = await changePassword({
+      currentPassword: DEMO_PASSWORD,
+      newPassword: NEW_PASSWORD,
+      refreshToken: changing.body.refreshToken,
+    });
+    expect(anonymous.status).toBe(401);
+
+    // Con sesión pero sin saber la contraseña actual, tampoco. Un token robado no alcanza
+    // para quedarse con la cuenta.
+    //
+    // 403 y no 401 a propósito: el cliente web trata cualquier 401 como "el access token
+    // venció", intenta renovarlo y, al fallar, cierra la sesión. Con 401 acá, un acudiente que
+    // se equivocaba al escribir su contraseña actual terminaba en la pantalla de login. El
+    // status es parte del contrato con el cliente, así que se afirma.
+    const wrongCurrent = await changePassword(
+      {
+        currentPassword: "EstaNoEsLaClave2026!",
+        newPassword: NEW_PASSWORD,
+        refreshToken: changing.body.refreshToken,
+      },
+      changing.body.accessToken,
+    );
+    expect(wrongCurrent.status).toBe(403);
+
+    // Y el intento fallido no cambió nada: la contraseña de siempre sigue entrando.
+    const stillWorks = await loginAs(GUARDIAN_EMAIL);
+    expect(stillWorks.status).toBe(201);
+
+    // Repetir la misma contraseña no es un cambio; se rechaza en la validación del cuerpo.
+    const sameAsCurrent = await changePassword(
+      {
+        currentPassword: DEMO_PASSWORD,
+        newPassword: DEMO_PASSWORD,
+        refreshToken: changing.body.refreshToken,
+      },
+      changing.body.accessToken,
+    );
+    expect(sameAsCurrent.status).toBe(400);
+
+    const changed = await changePassword(
+      {
+        currentPassword: DEMO_PASSWORD,
+        newPassword: NEW_PASSWORD,
+        refreshToken: changing.body.refreshToken,
+      },
+      changing.body.accessToken,
+    );
+    expect(changed.status).toBe(201);
+
+    // La vieja dejó de servir y la nueva entra.
+    const withOld = await loginAs(GUARDIAN_EMAIL);
+    expect(withOld.status).toBe(401);
+
+    const withNew = await api<LoginResponse>("/auth/login", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ email: GUARDIAN_EMAIL, password: NEW_PASSWORD }),
+    });
+    expect(withNew.status).toBe(201);
+
+    // Primera mitad: la otra sesión murió. Sin esto, cambiar la contraseña no expulsa a nadie
+    // y la acción no sirve para recuperar una cuenta comprometida.
+    //
+    // Se comprueba contra `/auth/refresh` y no contra una petición cualquiera porque
+    // `JwtAuthGuard` no mira `auth_sessions`: solo verifica la firma del JWT. El access token
+    // ya emitido sigue siendo válido hasta que expira (~15 min), acá y también en el reseteo
+    // por correo. Lo que se revoca es la capacidad de renovarlo.
+    const otherRefresh = await api<ErrorResponse>("/auth/refresh", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ refreshToken: other.body.refreshToken }),
+    });
+    expect(otherRefresh.status).toBe(401);
+
+    // Segunda mitad: la que hizo el cambio sigue viva. Cerrarla obligaría a volver a entrar
+    // después de una acción rutinaria, y no protege de nada.
+    const ownRefresh = await api<LoginResponse>("/auth/refresh", {
+      method: "POST",
+      headers: jsonHeaders(tenantHeaders()),
+      body: JSON.stringify({ refreshToken: changing.body.refreshToken }),
+    });
+    expect(ownRefresh.status).toBe(201);
+
+    // Se devuelve la contraseña del fixture, por lo mismo que el test de arriba: la base de dev
+    // es compartida y el resto de la suite inicia sesión con ella. Se usa la sesión recién
+    // renovada, que es la única que quedó en pie.
+    const restored = await changePassword(
+      {
+        currentPassword: NEW_PASSWORD,
+        newPassword: DEMO_PASSWORD,
+        refreshToken: ownRefresh.body.refreshToken,
+      },
+      ownRefresh.body.accessToken,
+    );
+    expect(restored.status).toBe(201);
+
+    const backToFixture = await loginAs(GUARDIAN_EMAIL);
+    expect(backToFixture.status).toBe(201);
+  });
+
   // La quinta propiedad, que faltaba: **no filtrar qué correos existen tampoco por el reloj**.
   //
   // El test de arriba compara cuerpo y status, y ahí los dos caminos ya eran idénticos. Lo que

@@ -13,6 +13,7 @@ import { TenantContextService } from "../../core/tenant-context/tenant-context.s
 import { AccessControlService } from "../access-control/access-control.service";
 import { EmailService } from "../notifications/email/email.service";
 import {
+  ChangePasswordInput,
   ForgotPasswordInput,
   ImpersonateInput,
   LoginInput,
@@ -228,10 +229,95 @@ export class AuthService {
     return { status: "ok" as const, message: "Tu contraseña quedó actualizada." };
   }
 
+  /**
+   * Cambio de contraseña **con sesión**: el usuario sabe su clave y quiere otra.
+   *
+   * Existía solo el reseteo por correo, así que quien quería cambiarla tenía que fingir que la
+   * había olvidado. Es el mismo cambio de estado que `resetPassword` y por eso comparte sus
+   * dos garantías —rehashear con el mismo costo, y cerrar sesiones en todos los colegios—
+   * pero se prueba distinto: acá la prueba de identidad es la contraseña actual, no un enlace
+   * de un solo uso.
+   *
+   * La sesión que hace el cambio sobrevive. Cerrarla también obligaría a volver a entrar
+   * después de una acción rutinaria, y no protege de nada: quien la está usando es
+   * precisamente quien acaba de demostrar que conoce la contraseña.
+   */
+  async changePassword(actor: RequestUser, input: ChangePasswordInput, request: Request) {
+    // `users` no tiene RLS (es global: un usuario puede estar en varios colegios), así que
+    // esta lectura va por el cliente normal y se acota por el id que salió del JWT.
+    const user = await this.prisma.user.findUnique({
+      where: { id: actor.id },
+      select: { id: true, passwordHash: true, status: true },
+    });
+
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException("No se pudo verificar la cuenta.");
+    }
+
+    const currentMatches = await bcrypt.compare(input.currentPassword, user.passwordHash);
+    if (!currentMatches) {
+      // Se audita el intento fallido: es la señal de que alguien con la sesión abierta está
+      // probando contraseñas, que es justo lo que un robo de token se ve por dentro.
+      await this.audit.record({
+        tenantId: actor.tenantId,
+        userId: actor.id,
+        actorRole: actor.role,
+        action: "auth.password_change_failed",
+        entityType: "User",
+        entityId: actor.id,
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+      // 403 y no 401, y no es cosmético: el cliente trata **todo** 401 como "el access token
+      // venció" (`api-client.ts` reintenta con refresh y, si eso falla, borra los tokens y
+      // manda a /login). Con 401 acá, equivocarse al escribir la contraseña actual cerraba la
+      // sesión del usuario. Se vio corriendo la pantalla, no en el test.
+      //
+      // Además es lo correcto: quien llama está autenticado —su Bearer token es válido— y lo
+      // que falla es un campo del cuerpo. 403 lo distingue del 400 de validación de esquema.
+      throw new ForbiddenException("La contraseña actual no es correcta.");
+    }
+
+    const passwordHash = await bcrypt.hash(input.newPassword, 12);
+    await this.prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+    await this.revokeOtherSessionsAcrossTenants(user.id, input.refreshToken);
+
+    await this.audit.record({
+      tenantId: actor.tenantId,
+      userId: actor.id,
+      actorRole: actor.role,
+      action: "auth.password_changed",
+      entityType: "User",
+      entityId: actor.id,
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"],
+    });
+
+    return { status: "ok" as const, message: "Tu contraseña quedó actualizada." };
+  }
+
   /** Revoca todas las sesiones del usuario, en todos los colegios. Ver `resetPassword`. */
   private async revokeAllSessionsAcrossTenants(userId: string) {
     await this.platformAdmin.get().authSession.updateMany({
       where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  /**
+   * Igual que `revokeAllSessionsAcrossTenants` pero conservando la sesión que manda el cambio.
+   *
+   * Si el refresh token recibido no corresponde a ninguna sesión viva —vencido, ya rotado,
+   * de otra cuenta— no se conserva nada y caen todas. Falla cerrado: el costo es volver a
+   * entrar, y la alternativa (dejar viva una sesión que no se pudo identificar) es
+   * exactamente la que un atacante querría.
+   */
+  private async revokeOtherSessionsAcrossTenants(userId: string, refreshToken: string) {
+    const refreshTokenHash = this.hashRefreshToken(refreshToken);
+
+    await this.platformAdmin.get().authSession.updateMany({
+      where: { userId, revokedAt: null, refreshTokenHash: { not: refreshTokenHash } },
       data: { revokedAt: new Date() },
     });
   }
