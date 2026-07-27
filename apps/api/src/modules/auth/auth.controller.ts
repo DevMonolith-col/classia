@@ -6,6 +6,7 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
 import { ForgotPasswordThrottlerGuard } from "./forgot-password-throttler.guard";
+import { ResetPasswordThrottlerGuard } from "./reset-password-throttler.guard";
 import {
   ChangePasswordInput,
   ForgotPasswordInput,
@@ -54,9 +55,12 @@ export class AuthController {
     return this.auth.forgotPassword(body, request);
   }
 
-  // El límite también protege de probar enlaces al azar por fuerza bruta.
+  // El límite también protege de probar enlaces al azar por fuerza bruta. Trackeado por token
+  // (no por IP): es el segundo paso del mismo flujo que forgot-password, y dejarlo por IP
+  // habría vuelto a bloquear a un colegio completando el onboarding en bloque desde la misma
+  // red. Ver ResetPasswordThrottlerGuard.
   @Post("reset-password")
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(ResetPasswordThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   resetPassword(
     @Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPasswordInput,
