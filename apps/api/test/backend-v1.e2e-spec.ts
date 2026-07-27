@@ -1220,6 +1220,58 @@ describe("Backend v1 e2e", () => {
     expect(entry?.mark).toMatchObject({ value: 0, maxValue: 5 });
   });
 
+  // Fase 4: devolver el trabajo corregido. El backend aceptaba feedbackKey desde antes, pero
+  // no había forma de mandarlo ni de verlo, así que era una columna muerta.
+  it("returns the corrected file to the family, and lets the teacher retract it", async () => {
+    const { ownChildHomeworkId, ownChildStudentId } = guardianFixtures;
+    const teacher = await loginAs(TEACHER_EMAIL);
+    expect(teacher.status).toBe(201);
+
+    const withFile = await api<{ status: string }>(
+      `/homework/${ownChildHomeworkId}/submissions/by-student/${ownChildStudentId}/grade`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+        body: JSON.stringify({
+          value: 4,
+          maxValue: 5,
+          feedbackComment: "Revisa las anotaciones del PDF.",
+          feedbackKey: "tenants/fake/corregido-e2e.pdf",
+          feedbackName: "corregido-e2e.pdf",
+        }),
+      },
+    );
+    expect(withFile.status).toBe(200);
+
+    // Llega al acudiente como URL firmada, no como key: es lo que le permite descargarlo sin
+    // tener FILES_READ.
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+    const forFamily = await api<OwnSubmissionItem>(
+      `/homework/${ownChildHomeworkId}/submissions/by-student/${ownChildStudentId}`,
+      { headers: authHeaders(guardian.body.accessToken) },
+    );
+    expect(forFamily.status).toBe(200);
+    expect(forFamily.body.feedbackUrl).toEqual(expect.any(String));
+
+    // Y se puede retirar una devolución equivocada. `null` borra; `undefined` habría dejado
+    // el archivo pegado, que es el modo de falla que motivó el `.nullable()` del schema.
+    const retracted = await api<{ status: string }>(
+      `/homework/${ownChildHomeworkId}/submissions/by-student/${ownChildStudentId}/grade`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+        body: JSON.stringify({ value: 4, maxValue: 5, feedbackKey: null, feedbackName: null }),
+      },
+    );
+    expect(retracted.status).toBe(200);
+
+    const afterRetract = await api<OwnSubmissionItem>(
+      `/homework/${ownChildHomeworkId}/submissions/by-student/${ownChildStudentId}`,
+      { headers: authHeaders(guardian.body.accessToken) },
+    );
+    expect(afterRetract.body.feedbackUrl).toBeNull();
+  });
+
   it("refuses to grade a student from another group", async () => {
     const teacher = await loginAs(TEACHER_EMAIL);
 

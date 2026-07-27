@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { FileUploadField, type UploadedFileValue } from "@/components/shared/file-upload-field"
 import {
   NOT_SUBMITTED_COLOR,
   NOT_SUBMITTED_LABEL,
@@ -76,6 +77,7 @@ export function SubmissionsWorkbench({ homework }: { homework: Homework }) {
   const [value, setValue] = useState("")
   const [maxValue, setMaxValue] = useState("100")
   const [feedbackComment, setFeedbackComment] = useState("")
+  const [feedbackFile, setFeedbackFile] = useState<UploadedFileValue>(null)
 
   const [fileUrl, setFileUrl] = useState<string | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
@@ -118,6 +120,14 @@ export function SubmissionsWorkbench({ homework }: { homework: Homework }) {
     setValue(selected.mark ? String(selected.mark.value) : "")
     setMaxValue(String(selected.mark?.maxValue ?? 100))
     setFeedbackComment(selected.submission?.feedbackComment ?? "")
+    setFeedbackFile(
+      selected.submission?.feedbackKey
+        ? {
+            key: selected.submission.feedbackKey,
+            name: selected.submission.feedbackName ?? "Trabajo corregido",
+          }
+        : null,
+    )
   }, [selected])
 
   const attachmentKey = selected?.submission?.attachmentKey ?? null
@@ -188,6 +198,11 @@ export function SubmissionsWorkbench({ homework }: { homework: Homework }) {
             value: numericValue,
             maxValue: numericMaxValue,
             feedbackComment: feedbackComment.trim() || undefined,
+            // Siempre el estado actual del campo, y `null` cuando está vacío: así quitar el
+            // archivo devuelto realmente lo borra. Mandar `undefined` dejaría pegada una
+            // devolución que el profesor acaba de retirar.
+            feedbackKey: feedbackFile?.key ?? null,
+            feedbackName: feedbackFile?.name ?? null,
           }),
           silent: true,
         },
@@ -459,6 +474,18 @@ export function SubmissionsWorkbench({ homework }: { homework: Homework }) {
                     placeholder="Retroalimentación para el estudiante..."
                     rows={5}
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Devolver trabajo corregido (opcional)</Label>
+                  <FileUploadField
+                    value={feedbackFile}
+                    onChange={setFeedbackFile}
+                    disabled={saving}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    El estudiante y su familia podrán descargarlo desde su portal.
+                  </p>
                 </div>
               </div>
 
