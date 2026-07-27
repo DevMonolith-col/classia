@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
+import { useTeacherId } from "@/lib/bootstrap"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,7 +51,7 @@ function AsistenciaProfesorPageContent() {
   const searchParams = useSearchParams()
   const scheduleIdParam = searchParams.get("scheduleId")
 
-  const [teacherId, setTeacherId] = useState<string | null>(null)
+  const { teacherId, loading: teacherLoading, error: teacherError } = useTeacherId()
   const [schedules, setSchedules] = useState<TeacherSchedule[]>([])
   const [history, setHistory] = useState<AttendanceSession[]>([])
   const [loadingSetup, setLoadingSetup] = useState(true)
@@ -65,41 +66,43 @@ function AsistenciaProfesorPageContent() {
   const [submitting, setSubmitting] = useState(false)
   const [togglingOpen, setTogglingOpen] = useState(false)
 
-  const loadSetup = useCallback(async () => {
-    setLoadingSetup(true)
-    setSetupError("")
-    try {
-      const bootstrapRes = await apiFetch("/app/bootstrap", { silent: true })
-      if (!bootstrapRes.ok) throw new Error("No se pudo cargar tu perfil de profesor.")
-      const bootstrap = (await bootstrapRes.json()) as {
-        summary?: { kind?: string; teacher?: { id?: string } }
-      }
-      const id = bootstrap.summary?.teacher?.id
-      if (!bootstrap.summary || bootstrap.summary.kind !== "teacher" || !id) {
-        throw new Error("Esta cuenta no tiene un perfil de profesor asociado.")
-      }
-      setTeacherId(id)
-
-      const [schedulesRes, historyRes] = await Promise.all([
-        apiFetch(`/schedules?teacherId=${id}`, { silent: true }),
-        apiFetch(`/attendance/sessions?teacherId=${id}`, { silent: true }),
-      ])
-
-      const schedulesData = schedulesRes.ok ? ((await schedulesRes.json()) as TeacherSchedule[]) : []
-      const historyData = historyRes.ok ? ((await historyRes.json()) as AttendanceSession[]) : []
-      setSchedules(schedulesData)
-      setHistory(historyData)
-      if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
-    } catch (err) {
-      setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
-    } finally {
-      setLoadingSetup(false)
-    }
-  }, [scheduleIdParam])
-
   useEffect(() => {
+    if (teacherLoading) return
+    if (teacherError) {
+      setSetupError(teacherError)
+      setLoadingSetup(false)
+      return
+    }
+    if (!teacherId) return
+
+    let cancelled = false
+    async function loadSetup() {
+      setLoadingSetup(true)
+      setSetupError("")
+      try {
+        const [schedulesRes, historyRes] = await Promise.all([
+          apiFetch(`/schedules?teacherId=${teacherId}`, { silent: true }),
+          apiFetch(`/attendance/sessions?teacherId=${teacherId}`, { silent: true }),
+        ])
+
+        const schedulesData = schedulesRes.ok ? ((await schedulesRes.json()) as TeacherSchedule[]) : []
+        const historyData = historyRes.ok ? ((await historyRes.json()) as AttendanceSession[]) : []
+        if (cancelled) return
+        setSchedules(schedulesData)
+        setHistory(historyData)
+        if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
+      } catch (err) {
+        if (!cancelled) setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
+      } finally {
+        if (!cancelled) setLoadingSetup(false)
+      }
+    }
+
     loadSetup()
-  }, [loadSetup])
+    return () => {
+      cancelled = true
+    }
+  }, [teacherId, teacherLoading, teacherError, scheduleIdParam])
 
   const openSession = useCallback(async (scheduleId: string, date: string) => {
     if (!scheduleId || !date) return

@@ -13,6 +13,7 @@ import {
   Plus,
 } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
+import { useTeacherId } from "@/lib/bootstrap"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -46,6 +47,7 @@ function AsignacionesProfesorPageContent() {
   const searchParams = useSearchParams()
   const scheduleIdParam = searchParams.get("scheduleId")
 
+  const { teacherId, loading: teacherLoading, error: teacherError } = useTeacherId()
   const [schedules, setSchedules] = useState<TeacherSchedule[]>([])
   const [loadingSetup, setLoadingSetup] = useState(true)
   const [setupError, setSetupError] = useState("")
@@ -57,34 +59,37 @@ function AsignacionesProfesorPageContent() {
   const [page, setPage] = useState(1)
   const [preview, setPreview] = useState<{ key: string; name: string } | null>(null)
 
-  const loadSetup = useCallback(async () => {
-    setLoadingSetup(true)
-    setSetupError("")
-    try {
-      const bootstrapRes = await apiFetch("/app/bootstrap", { silent: true })
-      if (!bootstrapRes.ok) throw new Error("No se pudo cargar tu perfil de profesor.")
-      const bootstrap = (await bootstrapRes.json()) as {
-        summary?: { kind?: string; teacher?: { id?: string } }
-      }
-      const id = bootstrap.summary?.teacher?.id
-      if (!bootstrap.summary || bootstrap.summary.kind !== "teacher" || !id) {
-        throw new Error("Esta cuenta no tiene un perfil de profesor asociado.")
-      }
-
-      const schedulesRes = await apiFetch(`/schedules?teacherId=${id}`, { silent: true })
-      const schedulesData = schedulesRes.ok ? ((await schedulesRes.json()) as TeacherSchedule[]) : []
-      setSchedules(schedulesData)
-      if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
-    } catch (err) {
-      setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
-    } finally {
-      setLoadingSetup(false)
-    }
-  }, [scheduleIdParam])
-
   useEffect(() => {
+    if (teacherLoading) return
+    if (teacherError) {
+      setSetupError(teacherError)
+      setLoadingSetup(false)
+      return
+    }
+    if (!teacherId) return
+
+    let cancelled = false
+    async function loadSetup() {
+      setLoadingSetup(true)
+      setSetupError("")
+      try {
+        const schedulesRes = await apiFetch(`/schedules?teacherId=${teacherId}`, { silent: true })
+        const schedulesData = schedulesRes.ok ? ((await schedulesRes.json()) as TeacherSchedule[]) : []
+        if (cancelled) return
+        setSchedules(schedulesData)
+        if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
+      } catch (err) {
+        if (!cancelled) setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
+      } finally {
+        if (!cancelled) setLoadingSetup(false)
+      }
+    }
+
     loadSetup()
-  }, [loadSetup])
+    return () => {
+      cancelled = true
+    }
+  }, [teacherId, teacherLoading, teacherError, scheduleIdParam])
 
   const selectedSchedule = schedules.find((s) => s.id === selectedScheduleId) ?? null
 

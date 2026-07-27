@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api-client"
+import { useTeacherId } from "@/lib/bootstrap"
 import type { Schedule } from "@/components/admin/academic-types"
 import type { Homework } from "@/components/profesor/homework-types"
 import type { Student } from "@/components/admin/student-types"
@@ -33,27 +34,26 @@ type ProfesorDashboardData = {
 }
 
 function useProfesorDashboard() {
+  const { teacherId, loading: teacherLoading, error: teacherError } = useTeacherId()
   const [data, setData] = useState<ProfesorDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
   useEffect(() => {
+    if (teacherLoading) return
+    if (teacherError) {
+      setError(teacherError)
+      setLoading(false)
+      return
+    }
+    if (!teacherId) return
+
     let cancelled = false
 
     async function load() {
       setLoading(true)
       setError("")
       try {
-        const bootstrapRes = await apiFetch("/app/bootstrap", { silent: true })
-        if (!bootstrapRes.ok) throw new Error("No se pudo cargar tu perfil de profesor.")
-        const bootstrap = (await bootstrapRes.json()) as {
-          summary?: { kind?: string; teacher?: { id?: string } }
-        }
-        const teacherId = bootstrap.summary?.teacher?.id
-        if (!bootstrap.summary || bootstrap.summary.kind !== "teacher" || !teacherId) {
-          throw new Error("Esta cuenta no tiene un perfil de profesor asociado.")
-        }
-
         const from = new Date()
         from.setDate(from.getDate() - 30)
 
@@ -132,7 +132,7 @@ function useProfesorDashboard() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [teacherId, teacherLoading, teacherError])
 
   return { data, loading, error }
 }
