@@ -18,6 +18,41 @@ export class EmailService {
 
   constructor(private readonly config: ConfigService) {}
 
+  // Test de conexión para el panel de SuperAdmin: no manda ningún correo, solo confirma que el
+  // proveedor activo está bien configurado. Con "disabled" o sin API key devuelve ok:false en
+  // vez de reventar — una config vacía es un resultado válido del test, no un error 500.
+  async verifyConnection(): Promise<{ ok: boolean; message: string }> {
+    const provider = this.config.get<string>("email.provider") ?? "disabled";
+
+    if (provider !== "resend") {
+      return {
+        ok: false,
+        message: `El envío de correo está deshabilitado (EMAIL_PROVIDER=${provider}). Configura EMAIL_PROVIDER=resend y RESEND_API_KEY en el servidor.`,
+      };
+    }
+
+    const apiKey = this.config.get<string>("email.resendApiKey");
+    if (!apiKey) {
+      return { ok: false, message: "Falta RESEND_API_KEY en el servidor." };
+    }
+
+    try {
+      // Endpoint de solo lectura: confirma que la API key autentica sin enviar ningún correo.
+      const res = await fetch("https://api.resend.com/domains", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+
+      if (res.ok) {
+        return { ok: true, message: "Conexión con Resend verificada correctamente." };
+      }
+
+      const text = await res.text();
+      return { ok: false, message: `Resend respondió ${res.status}: ${text.slice(0, 200)}` };
+    } catch (error) {
+      return { ok: false, message: `No se pudo contactar a Resend: ${(error as Error).message}` };
+    }
+  }
+
   async send(message: EmailMessage): Promise<EmailResult> {
     const provider = this.config.get<string>("email.provider") ?? "disabled";
 
