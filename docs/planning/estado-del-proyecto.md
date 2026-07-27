@@ -104,10 +104,36 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
 
 > Corregido el 2026-07-16: la versión anterior decía que `/familia/*` estaba mock "completo, sin excepción" y que `mensajes` no tenía backend en ninguno de los 3 portales. Ya no es cierto — abajo la lista real.
 
-### Portal de familia/acudientes (`/familia/*`) — parcial
-- **Conectadas**: `calificaciones`, `mensajes`, `comunicados`, `notificaciones`.
-- **Todavía mock**: `page.tsx` (dashboard — incluido su array `notifications` hardcodeado), `tareas` (`mockTasks`), `asistencia`, `horario`, `incapacidades`, `ajustes`.
-- `familia/tareas` está bloqueada además por permisos: `GUARDIAN` no tiene ningún `HOMEWORK_SUBMISSIONS_*`, así que no puede ver la entrega ni la retroalimentación de su hijo. Ver `asignaciones-calificacion-en-linea.md` §5.
+### Portal de familia/acudientes (`/familia/*`) — casi completo
+
+> Corregido el 2026-07-26 (segunda vez ese día): esta sección listaba `familia/tareas` como
+> la única bloqueada por permisos. Eran tres, y faltaba la peor:
+> - `familia/horario` también lo estaba — `GUARDIAN` no tenía `SCHEDULES_LIST` ni
+>   `SCHEDULES_READ` — y el doc no lo mencionaba.
+> - **`familia/calificaciones` figuraba como "conectada" y estaba rota**: llamaba a
+>   `GET /students`, que exige `STUDENTS_LIST`, permiso que `GUARDIAN` no tiene. Se comía un
+>   403, el selector quedaba vacío y las notas no se pedían nunca. El propio código lo
+>   admitía en un comentario ("in a real scenario, this endpoint should only return the
+>   parent's children") sin que nadie lo tomara por un bug.
+>
+> La causa de fondo era una sola: **no existía ninguna forma de que un acudiente supiera
+> quiénes son sus hijos.** Sin ese `studentId` ninguna pantalla por estudiante podía
+> funcionar. Lo resuelve `GET /students/mine` (`STUDENTS_READ_SELF`).
+
+- **Conectadas**: `page.tsx` (dashboard), `calificaciones`, `tareas`, `asistencia`,
+  `horario`, `calendario`, `mensajes`, `comunicados`, `notificaciones`, `certificados`.
+- **Todavía mock**: `incapacidades`, `ajustes`. Ojo con `incapacidades`: **no está en el
+  sidebar**, así que hoy es una pantalla huérfana a la que no se llega navegando.
+- Permisos nuevos del 2026-07-26, todos con alcance en el nombre y ruta propia en vez de
+  abrir la de administración: `STUDENTS_READ_SELF` (`GET /students/mine`),
+  `SCHEDULES_READ_SELF` (`GET /schedules/mine`) y `HOMEWORK_SUBMISSIONS_READ_SELF`
+  (`GET /homework/:id/submissions/by-student/:studentId`). Este último devuelve los adjuntos
+  como **URL ya firmada**: `FILES_READ` significa hoy "descargá cualquier archivo del
+  colegio cuya key conozcas" (`FilesService#getDownloadUrl` solo valida el prefijo del
+  tenant), así que a la familia no se le concedió.
+- Fuera de alcance, pendiente: el adjunto del **enunciado** de la tarea
+  (`Homework.attachmentKey`) sigue sin poder descargarse desde el portal; necesitaría el
+  mismo tratamiento de firma en `GET /homework`.
 
 ### Panel del colegio (`/admin`) — pendientes
 
@@ -137,7 +163,9 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
 - (`estudiantes`, `profesores`, `cursos` ya se conectaron en `1f9870b`.)
 
 ### Panel del profesor (`/profesor`) — pendientes
-- `horario`, `configuracion`: sin conectar.
+- `configuracion`: sin conectar.
+- `horario`: **conectado** el 2026-07-26 contra `GET /schedules/mine`, con la vista extraída
+  a `components/shared/schedule/portal-schedule-page.tsx` y reusada por familia y alumno.
 - `page.tsx` (Mi Panel): ya conectado, pero calcula los pendientes por calificar con un **fan-out N+1** (`GET /homework` y luego un `GET /homework/:id/submissions` por cada tarea).
 
 ### Otros
@@ -189,7 +217,12 @@ Lo que sí sigue declarado y muerto, verificado por grep:
 
 **Sin documento todavía:**
 
-5. **Terminar el portal de familia** — dashboard, `tareas`, `asistencia`, `horario`, `incapacidades`, `ajustes` siguen mock. `familia/tareas` está además bloqueada por permisos de `GUARDIAN`.
+5. ~~**Terminar el portal de familia**~~ — **hecho el 2026-07-26** salvo `incapacidades` y
+   `ajustes`. Dashboard, `tareas`, `asistencia` y `horario` quedaron conectados, y de paso se
+   arregló `calificaciones`, que figuraba como conectada y estaba rota (§3). Se creó además
+   `/alumno/horario`, que no existía. `incapacidades` sigue mock **y sin entrada en el
+   sidebar**: antes de conectarla hay que decidir si el flujo de justificar una inasistencia
+   se quiere, porque hoy nadie llega a esa pantalla.
 6. ~~**`pnpm lint` está roto en todo el repo** por falta de `eslint.config.js` (ESLint v9).~~ **Resuelto** (corrección del 2026-07-25): los configs se agregaron en `e27e4b9` y CI tiene paso de lint desde `94a502b`.
 7. **`/registro`** (alta autoservicio de tenant) y **`/recuperar-password`**: sin flujo real.
 8. **App móvil (React Native/Expo): sigue en el roadmap, sin fecha** — confirmado con el dueño del producto el 2026-07-25. Nunca se inicializó `apps/mobile`; las variables `EXPO_PUBLIC_*` de `.env.example` están reservadas para cuando arranque. No está descartada, pero tampoco hay nada construido, así que **no se debe escribir código web "preparando" la paridad con una app que no existe**. El brief original que la mandaba "desde la primera versión profesional" está en `archive/01-arquitecto-saas.md`.

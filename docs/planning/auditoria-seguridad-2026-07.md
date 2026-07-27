@@ -195,6 +195,36 @@ por tarea** es el autoritativo.
 
 ---
 
+## Apéndice — dos IDOR intra-tenant encontrados después, en horarios (2026-07-26)
+
+No salieron de esta auditoría sino de conectar el portal de familia, y son del mismo tipo
+que WS2 pero **dentro** de un colegio, que es el punto ciego: RLS no los atrapa por
+definición — defiende contra "me olvidé el filtro de tenant", no contra "este rol pidió de
+más". Quedan acá para que la próxima auditoría los tenga como precedente.
+
+1. **`SchedulesService.list()` y `findOne()` sin scoping por rol.** Filtraban por tenant y
+   por los query params opcionales, nada más. Cualquier profesor podía listar el horario
+   completo del colegio y leer el de un colega. Arreglado acotando `TEACHER` a sus propias
+   clases, con el alcance del rol aplicado **después** del query para que un `?teacherId=`
+   ajeno no pueda ensancharlo.
+
+2. **Fail-open en la fuente `schedule` del calendario.** Decidía el alcance por *ausencia de
+   datos*: `isStaff = groupIds.length === 0 && can(SCHEDULES_READ)`.
+   `resolveUserGroupIds` devuelve `[]` igual para un administrativo que para un profesor sin
+   ficha `Teacher`, uno sin clases asignadas o un acudiente sin hijos vinculados — y como
+   `TEACHER` tiene `SCHEDULES_READ`, el agujero se abría solo. Medido con el fix revertido:
+   un rol `TEACHER` sin ficha recibía **130 ítems**, el colegio entero.
+
+**La lección, que es lo que vale para la próxima:** *la falta de contexto no puede
+significar acceso total.* Un scoping que se apoya en "no encontré grupos, entonces es staff"
+está eligiendo fallar abierto. Compárese con `AttendanceService`, que en la misma situación
+hace `if (childIds.length === 0) return []`.
+
+Los dos tests se verificaron revirtiendo cada fix por separado y confirmando que caen; un
+test de aislamiento que también pasa con el filtro quitado no prueba nada.
+
+---
+
 ## RESUMEN FINAL ✅ Auditoría completa (2026-07-18 → 2026-07-19)
 
 Las 6 fases del plan están hechas, verificadas (typecheck + jest + verificación en vivo
