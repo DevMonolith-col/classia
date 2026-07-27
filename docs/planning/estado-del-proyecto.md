@@ -158,9 +158,13 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
   como **URL ya firmada**: `FILES_READ` significa hoy "descargá cualquier archivo del
   colegio cuya key conozcas" (`FilesService#getDownloadUrl` solo valida el prefijo del
   tenant), así que a la familia no se le concedió.
-- Fuera de alcance, pendiente: el adjunto del **enunciado** de la tarea
-  (`Homework.attachmentKey`) sigue sin poder descargarse desde el portal; necesitaría el
-  mismo tratamiento de firma en `GET /homework`.
+- ~~Fuera de alcance, pendiente: el adjunto del **enunciado** de la tarea
+  (`Homework.attachmentKey`) sigue sin poder descargarse desde el portal~~ — **hecho el
+  2026-07-27** (rama `feature/perf-chat-dashboard-y-seguridad-adjuntos`): `GET
+  /homework/:id/attachment-url` devuelve la URL ya firmada, con el alcance atado a lo que
+  `assertCanAccessHomework` ya probó (para el acudiente, que tenga un hijo en el grupo de esa
+  tarea). Es el mismo patrón que `homework-submissions`, y por la misma razón: a la familia no
+  se le da `FILES_READ`.
 
 ### Panel del colegio (`/admin`) — pendientes
 
@@ -210,9 +214,12 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
   vuelto caro ese mismo día, cuando esa ruta pasó a devolver el roster completo del curso en vez
   de solo las entregas (~2 KB con 3 alumnos, ~20 KB con 35, **por tarea**). Medido en el
   navegador: de 1 petición a 0 con el fixture actual, y de N a 0 en general.
-  **Queda un segundo fan-out** en la misma pantalla: `GET /students?groupId=` una vez por grupo
-  del profesor. Es mucho más chico (acotado por el número de grupos, no de tareas) y no hay hoy
-  un endpoint que acepte varios grupos, así que se dejó a conciencia.
+  ~~**Queda un segundo fan-out** en la misma pantalla: `GET /students?groupId=` una vez por
+  grupo del profesor.~~ — **eliminado el 2026-07-27** (rama
+  `feature/perf-chat-dashboard-y-seguridad-adjuntos`): `GET /groups/mine/stats`
+  (`GROUPS_READ_SELF`) resuelve los conteos en dos queries totales sin importar cuántos grupos
+  dicte el profesor. Sigue el idioma del repo — ruta `/mine` con permiso propio en vez de abrir
+  la de administración, que acepta `tenantId` por query.
 
 ### Otros
 - `/registro`: desde el **2026-07-27** es una **solicitud de demo real** contra
