@@ -371,9 +371,10 @@ export function ChatInterface({
         c.id === conversation.id ? { ...c, unreadCount: 0 } : c
       )
     )
-    if (conversation.unreadCount > 0) {
-      onOpenConversation?.(conversation.id)
-    }
+    // Siempre, no solo cuando hay no-leídos: la bandeja ahora solo trae el
+    // último mensaje de cada hilo (backlog 1.1), así que abrir un hilo YA
+    // leído también necesita traer su historial reciente completo.
+    onOpenConversation?.(conversation.id)
   }
 
   const filteredContacts = contacts.filter((c) =>
