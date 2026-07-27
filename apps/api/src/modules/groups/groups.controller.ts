@@ -40,6 +40,13 @@ export class GroupsController {
     return this.groups.list(user, tenantId);
   }
 
+  // Antes de `:id`: Nest resuelve por orden de declaración y el parámetro se tragaría "mine".
+  @Get("mine/stats")
+  @Permissions(PERMISSIONS.GROUPS_READ_SELF)
+  statsMine(@CurrentUser() user: RequestUser) {
+    return this.groups.statsMine(user);
+  }
+
   @Get(":id")
   @Permissions(PERMISSIONS.GROUPS_READ)
   findOne(@Param("id") groupId: string, @CurrentUser() user: RequestUser) {

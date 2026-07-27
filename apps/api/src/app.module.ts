@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { EventEmitterModule } from "@nestjs/event-emitter";
-import { ThrottlerModule } from "@nestjs/throttler";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { ThrottlerStorageRedisService } from "@nest-lab/throttler-storage-redis";
 import appConfig from "./config/app.config";
 import databaseConfig from "./config/database.config";
@@ -9,7 +9,7 @@ import emailConfig from "./config/email.config";
 import { envSchema } from "./config/env.schema";
 import redisConfig from "./config/redis.config";
 import storageConfig from "./config/storage.config";
-import { APP_INTERCEPTOR } from "@nestjs/core";
+import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { AuditCoreModule } from "./core/audit/audit-core.module";
 import { ImpersonationAuditInterceptor } from "./common/interceptors/impersonation-audit.interceptor";
 import { TenantRlsContextInterceptor } from "./common/interceptors/tenant-rls-context.interceptor";
@@ -50,6 +50,7 @@ import { UsersModule } from "./modules/users/users.module";
 import { SupportModule } from "./modules/support/support.module";
 import { SettingsModule } from "./modules/settings/settings.module";
 import { ElectionsModule } from "./modules/elections/elections.module";
+import { DemoRequestsModule } from "./modules/demo-requests/demo-requests.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { PaymentsModule } from "./modules/payments/payments.module";
 import { ReportsModule } from "./modules/reports/reports.module";
@@ -64,9 +65,15 @@ import { AccessControlModule } from "./modules/access-control/access-control.mod
       load: [appConfig, databaseConfig, redisConfig, storageConfig, emailConfig],
     }),
     EventEmitterModule.forRoot(),
-    // Rate limiting con almacén en Redis (compartido entre instancias). No se
-    // registra un ThrottlerGuard global: se aplica selectivamente donde importa
-    // (hoy el endpoint público de verificación de documentos; login queda listo).
+    // Rate limiting con almacén en Redis (compartido entre instancias). El
+    // límite por default (30/60s, ver abajo) se aplica GLOBAL vía APP_GUARD
+    // (backlog "Seguridad y Permisos" 2.2) -- antes solo cubría las rutas
+    // donde alguien puso `@UseGuards(ThrottlerGuard)` a mano (login,
+    // forgot/reset/change-password, verificación de documentos, feed de
+    // calendario), y el resto de la API -- estudiantes, tareas, mensajería,
+    // todo el CRUD -- no tenía ningún tope. Las rutas ya throttled siguen
+    // con su propio `@Throttle()` más estricto: NestJS respeta el override
+    // por ruta aunque el guard sea global.
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -127,6 +134,7 @@ import { AccessControlModule } from "./modules/access-control/access-control.mod
     AccessControlModule,
     SettingsModule,
     ElectionsModule,
+    DemoRequestsModule,
     DocumentsModule,
     PaymentsModule,
     ReportsModule,
@@ -145,6 +153,12 @@ import { AccessControlModule } from "./modules/access-control/access-control.mod
     {
       provide: APP_INTERCEPTOR,
       useClass: ImpersonationAuditInterceptor,
+    },
+    // Global (backlog "Seguridad y Permisos" 2.2): ver el comentario junto a
+    // ThrottlerModule.forRootAsync arriba. Sigue apagado en tests (skipIf).
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
   ],
 })

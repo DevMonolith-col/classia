@@ -19,7 +19,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api-client"
 import type { Schedule } from "@/components/admin/academic-types"
 import type { Homework } from "@/components/profesor/homework-types"
-import type { Student } from "@/components/admin/student-types"
+
+type GroupStats = { groupId: string; name: string; grade: string; section: string; studentCount: number }
 
 type PendingGradingItem = { homework: Homework; pendingCount: number }
 
@@ -57,10 +58,15 @@ function useProfesorDashboard() {
         const from = new Date()
         from.setDate(from.getDate() - 30)
 
-        const [schedulesRes, homeworkRes, attendanceRes] = await Promise.all([
+        const [schedulesRes, homeworkRes, attendanceRes, groupStatsRes] = await Promise.all([
           apiFetch(`/schedules?teacherId=${teacherId}`, { silent: true }),
           apiFetch("/homework", { silent: true }),
           apiFetch(`/attendance/sessions?from=${from.toISOString()}`, { silent: true }),
+          // Antes: un GET /students?groupId= por cada grupo del profesor (N+1),
+          // solo para contar estudiantes. GET /groups/mine/stats agrega los
+          // conteos de todos sus grupos en una sola consulta con GROUP BY en
+          // el backend (backlog "Rendimiento y Escalabilidad" 1.2).
+          apiFetch("/groups/mine/stats", { silent: true }),
         ])
 
         const schedules = schedulesRes.ok ? ((await schedulesRes.json()) as Schedule[]) : []
@@ -68,20 +74,17 @@ function useProfesorDashboard() {
         const sessions = attendanceRes.ok
           ? ((await attendanceRes.json()) as { records: { status: string }[] }[])
           : []
+        const groupStats = groupStatsRes.ok ? ((await groupStatsRes.json()) as GroupStats[]) : []
 
         const today = new Date().getDay()
         const todaySchedule = schedules
           .filter((s) => s.dayOfWeek === today)
           .sort((a, b) => a.startTime.localeCompare(b.startTime))
 
-        const groupIds = [...new Set(schedules.map((s) => s.group.id))]
-        const studentsByGroup = await Promise.all(
-          groupIds.map(async (groupId) => {
-            const res = await apiFetch(`/students?groupId=${groupId}`, { silent: true })
-            return res.ok ? ((await res.json()) as Student[]) : []
-          }),
-        )
-        const uniqueStudentIds = new Set(studentsByGroup.flat().map((s) => s.id))
+        // Un estudiante pertenece a un solo grupo, así que sumar los conteos
+        // por grupo ya da el total real (no hace falta deduplicar por id).
+        const studentsCount = groupStats.reduce((sum, g) => sum + g.studentCount, 0)
+        const groupsCount = groupStats.length
 
         // Los pendientes salen de los `_count` que `GET /homework` ya trae: entregas menos
         // notas son las que están esperando corrección. Hasta el 2026-07-26 esto se calculaba
@@ -115,8 +118,8 @@ function useProfesorDashboard() {
           setData({
             todaySchedule,
             totalSchedules: schedules.length,
-            studentsCount: uniqueStudentIds.size,
-            groupsCount: groupIds.length,
+            studentsCount,
+            groupsCount,
             pendingGrading,
             attendanceAvgPercent,
           })

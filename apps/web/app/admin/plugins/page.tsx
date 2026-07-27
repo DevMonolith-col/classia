@@ -1,558 +1,274 @@
-"use client"
-
-import { useState } from "react"
+import Link from "next/link"
 import {
-  Puzzle,
-  Search,
-  Download,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  Settings,
-  Trash2,
-  RefreshCw,
-  ExternalLink,
-  Star,
-  Users,
-  Shield,
-  Zap,
-  BarChart3,
-  MessageSquare,
-  Calendar,
+  ArrowRight,
+  CalendarSync,
   CreditCard,
-  Video,
-  FileText,
-  Globe,
-  Lock,
-  Unlock,
-  ChevronDown,
-  Upload,
-  Package,
   Info,
-  Clock,
+  Lock,
+  MessageSquare,
+  Puzzle,
+  QrCode,
+  ShieldCheck,
+  Sparkles,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
-type PluginStatus = "instalado" | "disponible" | "actualizar"
-type PluginCategory = "todos" | "comunicacion" | "evaluacion" | "reportes" | "integraciones" | "seguridad"
+// Pantalla informativa, a propósito sin backend: los plugins quedaron para
+// DESPUÉS de la 1.0 (decisión del dueño del producto, 2026-07-27). Reemplaza
+// una maqueta de 558 líneas que simulaba un marketplace —"Zoom Meeting
+// Integration", "AI Grading Assistant", 15.420 instalaciones, 4.8 estrellas,
+// botones de Instalar— y que está en el sidebar: cualquier administrador
+// entraba y creía que podía instalar algo. Dos de esos plugins inventados
+// (pasarela de pagos, asistente de IA) son además áreas explícitamente NO
+// aprobadas en CLAUDE.md.
+//
+// El catálogo de abajo NO es una promesa de entrega. Sale de
+// docs/planning/plugins.md, que es una propuesta comercial, y cada tarjeta
+// dice en qué estado real está. Los "requiere decisión aparte" y "fuera de
+// alcance" no son adorno: recaudar en línea, la sincronización bidireccional
+// con Google/Microsoft y la biometría están fuera del alcance aprobado.
+// Antes de convertir cualquiera de estos en código hay que aprobar el alcance
+// en CLAUDE.md, con fecha.
+//
+// Sin "use client" a propósito: no hay estado ni interacción, solo contenido.
 
-interface Plugin {
-  id: number
-  nombre: string
-  descripcion: string
-  version: string
-  versionDisponible?: string
-  autor: string
-  estado: PluginStatus
-  categoria: PluginCategory
-  icon: React.ElementType
-  color: string
-  instalaciones: number
-  rating: number
-  precio: "gratis" | number
-  activo: boolean
-  ultimaActualizacion: string
-  requiereConfig: boolean
+type PluginStatus = "propuesto" | "decision-aparte" | "no-aprobado"
+
+const STATUS_LABEL: Record<PluginStatus, string> = {
+  propuesto: "En estudio",
+  "decision-aparte": "Requiere decisión aparte",
+  "no-aprobado": "Fuera de alcance hoy",
 }
 
-const plugins: Plugin[] = [
+const STATUS_CLASS: Record<PluginStatus, string> = {
+  propuesto: "border-blue-200 bg-blue-50 text-blue-700",
+  "decision-aparte": "border-amber-200 bg-amber-50 text-amber-800",
+  "no-aprobado": "border-neutral-200 bg-neutral-50 text-neutral-600",
+}
+
+type PluginGroup = {
+  title: string
+  icon: typeof Puzzle
+  items: { name: string; description: string; status: PluginStatus; note?: string }[]
+}
+
+const CATALOG: PluginGroup[] = [
   {
-    id: 1,
-    nombre: "Zoom Meeting Integration",
-    descripcion: "Integra reuniones de Zoom directamente en las clases virtuales. Permite crear y programar reuniones desde el sistema.",
-    version: "2.1.0",
-    autor: "Classia Team",
-    estado: "instalado",
-    categoria: "comunicacion",
-    icon: Video,
-    color: "bg-blue-500",
-    instalaciones: 15420,
-    rating: 4.8,
-    precio: "gratis",
-    activo: true,
-    ultimaActualizacion: "15 Feb 2024",
-    requiereConfig: true,
-  },
-  {
-    id: 2,
-    nombre: "Google Classroom Sync",
-    descripcion: "Sincroniza automáticamente tareas, calificaciones y estudiantes con Google Classroom.",
-    version: "1.5.2",
-    versionDisponible: "1.6.0",
-    autor: "EduTech Solutions",
-    estado: "actualizar",
-    categoria: "integraciones",
-    icon: Globe,
-    color: "bg-green-500",
-    instalaciones: 23100,
-    rating: 4.6,
-    precio: "gratis",
-    activo: true,
-    ultimaActualizacion: "10 Ene 2024",
-    requiereConfig: true,
-  },
-  {
-    id: 3,
-    nombre: "Advanced Reports Pro",
-    descripcion: "Genera reportes avanzados con gráficos interactivos, exportación a múltiples formatos y programación automática.",
-    version: "3.0.1",
-    autor: "Analytics Plus",
-    estado: "instalado",
-    categoria: "reportes",
-    icon: BarChart3,
-    color: "bg-purple-500",
-    instalaciones: 8750,
-    rating: 4.9,
-    precio: 49,
-    activo: true,
-    ultimaActualizacion: "01 Mar 2024",
-    requiereConfig: false,
-  },
-  {
-    id: 4,
-    nombre: "Quiz Builder",
-    descripcion: "Crea cuestionarios interactivos con múltiples tipos de preguntas, temporizadores y calificación automática.",
-    version: "2.3.0",
-    autor: "Classia Team",
-    estado: "instalado",
-    categoria: "evaluacion",
-    icon: FileText,
-    color: "bg-amber-500",
-    instalaciones: 31200,
-    rating: 4.7,
-    precio: "gratis",
-    activo: false,
-    ultimaActualizacion: "20 Feb 2024",
-    requiereConfig: false,
-  },
-  {
-    id: 5,
-    nombre: "SMS Notifications",
-    descripcion: "Envía notificaciones por SMS a padres y estudiantes para eventos importantes, faltas y calificaciones.",
-    version: "1.2.0",
-    autor: "MessageHub",
-    estado: "disponible",
-    categoria: "comunicacion",
+    title: "Comunicación con las familias",
     icon: MessageSquare,
-    color: "bg-cyan-500",
-    instalaciones: 12300,
-    rating: 4.4,
-    precio: 29,
-    activo: false,
-    ultimaActualizacion: "05 Mar 2024",
-    requiereConfig: true,
+    items: [
+      {
+        name: "Notificaciones por WhatsApp",
+        description:
+          "Avisarle al acudiente por WhatsApp cuando su hijo falta, cuando hay una nota nueva o cuando vence una tarea.",
+        status: "propuesto",
+        note: "Se cobraría por volumen de mensajes, así que necesita proveedor autorizado y un modelo de recarga.",
+      },
+      {
+        name: "SMS de emergencia",
+        description:
+          "Envío corto y masivo para familias sin datos móviles constantes, cuando el mensaje no puede esperar a que abran la app.",
+        status: "propuesto",
+      },
+    ],
   },
   {
-    id: 6,
-    nombre: "Payment Gateway",
-    descripcion: "Procesa pagos de colegiaturas, eventos y servicios adicionales con múltiples métodos de pago.",
-    version: "2.0.0",
-    autor: "PaySchool",
-    estado: "disponible",
-    categoria: "integraciones",
+    title: "Cartera y facturación",
     icon: CreditCard,
-    color: "bg-emerald-500",
-    instalaciones: 9800,
-    rating: 4.5,
-    precio: 79,
-    activo: false,
-    ultimaActualizacion: "28 Feb 2024",
-    requiereConfig: true,
+    items: [
+      {
+        name: "Pasarela de pagos en línea",
+        description: "Que la familia pague la pensión desde el portal en vez de ir al banco y traer el comprobante.",
+        status: "decision-aparte",
+        note:
+          "Hoy Classia lleva cartera, no recauda: registra el pago que la familia hizo por fuera. Cobrar en línea arrastra alcance PCI, conciliación y reversiones — es una decisión de producto, no una tarea de desarrollo.",
+      },
+      {
+        name: "Facturación electrónica",
+        description:
+          "Emitir la factura con validez legal al registrar el pago, con el proveedor tecnológico autorizado de cada país.",
+        status: "decision-aparte",
+        note: "Depende de lo anterior y de la normativa de facturación de cada país.",
+      },
+    ],
   },
   {
-    id: 7,
-    nombre: "Two-Factor Authentication",
-    descripcion: "Añade una capa extra de seguridad con autenticación de dos factores para todos los usuarios.",
-    version: "1.1.0",
-    autor: "SecureEdu",
-    estado: "disponible",
-    categoria: "seguridad",
-    icon: Shield,
-    color: "bg-red-500",
-    instalaciones: 18900,
-    rating: 4.9,
-    precio: "gratis",
-    activo: false,
-    ultimaActualizacion: "12 Mar 2024",
-    requiereConfig: true,
+    title: "Sincronización con otras plataformas",
+    icon: CalendarSync,
+    items: [
+      {
+        name: "Google Workspace y Microsoft 365",
+        description:
+          "Crear los correos institucionales en masa y mantener grupos, tareas y calendario sincronizados con Classroom o Teams.",
+        status: "no-aprobado",
+        note:
+          "La sincronización bidireccional de calendario quedó explícitamente fuera del core. El calendario de Classia sí se puede suscribir hoy en modo lectura desde Google, Outlook o Apple.",
+      },
+      {
+        name: "Conector con Moodle",
+        description: "Traer notas y tareas de un Moodle que el colegio ya usa, para consolidarlas en el boletín de Classia.",
+        status: "propuesto",
+      },
+    ],
   },
   {
-    id: 8,
-    nombre: "Calendar Sync",
-    descripcion: "Sincroniza el calendario escolar con Google Calendar, Outlook y Apple Calendar.",
-    version: "1.4.0",
-    autor: "Classia Team",
-    estado: "disponible",
-    categoria: "integraciones",
-    icon: Calendar,
-    color: "bg-indigo-500",
-    instalaciones: 14500,
-    rating: 4.3,
-    precio: "gratis",
-    activo: false,
-    ultimaActualizacion: "08 Mar 2024",
-    requiereConfig: true,
-  },
-  {
-    id: 9,
-    nombre: "AI Grading Assistant",
-    descripcion: "Utiliza inteligencia artificial para ayudar en la calificación de ensayos y respuestas abiertas.",
-    version: "1.0.0",
-    autor: "EduAI Labs",
-    estado: "disponible",
-    categoria: "evaluacion",
-    icon: Zap,
-    color: "bg-violet-500",
-    instalaciones: 5200,
-    rating: 4.2,
-    precio: 99,
-    activo: false,
-    ultimaActualizacion: "10 Mar 2024",
-    requiereConfig: true,
+    title: "Portería y hardware",
+    icon: QrCode,
+    items: [
+      {
+        name: "Asistencia por carnet o QR",
+        description: "Un tablero en la entrada: el estudiante pasa su carnet y queda marcada la asistencia del día.",
+        status: "propuesto",
+      },
+      {
+        name: "Lector biométrico",
+        description: "Control de entrada y salida del personal con huella o RFID.",
+        status: "no-aprobado",
+        note: "La biometría está en la lista de áreas no aprobadas: son datos sensibles y es una decisión aparte.",
+      },
+    ],
   },
 ]
 
-const categories = [
-  { id: "todos", label: "Todos", icon: Package },
-  { id: "comunicacion", label: "Comunicación", icon: MessageSquare },
-  { id: "evaluacion", label: "Evaluación", icon: FileText },
-  { id: "reportes", label: "Reportes", icon: BarChart3 },
-  { id: "integraciones", label: "Integraciones", icon: Globe },
-  { id: "seguridad", label: "Seguridad", icon: Shield },
+const YA_INCLUIDO = [
+  "Mensajería interna y chat en tiempo real con las familias",
+  "Calendario escolar con feed suscribible desde Google, Outlook o Apple (lectura)",
+  "Notificaciones dentro de la plataforma y por correo",
+  "Cartera: conceptos de cobro, facturas y registro de pagos",
+  "Boletines, certificados y reportes",
 ]
 
 export default function AdminPluginsPage() {
-  const [searchQuery, setSearchQuery] = useState("")
-  const [selectedCategory, setSelectedCategory] = useState<PluginCategory>("todos")
-  const [filterStatus, setFilterStatus] = useState<"todos" | "instalado" | "disponible">("todos")
-
-  const filteredPlugins = plugins.filter((plugin) => {
-    const matchesSearch =
-      plugin.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      plugin.descripcion.toLowerCase().includes(searchQuery.toLowerCase())
-    
-    const matchesCategory = selectedCategory === "todos" || plugin.categoria === selectedCategory
-    const matchesStatus =
-      filterStatus === "todos" ||
-      (filterStatus === "instalado" && (plugin.estado === "instalado" || plugin.estado === "actualizar")) ||
-      (filterStatus === "disponible" && plugin.estado === "disponible")
-    
-    return matchesSearch && matchesCategory && matchesStatus
-  })
-
-  const installedPlugins = plugins.filter((p) => p.estado === "instalado" || p.estado === "actualizar")
-  const activePlugins = plugins.filter((p) => p.activo)
-  const updatesAvailable = plugins.filter((p) => p.estado === "actualizar")
-
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      {/* Header */}
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-            Plugins y Extensiones
-          </h1>
-          <p className="mt-1 text-muted-foreground">
-            Amplía las funcionalidades de tu sistema escolar
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" className="gap-2">
-            <Upload className="h-4 w-4" />
-            Subir Plugin
-          </Button>
-          <Button variant="outline" className="gap-2">
-            <RefreshCw className="h-4 w-4" />
-            Buscar Actualizaciones
-          </Button>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-secondary">
-                <Puzzle className="h-6 w-6 text-foreground" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">{installedPlugins.length}</p>
-                <p className="text-sm text-muted-foreground">Instalados</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-100">
-                <CheckCircle2 className="h-6 w-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">{activePlugins.length}</p>
-                <p className="text-sm text-muted-foreground">Activos</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-amber-100">
-                <AlertCircle className="h-6 w-6 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">{updatesAvailable.length}</p>
-                <p className="text-sm text-muted-foreground">Actualizaciones</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100">
-                <Package className="h-6 w-6 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">{plugins.length - installedPlugins.length}</p>
-                <p className="text-sm text-muted-foreground">Disponibles</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Updates Banner */}
-      {updatesAvailable.length > 0 && (
-        <Card className="mb-6 border-amber-200 bg-amber-50">
-          <CardContent className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-3">
-              <AlertCircle className="h-5 w-5 text-amber-600" />
-              <div>
-                <p className="font-medium text-foreground">
-                  {updatesAvailable.length} actualización{updatesAvailable.length > 1 ? "es" : ""} disponible{updatesAvailable.length > 1 ? "s" : ""}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {updatesAvailable.map((p) => p.nombre).join(", ")}
-                </p>
-              </div>
-            </div>
-            <Button size="sm" className="gap-2">
-              <RefreshCw className="h-4 w-4" />
-              Actualizar Todo
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Filters */}
-      <div className="mb-6 flex flex-col gap-4 lg:flex-row">
-        {/* Categories */}
-        <Card className="lg:w-64">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Categorías</CardTitle>
-          </CardHeader>
-          <CardContent className="p-2">
-            <div className="space-y-1">
-              {categories.map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setSelectedCategory(cat.id as PluginCategory)}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                    selectedCategory === cat.id
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  }`}
-                >
-                  <cat.icon className="h-4 w-4" />
-                  {cat.label}
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Main Content */}
-        <div className="flex-1">
-          {/* Search and Filter */}
-          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative flex-1 sm:max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar plugins..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <div className="flex rounded-lg border border-input bg-background p-1">
-              {(["todos", "instalado", "disponible"] as const).map((status) => (
-                <button
-                  key={status}
-                  onClick={() => setFilterStatus(status)}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                    filterStatus === status
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {status === "todos" ? "Todos" : status === "instalado" ? "Instalados" : "Disponibles"}
-                </button>
-              ))}
-            </div>
+    <div className="min-h-screen bg-background">
+      <header className="border-b border-border bg-background px-4 py-6 sm:px-6 lg:px-8">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary">
+            <Puzzle className="h-6 w-6 text-foreground" />
           </div>
-
-          {/* Plugins Grid */}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {filteredPlugins.map((plugin) => {
-              const PluginIcon = plugin.icon
-
-              return (
-                <Card key={plugin.id} className="overflow-hidden">
-                  <CardContent className="p-0">
-                    <div className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${plugin.color}`}>
-                            <PluginIcon className="h-6 w-6 text-white" />
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-foreground">{plugin.nombre}</h3>
-                            <p className="text-xs text-muted-foreground">por {plugin.autor}</p>
-                          </div>
-                        </div>
-                        {plugin.estado === "instalado" || plugin.estado === "actualizar" ? (
-                          <button
-                            className={`rounded-full p-2 ${
-                              plugin.activo ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"
-                            }`}
-                          >
-                            {plugin.activo ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-                          </button>
-                        ) : null}
-                      </div>
-
-                      <p className="mt-3 text-sm text-muted-foreground line-clamp-2">
-                        {plugin.descripcion}
-                      </p>
-
-                      <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Star className="h-3 w-3 text-amber-500" />
-                          <span>{plugin.rating}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Download className="h-3 w-3" />
-                          <span>{plugin.instalaciones.toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          <span>v{plugin.version}</span>
-                        </div>
-                        {plugin.precio === "gratis" ? (
-                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                            Gratis
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                            ${plugin.precio}/mes
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="border-t border-border bg-secondary/30 p-3">
-                      {plugin.estado === "instalado" ? (
-                        <div className="flex items-center justify-between">
-                          <span className="flex items-center gap-1 text-xs text-green-600">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Instalado
-                          </span>
-                          <div className="flex gap-2">
-                            {plugin.requiereConfig && (
-                              <Button size="sm" variant="outline" className="h-8 gap-1">
-                                <Settings className="h-3 w-3" />
-                                Configurar
-                              </Button>
-                            )}
-                            <Button size="sm" variant="outline" className="h-8 gap-1 text-red-600 hover:bg-red-50 hover:text-red-700">
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      ) : plugin.estado === "actualizar" ? (
-                        <div className="flex items-center justify-between">
-                          <span className="flex items-center gap-1 text-xs text-amber-600">
-                            <AlertCircle className="h-3 w-3" />
-                            v{plugin.versionDisponible} disponible
-                          </span>
-                          <div className="flex gap-2">
-                            <Button size="sm" className="h-8 gap-1">
-                              <RefreshCw className="h-3 w-3" />
-                              Actualizar
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between">
-                          <Button size="sm" variant="outline" className="h-8 gap-1">
-                            <Info className="h-3 w-3" />
-                            Más Info
-                          </Button>
-                          <Button size="sm" className="h-8 gap-1">
-                            <Download className="h-3 w-3" />
-                            {plugin.precio === "gratis" ? "Instalar" : "Comprar"}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Plugins</h1>
+              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                Después de la versión 1.0
+              </Badge>
+            </div>
+            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+              Todavía no hay nada que instalar, y esta pantalla no esconde un catálogo real: los
+              plugins son trabajo posterior al lanzamiento. Acá está qué se está considerando y en qué
+              estado va cada cosa, para que sepas con qué contar y con qué no.
+            </p>
           </div>
-
-          {filteredPlugins.length === 0 && (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <Puzzle className="h-12 w-12 text-muted-foreground" />
-                <p className="mt-4 text-lg font-medium text-foreground">No se encontraron plugins</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Intenta con otros filtros o busca en el marketplace
-                </p>
-              </CardContent>
-            </Card>
-          )}
         </div>
-      </div>
+      </header>
 
-      {/* Developer Section */}
-      <Card className="mt-6">
-        <CardContent className="p-6">
-          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
-            <div>
-              <h3 className="font-semibold text-foreground">Desarrolla tu propio Plugin</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Crea extensiones personalizadas para tu institución o compártelas con la comunidad
+      <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+        <Card className="border-blue-200 bg-blue-50/60">
+          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
+            <ShieldCheck className="h-5 w-5 shrink-0 text-blue-700" />
+            <div className="space-y-2 text-sm text-blue-900">
+              <p className="font-semibold">Cómo van a funcionar cuando existan</p>
+              <p>
+                Classia no va a cargar código de terceros dentro de la plataforma, a diferencia de
+                Moodle o WordPress. Un plugin acá es un módulo que ya viene compilado y que se activa
+                para tu colegio, con las credenciales que tú configures. Es una decisión de seguridad:
+                el código que corre sobre los datos de tus estudiantes es siempre el nuestro, revisado
+                y desplegado por nosotros.
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" className="gap-2">
-                <FileText className="h-4 w-4" />
-                Documentación
-              </Button>
-              <Button className="gap-2">
-                <ExternalLink className="h-4 w-4" />
-                Developer Portal
-              </Button>
-            </div>
+          </CardContent>
+        </Card>
+
+        <section>
+          <div className="mb-3 flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Catálogo en estudio
+            </h2>
           </div>
-        </CardContent>
-      </Card>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {CATALOG.map((group) => (
+              <Card key={group.title} className="min-w-0">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <group.icon className="h-4 w-4 text-muted-foreground" />
+                    {group.title}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="divide-y divide-border p-0">
+                  {group.items.map((item) => (
+                    <div key={item.name} className="space-y-2 p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <p className="font-medium text-foreground">{item.name}</p>
+                        <Badge variant="outline" className={STATUS_CLASS[item.status]}>
+                          {STATUS_LABEL[item.status]}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{item.description}</p>
+                      {item.note && (
+                        <p className="flex gap-2 rounded-md bg-secondary px-3 py-2 text-xs text-muted-foreground">
+                          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <span>{item.note}</span>
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader className="border-b border-border">
+              <CardTitle className="text-base">Esto ya viene incluido, sin plugin</CardTitle>
+            </CardHeader>
+            <CardContent className="p-5">
+              <p className="mb-3 text-sm text-muted-foreground">
+                Vale aclararlo porque son funciones que otros sistemas cobran aparte:
+              </p>
+              <ul className="space-y-2">
+                {YA_INCLUIDO.map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-foreground">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+
+          <Card className="flex flex-col">
+            <CardHeader className="border-b border-border">
+              <CardTitle className="text-base">¿Cuál te haría falta?</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col justify-between gap-4 p-5">
+              <p className="text-sm text-muted-foreground">
+                El orden en que se construyan lo deciden los colegios que los pidan. Si alguno de
+                estos te resolvería un problema concreto, cuéntanoslo por soporte y queda registrado.
+              </p>
+              <Button asChild className="gap-2">
+                <Link href="/admin/soporte">
+                  Escribir a soporte
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        <p className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Ningún plugin de esta lista está activo ni recolectando datos hoy. Cuando alguno se
+            habilite para tu colegio vas a tener que configurarlo explícitamente desde acá.
+          </span>
+        </p>
+      </div>
     </div>
   )
 }

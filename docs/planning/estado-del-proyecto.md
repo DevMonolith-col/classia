@@ -1,6 +1,6 @@
 # Estado del Proyecto — Classia SaaS
 
-> Última actualización: 2026-07-26, rama `main`.
+> Última actualización: 2026-07-27, rama `feature/plugins-coming-soon-y-solicitud-demo`.
 > Este documento reemplaza a `roadmap-prototype-2.md` como fuente de verdad del estado actual — ese archivo quedó desactualizado (fue escrito antes de construir materias, horarios, asistencia, calificaciones, tareas, etc., que hoy ya existen). Se movió a `archive/` el 2026-07-19 junto con otros planning docs igualmente superados; no se debe seguir usando para saber qué falta.
 >
 > **Corrección del 2026-07-16**: la versión anterior de este documento (2026-07-13) quedó obsoleta en cuestión de horas — el commit `5e93a6a` del mismo día, y después toda la mensajería (`4e3517c`..`f6bc554`), invalidaron varias de sus afirmaciones. Decía que `Message`/`Announcement`/`HomeworkSubmission` eran modelos fantasma, que no existía la calificación manual de respuesta corta, que `GUARDIAN` no tenía scoping ni permisos, y que `/familia/*` estaba mock sin excepción: **todas eran falsas**. Se corrigieron abajo. Lección para el próximo que edite este archivo: fecharlo y verificar contra el código, no contra la memoria.
@@ -10,6 +10,20 @@
 > **Corrección del 2026-07-25** (limpieza de contexto para agentes): §2 omitía diez módulos del backend que ya existían, y §6 seguía diciendo que `pnpm lint` estaba roto cuando se arregló en `e27e4b9`. Ambos corregidos abajo. Se agregaron dos pendientes que estaban solo implícitos en el código (§6.8 app móvil, §6.9 estado de cuenta para familias). En §5, la afirmación de que `Mark` no tenía unique constraint **era obsoleta** (ya lo tiene, junto con `upsertMark()` como writer único) — y al verificarla apareció un **bug confirmado**: los dos writers sin migrar no setean `academicYearId`, así que una nota calificada puede quedar invisible y sin contar para el boletín. Está documentado como ítem propio en §5. En la misma pasada se archivaron los cinco briefs de `docs/agents/` — eran de mayo, habían derivado hasta ser falsos, y su contenido transversal vive ahora en `CLAUDE.md`; ver `archive/README.md` para el detalle de por qué cada uno quedó superado.
 
 > **Corrección del 2026-07-26** (cierre del calendario y del chat en tiempo real): §2 decía que el chat **no tenía tiempo real** y §5 lo repetía como deuda; §3 listaba `mensajes/nuevo` como página muerta en admin y profesor cuando ya se habían borrado el 2026-07-18 en `83c50b4`; §4 daba por muertos `ConversationMember.mutedAt` y `GET /notifications/unread-count`, que hoy se usan; y §5 decía que quedaban 3 diferencias entre el schema y la base, que ya son cero. Todas corregidas abajo. La de `mensajes/nuevo` vale la pena señalarla aparte: **estaba desactualizada hace ocho días y se propagó** — `chat-tiempo-real.md` la copió de acá como pendiente, y así una tarea ya hecha sobrevivió en dos planes.
+
+> **Corrección del 2026-07-27** (código fantasma): este documento se contradecía a sí mismo con
+> menos de un día de diferencia. §3 seguía listando `familia/incapacidades` como "todavía mock"
+> y §6.5 como "decisión de producto pendiente" **después** de que `b47d3a1` la borrara ese mismo
+> día; §3 listaba `/profesor/configuracion` como "sin conectar" mientras §6.11 lo daba por hecho.
+> Las dos corregidas abajo. Es el mismo patrón que ya se anotó el 2026-07-26: el documento se
+> actualiza en la sección donde uno está trabajando y quedan las otras mintiendo. **Al cerrar
+> una pantalla hay que buscarla por nombre en todo el archivo**, no solo en la sección que uno
+> abrió.
+>
+> En la misma pasada se resolvió el resto del código fantasma que §6.11 dejaba abierto:
+> `/admin/plugins` pasó a ser pantalla informativa (post-1.0), `/admin/plugins/desarrolladores`
+> se borró y `/registro` pasó a ser una solicitud de demo real con bandeja interna de
+> cotización. Detalle en §6.7 y §6.11.
 
 Este documento se generó auditando el código real (rutas, llamadas a la API, modelos de Prisma, módulos del backend), no de memoria. Cada afirmación de "funciona" o "es mock" se verificó revisando si la página hace `apiFetch` real o solo tiene arrays hardcodeados.
 
@@ -50,6 +64,9 @@ No existe `apps/mobile` — la app móvil (React Native/Expo) mencionada en docu
 
 ### SuperAdmin (`/superadmin`)
 - Dashboard, gestión de tenants (crear/editar/suspender), usuarios globales, log de auditoría con paginación y diff-view. Todo conectado a datos reales.
+- **Solicitudes** (`/superadmin/solicitudes`, 2026-07-27): bandeja de las solicitudes de demo
+  que llegan del sitio público, con seguimiento comercial (estado, plan y monto cotizado, notas
+  internas). Es la contraparte interna de `/registro` — ver §6.7.
 
 ### Panel del colegio (`/admin`)
 - **Asignaciones** (`/admin/asignaciones`): vista de solo lectura de todas las tareas/exámenes/quices/proyectos de todos los profesores, con filtro por profesor y por tipo. Datos 100% reales.
@@ -123,16 +140,17 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
 - **Conectadas**: `page.tsx` (dashboard), `calificaciones`, `tareas`, `asistencia`,
   `horario`, `calendario`, `mensajes`, `comunicados`, `notificaciones`, `certificados`,
   y desde el **2026-07-27** `pagos` y `ajustes`.
-- **Todavía mock**: `incapacidades`. **No está en el sidebar**, así que hoy es una pantalla
-  huérfana a la que no se llega navegando. No tiene backend de ningún tipo: no existe modelo
-  de incapacidad ni de justificación en `schema.prisma` (verificado el 2026-07-27), y lo único
-  relacionado son los valores `JUSTIFIED` y `PERMISSION` del enum `AttendanceStatus` — que ya
-  funcionan de punta a punta: el profesor los puede marcar (`profesor/asistencia`) y la familia
-  los ve, sin contar como ausencia. Construir el módulo (subir el certificado médico) roza
-  **enfermería**, que no está aprobada, y mete datos de salud de menores (categoría especial,
-  Ley 1581 arts. 5-6) sobre una infraestructura de archivos donde `FILES_READ` significa
-  "descargá cualquier archivo del colegio cuya key conozcas". **Decisión de producto pendiente**,
-  no deuda técnica.
+- ~~**Todavía mock**: `incapacidades`~~ — **borrada el 2026-07-27** (`b47d3a1`). Eran 716
+  líneas sin un solo `apiFetch` y sin entrada en el sidebar: no se llegaba ni por accidente.
+  La decisión de producto se tomó en la dirección de no construir el módulo, y la razón
+  principal es que **el valor ya está entregado**: los valores `JUSTIFIED` y `PERMISSION` de
+  `AttendanceStatus` funcionan de punta a punta desde antes — el profesor los marca
+  (`profesor/asistencia`) y la familia los ve, sin contar como ausencia. Lo único que agregaría
+  el módulo es **guardar el certificado médico**, que es justo la parte cara y la riesgosa: es
+  dato de salud de un menor (categoría especial, Ley 1581 arts. 5-6) sobre una infraestructura
+  de archivos donde `FILES_READ` significa "descargá cualquier archivo del colegio cuya key
+  conozcas", y roza **enfermería**, que no está aprobada. Si vuelve a plantearse, se reconstruye
+  con esa infraestructura resuelta primero. El papel médico sigue yendo físicamente al colegio.
 - Permisos nuevos del 2026-07-26, todos con alcance en el nombre y ruta propia en vez de
   abrir la de administración: `STUDENTS_READ_SELF` (`GET /students/mine`),
   `SCHEDULES_READ_SELF` (`GET /schedules/mine`) y `HOMEWORK_SUBMISSIONS_READ_SELF`
@@ -140,9 +158,13 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
   como **URL ya firmada**: `FILES_READ` significa hoy "descargá cualquier archivo del
   colegio cuya key conozcas" (`FilesService#getDownloadUrl` solo valida el prefijo del
   tenant), así que a la familia no se le concedió.
-- Fuera de alcance, pendiente: el adjunto del **enunciado** de la tarea
-  (`Homework.attachmentKey`) sigue sin poder descargarse desde el portal; necesitaría el
-  mismo tratamiento de firma en `GET /homework`.
+- ~~Fuera de alcance, pendiente: el adjunto del **enunciado** de la tarea
+  (`Homework.attachmentKey`) sigue sin poder descargarse desde el portal~~ — **hecho el
+  2026-07-27** (rama `feature/perf-chat-dashboard-y-seguridad-adjuntos`): `GET
+  /homework/:id/attachment-url` devuelve la URL ya firmada, con el alcance atado a lo que
+  `assertCanAccessHomework` ya probó (para el acudiente, que tenga un hijo en el grupo de esa
+  tarea). Es el mismo patrón que `homework-submissions`, y por la misma razón: a la familia no
+  se le da `FILES_READ`.
 
 ### Panel del colegio (`/admin`) — pendientes
 
@@ -167,12 +189,23 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
   portales de `/familia/calendario`, `/profesor/calendario` y `/alumno/calendario`, y los
   recordatorios configurables por evento vía BullMQ. Lo único fuera de alcance es la sync
   bidireccional con Google/Microsoft, que es plugin de pago (`plugins.md` §2 Módulo C).
-- `configuracion`, `plugins`, `plugins/desarrolladores`: sin backend ni conexión.
+- `configuracion`: sin backend ni conexión.
+- `plugins`: desde el **2026-07-27** es una **pantalla informativa real** (sin backend y sin
+  necesitarlo): explica que los plugins van después de la 1.0, qué hay en estudio y qué está
+  fuera de alcance. Reemplazó una maqueta de marketplace con plugins, calificaciones e
+  instalaciones inventadas —incluidos un "Payment Gateway" y un "AI Grading Assistant", dos
+  áreas explícitamente no aprobadas— que estaba **enlazada desde el sidebar**, así que cualquier
+  administrador entraba y creía que podía instalar algo. La entrada del sidebar quedó con badge
+  "Pronto".
+- ~~`plugins/desarrolladores`~~: **borrada el 2026-07-27**. 1285 líneas de portal para
+  desarrolladores externos, cero backend, y conceptualmente contraria a `plugins.md` §1 (Classia
+  no carga código de terceros). Nadie la enlazaba salvo la propia maqueta de plugins.
 - (`reportes` y `pagos` ya se conectaron el 2026-07-18/19 — ver §2.)
 - (`estudiantes`, `profesores`, `cursos` ya se conectaron en `1f9870b`.)
 
 ### Panel del profesor (`/profesor`) — pendientes
-- `configuracion`: sin conectar.
+- ~~`configuracion`: sin conectar~~ — **conectado el 2026-07-27** (`f71d958`). Ver el detalle
+  en §6.11: la carga académica se deriva de `GET /schedules/mine`.
 - `horario`: **conectado** el 2026-07-26 contra `GET /schedules/mine`, con la vista extraída
   a `components/shared/schedule/portal-schedule-page.tsx` y reusada por familia y alumno.
 - `page.tsx` (Mi Panel): conectado, y el **fan-out N+1 de los pendientes por calificar se
@@ -181,12 +214,18 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
   vuelto caro ese mismo día, cuando esa ruta pasó a devolver el roster completo del curso en vez
   de solo las entregas (~2 KB con 3 alumnos, ~20 KB con 35, **por tarea**). Medido en el
   navegador: de 1 petición a 0 con el fixture actual, y de N a 0 en general.
-  **Queda un segundo fan-out** en la misma pantalla: `GET /students?groupId=` una vez por grupo
-  del profesor. Es mucho más chico (acotado por el número de grupos, no de tareas) y no hay hoy
-  un endpoint que acepte varios grupos, así que se dejó a conciencia.
+  ~~**Queda un segundo fan-out** en la misma pantalla: `GET /students?groupId=` una vez por
+  grupo del profesor.~~ — **eliminado el 2026-07-27** (rama
+  `feature/perf-chat-dashboard-y-seguridad-adjuntos`): `GET /groups/mine/stats`
+  (`GROUPS_READ_SELF`) resuelve los conteos en dos queries totales sin importar cuántos grupos
+  dicte el profesor. Sigue el idioma del repo — ruta `/mine` con permiso propio en vez de abrir
+  la de administración, que acepta `tenantId` por query.
 
 ### Otros
-- `/registro`: formulario de planes estático, no crea un tenant real (el endpoint `POST /tenants` existe pero requiere permiso de administrador — no hay alta autoservicio).
+- `/registro`: desde el **2026-07-27** es una **solicitud de demo real** contra
+  `POST /demo-requests`. Sigue sin haber alta autoservicio de colegio (`POST /tenants` requiere
+  permiso de administrador) y eso es deliberado: lo que se conectó es el paso comercial previo,
+  no el alta. Ver §6.7.
 - ~~`/recuperar-password`: sin flujo real de recuperación.~~ **Implementado el 2026-07-27.**
   `POST /auth/forgot-password` + `POST /auth/reset-password`, modelo `PasswordResetToken`
   (tenant-owned, con su política RLS), correo por el `EmailService` que ya existía, y la
@@ -263,11 +302,39 @@ Lo que sí sigue declarado y muerto, verificado por grep:
 5. ~~**Terminar el portal de familia**~~ — **hecho el 2026-07-26**, y `pagos` + `ajustes` el
    **2026-07-27**. Dashboard, `tareas`, `asistencia` y `horario` quedaron conectados, y de paso
    se arregló `calificaciones`, que figuraba como conectada y estaba rota (§3). Se creó además
-   `/alumno/horario`, que no existía. Queda **solo `incapacidades`**, mock y sin entrada en el
-   sidebar: no es deuda técnica sino una decisión de producto sin tomar (ver §3).
+   `/alumno/horario`, que no existía. Lo único que quedaba, `incapacidades`, **se borró el
+   2026-07-27** (`b47d3a1`): la decisión de producto se tomó y fue no construir el módulo (§3).
+   El portal de familia no tiene pendientes.
 6. ~~**`pnpm lint` está roto en todo el repo** por falta de `eslint.config.js` (ESLint v9).~~ **Resuelto** (corrección del 2026-07-25): los configs se agregaron en `e27e4b9` y CI tiene paso de lint desde `94a502b`.
-7. **`/registro`** (alta autoservicio de tenant): sin flujo real. (`/recuperar-password` **ya
-   está hecho** — 2026-07-27, ver §3.)
+7. ~~**`/registro`** (alta autoservicio de tenant): sin flujo real.~~ — **resuelto el
+   2026-07-27**, pero no por donde decía este punto: en vez de construir el alta autoservicio,
+   se convirtió en **solicitud de demo**. El wizard falso de tres pasos pedía plan, datos del
+   colegio y **una contraseña**, y no llamaba a ninguna API: los datos se perdían y la persona
+   quedaba esperando una cuenta que nadie iba a crear. Hoy:
+   - `POST /demo-requests` es **el único endpoint del backend que se escribe sin sesión y sin
+     tenant** (el colegio todavía no existe). Rate-limit de 5/min por IP, cuerpo validado con
+     Zod campo por campo, y responde **201 sin cuerpo** para no repartir ids de filas que solo
+     el equipo interno puede leer.
+   - `demo_requests` **no tiene RLS y es correcto que no lo tenga**: no hay `tenantId` al cual
+     scopearla, y una política estándar rechazaría el INSERT (RLS falla cerrado). Está en
+     `GLOBAL_ALLOWLIST` de `verify:rls` con esa justificación; el razonamiento largo vive en la
+     migración `20260727140000_demo_requests`. El control de acceso es por rol: leer exige
+     `DEMO_REQUESTS_LIST/READ/UPDATE`, que solo tiene `SUPER_ADMIN` — ni el staff de soporte.
+   - `/superadmin/solicitudes` es la bandeja: estado (nueva → contactada → cotizada →
+     ganada/perdida), sugerencia de plan y monto según el número de estudiantes —tomada de
+     `components/landing/pricing.tsx`, y si esas cifras se cambian hay que cambiarlas en los
+     dos lados—, notas internas y "Responder" por `mailto:`.
+   - Cobertura e2e propia (`apps/api/test/demo-requests.e2e-spec.ts`, 6 tests): escritura
+     pública sin sesión, 401 sin token, 403 para `TENANT_ADMIN`, lectura de `SUPER_ADMIN`,
+     sellado de `quotedAt` y auditoría con `tenantId` nulo. Dos de ellos verificados por
+     reversión. **El rate-limit no se prueba ahí**: el throttler está apagado en tests a
+     propósito (`skipIf` en `app.module.ts`).
+   - Los CTA del sitio se alinearon con lo que realmente pasa: "Comenzar Gratis" y "Comenzar
+     Prueba" prometían un autoservicio inexistente y ahora dicen "Solicitar Demostración".
+
+   Lo que **sigue sin existir, a propósito**: alta autoservicio de colegio. Crear el tenant es
+   `POST /tenants` con permiso de administrador, a mano. (`/recuperar-password` **ya está
+   hecho** — 2026-07-27, ver §3.)
 8. **App móvil (React Native/Expo): sigue en el roadmap, sin fecha** — confirmado con el dueño del producto el 2026-07-25. Nunca se inicializó `apps/mobile`; las variables `EXPO_PUBLIC_*` de `.env.example` están reservadas para cuando arranque. No está descartada, pero tampoco hay nada construido, así que **no se debe escribir código web "preparando" la paridad con una app que no existe**. El brief original que la mandaba "desde la primera versión profesional" está en `archive/01-arquitecto-saas.md`.
 9. ~~**Estado de cuenta para familias**~~ — **hecho el 2026-07-27**. `/familia/pagos` existe y
    consume `GET /students/:studentId/balance` (uno por hijo, igual que
@@ -294,21 +361,25 @@ Lo que sí sigue declarado y muerto, verificado por grep:
     contrato, no estilo: `api-client.ts` trata todo 401 como "token vencido", intenta renovar y
     al fallar borra los tokens y manda a `/login`. Con 401, equivocarse al escribir la contraseña
     cerraba la sesión del usuario.
-11. **Pantallas que son maqueta y se dejan a propósito** (barrido del 2026-07-27: se buscaron
-    todas las `page.tsx` de más de 120 líneas sin un solo `apiFetch`). No son deuda técnica ni
-    olvidos — son decisiones de producto sin tomar, y están acá para que nadie las vuelva a
-    listar como "falta conectarlas":
-    - **`/admin/plugins` y `/admin/plugins/desarrolladores`** — 1843 líneas entre las dos, con
-      **cero backend**: no existe módulo `plugins` en `apps/api/src/modules/` ni modelo `Plugin`
-      en `schema.prisma`. `plugins.md` es un **catálogo propuesto**, no un plan aprobado, y
-      describe módulos de pago *posteriores* al core. **Decisión del 2026-07-27: se dejan, se
-      documentan, no se construyen.** Antes de tocarlas hay que aprobar el alcance en
-      `CLAUDE.md` con fecha, y ojo con dos cosas que el catálogo arrastra: credenciales de
-      pasarela (MercadoPago) cruzan la frontera de Pagos, y la sincronización con Google
-      Workspace / Microsoft 365 ya está explícitamente **no aprobada** para el calendario.
-      A favor de la maqueta: `plugins.md` §1 fija que Classia **no carga código de terceros en
-      caliente** (solo feature flags por `tenantId`), así que el modelo de amenazas es acotado.
-    - **`/registro`** — ver punto 7.
+11. **Código fantasma: resuelto el 2026-07-27.** El barrido de ese día (todas las `page.tsx` de
+    más de 120 líneas sin un solo `apiFetch`) había dejado tres pantallas listadas como
+    "maqueta a propósito". Ya no queda ninguna sin decidir:
+    - **`/admin/plugins`** — la decisión de la mañana ("se dejan, se documentan, no se
+      construyen") se revisó y quedó así: **los plugins van después de la 1.0, pero la maqueta
+      no se deja**. Eran 558 líneas simulando un marketplace con plugins, estrellas,
+      instalaciones y botones de "Instalar" inventados, y **estaba en el sidebar**: un
+      administrador entraba y creía que podía instalar algo. Dos de los plugins falsos —
+      "Payment Gateway" y "AI Grading Assistant" — son áreas explícitamente no aprobadas. Hoy
+      es una pantalla informativa que explica el catálogo en estudio con el estado real de cada
+      ítem, y marca los tres que necesitan decisión aparte (pasarela de pagos, sync con
+      Google/Microsoft, biometría). Construir cualquiera exige aprobar el alcance en `CLAUDE.md`
+      con fecha. A favor de que el modelo de amenazas sea acotado cuando llegue el momento:
+      `plugins.md` §1 fija que Classia **no carga código de terceros en caliente** (solo feature
+      flags por `tenantId`).
+    - **`/admin/plugins/desarrolladores`** — **borrada**. 1285 líneas de portal para
+      desarrolladores externos que además contradice el §1 de su propio documento. Nadie la
+      enlazaba salvo la maqueta de plugins.
+    - **`/registro`** — ver punto 7: dejó de ser maqueta.
     - ~~**`/profesor/configuracion`**~~ — **hecho el 2026-07-27**, mismo día y misma receta que
       `/familia/ajustes`. Tenía los mismos datos inventados (incluido otro teléfono peruano,
       `+51 987 654 321`) y encima una tarjeta académica con cuatro cifras falsas. Ahora la carga

@@ -16,11 +16,18 @@ import {
 import { BroadcastInput, type ListMessagesQuery, SendMessageInput } from "./conversations.schemas";
 import { PresenceService } from "./presence.service";
 
-// Techo de mensajes que se devuelven por conversación en el listado: evita
-// cargar el historial completo de cada hilo solo para mostrar la vista
-// previa (N+1 / carga excesiva en memoria). El detalle completo se sigue
-// obteniendo por la misma vía, solo que acotado a los más recientes.
+// Mensajes embebidos al abrir/crear UN hilo puntual (getConversationSummary):
+// alcanza con los más recientes, el resto se pide por GET /conversations/:id/messages.
 const MESSAGE_PAGE_SIZE = 50;
+
+// GET /conversations (el listado de la bandeja) solo necesita el ÚLTIMO
+// mensaje de cada hilo para el snippet -- pedía los 50 más recientes de
+// TODOS los hilos activos a la vez (backlog "Rendimiento y Escalabilidad",
+// punto 1.1), lo que multiplicaba el payload y el trabajo del query engine
+// por el tamaño de la bandeja para nada: el snippet nunca mostró más que la
+// última línea. El historial completo del hilo se sigue pidiendo aparte, on
+// demand, al entrar a la conversación (GET /conversations/:id/messages).
+const LIST_SNIPPET_SIZE = 1;
 
 // Techo de conversaciones devueltas en el listado. El frontend no tiene
 // "cargar más" para este endpoint, así que un número bajo aquí no es un
@@ -69,7 +76,7 @@ export class ConversationsService {
       },
       orderBy: { lastMessageAt: "desc" },
       take: CONVERSATION_LIST_PAGE_SIZE,
-      select: this.conversationSelect(actor.tenantId),
+      select: this.conversationSelect(actor.tenantId, LIST_SNIPPET_SIZE),
     });
 
     const unread = await this.unreadCountsFor(actor.tenantId, actor.id, conversations.map((c) => c.id));
@@ -765,7 +772,7 @@ export class ConversationsService {
     };
   }
 
-  private conversationSelect(tenantId: string) {
+  private conversationSelect(tenantId: string, messageLimit: number = MESSAGE_PAGE_SIZE) {
     return {
       id: true,
       type: true,
@@ -790,7 +797,7 @@ export class ConversationsService {
       messages: {
         where: { deletedAt: null },
         orderBy: { createdAt: "desc" as const },
-        take: MESSAGE_PAGE_SIZE,
+        take: messageLimit,
         select: this.messageSelect(),
       },
     };

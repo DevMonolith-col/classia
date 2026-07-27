@@ -16,7 +16,7 @@ const plans = [
       "Calendario escolar",
       "Soporte por email",
     ],
-    cta: "Comenzar Prueba",
+    cta: "Solicitar Demostración",
     highlighted: false,
   },
   {
@@ -34,7 +34,7 @@ const plans = [
       "Integración con contabilidad",
       "Soporte prioritario",
     ],
-    cta: "Comenzar Prueba",
+    cta: "Solicitar Demostración",
     highlighted: true,
   },
   {
