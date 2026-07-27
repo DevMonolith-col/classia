@@ -39,7 +39,7 @@ export type HomeworkSubmission = {
   id: string
   homeworkId: string
   studentId: string
-  status: "PENDING" | "SUBMITTED" | "LATE" | "GRADED"
+  status: "SUBMITTED" | "LATE" | "GRADED"
   attachmentKey?: string | null
   attachmentName?: string | null
   submittedAt?: string | null
@@ -47,24 +47,48 @@ export type HomeworkSubmission = {
   feedbackKey?: string | null
   feedbackName?: string | null
   gradedAt?: string | null
-  student: { id: string; firstName: string; lastName: string }
-  /**
-   * Nota vigente de esta entrega, o `null` si todavía no se calificó. La liga con `Mark` es
-   * `(studentId, homeworkId)`, no una relación: el backend la adjunta en `listForHomework`.
-   */
-  mark?: { id: string; value: number; maxValue: number } | null
+  student?: { id: string; firstName: string; lastName: string }
 }
 
-export const SUBMISSION_STATUS_LABELS: Record<HomeworkSubmission["status"], string> = {
-  PENDING: "Pendiente",
+/**
+ * Una fila del roster de una tarea: **un estudiante del curso, haya entregado o no**.
+ *
+ * `submission === null` ES "no entregó". No existe un estado `PENDING` que represente eso: el
+ * default del schema es inalcanzable porque ningún camino crea una entrega sin estado explícito
+ * (`asignaciones-calificacion-en-linea.md` §5), y fabricar filas fantasma sería mentirle a la
+ * lista sobre algo que el alumno nunca hizo.
+ *
+ * `submission.submittedAt === null` con `status: "GRADED"` es distinto: es "no entregó **y** ya
+ * tiene nota", que es como queda un 0 puesto al cierre de periodo.
+ */
+export type RosterEntry = {
+  student: { id: string; firstName: string; lastName: string; documentId?: string | null }
+  /** `false` si se cambió de curso pero dejó su entrega en esta tarea. */
+  inGroup: boolean
+  submission: HomeworkSubmission | null
+  /** Nota vigente. La liga con `Mark` es `(studentId, homeworkId)`, no una relación. */
+  mark: { id: string; value: number; maxValue: number } | null
+}
+
+/**
+ * `PENDING` salió del vocabulario el 2026-07-26: era el default del schema y **ningún camino
+ * del backend lo escribe**, así que este label nunca se renderizó. "No entregó" se deriva de
+ * `submission === null` en el roster, que es más honesto que fabricar una fila fantasma.
+ *
+ * Los mapas se leen con `?? ` por si un dato viejo trae ese estado: un `undefined` acá rompe la
+ * fila entera, y perder el color no vale eso.
+ */
+export const SUBMISSION_STATUS_LABELS: Record<string, string> = {
   SUBMITTED: "Entregado",
   LATE: "Entregado tarde",
   GRADED: "Calificado",
 }
 
-export const SUBMISSION_STATUS_COLORS: Record<HomeworkSubmission["status"], string> = {
-  PENDING: "bg-muted text-muted-foreground",
+export const SUBMISSION_STATUS_COLORS: Record<string, string> = {
   SUBMITTED: "bg-blue-100 text-blue-700",
   LATE: "bg-amber-100 text-amber-700",
   GRADED: "bg-success/10 text-success",
 }
+
+export const NOT_SUBMITTED_LABEL = "Sin entregar"
+export const NOT_SUBMITTED_COLOR = "bg-muted text-muted-foreground"

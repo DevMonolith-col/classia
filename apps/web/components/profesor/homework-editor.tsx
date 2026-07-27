@@ -26,11 +26,13 @@ import { RemoteImage } from "@/components/shared/remote-image"
 import {
   HOMEWORK_TYPE_LABELS,
   HOMEWORK_TYPES,
+  NOT_SUBMITTED_COLOR,
+  NOT_SUBMITTED_LABEL,
   SUBMISSION_STATUS_COLORS,
   SUBMISSION_STATUS_LABELS,
   type Homework,
-  type HomeworkSubmission,
   type HomeworkType,
+  type RosterEntry,
 } from "./homework-types"
 import { QUESTION_TYPE_LABELS, QUESTION_TYPES, type Question, type QuestionType } from "./question-types"
 import type { TeacherSchedule } from "./marks-types"
@@ -353,9 +355,9 @@ export function HomeworkEditor({ mode, schedule, homework }: Props) {
 }
 
 function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
-  const [submissions, setSubmissions] = useState<HomeworkSubmission[]>([])
+  const [submissions, setSubmissions] = useState<RosterEntry[]>([])
   const [loading, setLoading] = useState(false)
-  const [grading, setGrading] = useState<HomeworkSubmission | null>(null)
+  const [grading, setGrading] = useState<RosterEntry | null>(null)
   const [value, setValue] = useState("100")
   const [maxValue, setMaxValue] = useState("100")
   const [feedbackComment, setFeedbackComment] = useState("")
@@ -367,7 +369,7 @@ function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
     try {
       const res = await apiFetch(`/homework/${homeworkId}/submissions`, { silent: true })
       if (!res.ok) throw new Error()
-      setSubmissions((await res.json()) as HomeworkSubmission[])
+      setSubmissions((await res.json()) as RosterEntry[])
     } catch {
       setSubmissions([])
     } finally {
@@ -379,19 +381,22 @@ function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
     loadSubmissions()
   }, [loadSubmissions])
 
+  const receivedCount = submissions.filter((entry) => entry.submission?.submittedAt).length
+  const ungradedCount = submissions.filter((entry) => !entry.mark).length
+
   function openAttachment(key: string, name?: string | null) {
     setPreview({ key, name: name ?? "Archivo" })
   }
 
-  function openGradeDialog(submission: HomeworkSubmission) {
-    setGrading(submission)
+  function openGradeDialog(entry: RosterEntry) {
+    setGrading(entry)
     // Precargar la nota vigente cuando existe: el botón que abre esto dice "Editar nota", y
     // poner 100 hacía que entrar a cambiar solo el comentario pisara la calificación real.
     // Cuando NO existe, el campo va vacío a propósito -- un 100 servido de entrada es la misma
     // pérdida de datos en el primer intento, solo que sin nada anterior que extrañar.
-    setValue(submission.mark ? String(submission.mark.value) : "")
-    setMaxValue(String(submission.mark?.maxValue ?? 100))
-    setFeedbackComment(submission.feedbackComment ?? "")
+    setValue(entry.mark ? String(entry.mark.value) : "")
+    setMaxValue(String(entry.mark?.maxValue ?? 100))
+    setFeedbackComment(entry.submission?.feedbackComment ?? "")
   }
 
   async function handleGradeSubmit() {
@@ -412,7 +417,9 @@ function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
 
     setSubmitting(true)
     try {
-      const res = await apiFetch(`/homework/${homeworkId}/submissions/${grading.id}/grade`, {
+      // Por estudiante y no por entrega: en el roster hay filas sin `submission`, y ese
+      // endpoint hace el upsert que las crea con submittedAt null.
+      const res = await apiFetch(`/homework/${homeworkId}/submissions/by-student/${grading.student.id}/grade`, {
         method: "PATCH",
         body: JSON.stringify({
           value: numericValue,
@@ -440,7 +447,14 @@ function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
     <Card className="mt-6">
       <CardHeader>
         <CardTitle>Entregas</CardTitle>
-        <CardDescription>{submissions.length} entrega{submissions.length === 1 ? "" : "s"} recibida{submissions.length === 1 ? "" : "s"}</CardDescription>
+        {/* Cuenta entregas y pendientes por separado: el total del roster incluye a los que no
+            entregaron, así que decir "N entregas recibidas" sobre él sería falso. */}
+        <CardDescription>
+          {receivedCount} entrega{receivedCount === 1 ? "" : "s"} recibida
+          {receivedCount === 1 ? "" : "s"} de {submissions.length} estudiante
+          {submissions.length === 1 ? "" : "s"}
+          {ungradedCount > 0 && ` · ${ungradedCount} sin calificar`}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -451,13 +465,19 @@ function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
           </div>
         ) : submissions.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
-            Aún no hay entregas de los estudiantes.
+            No hay estudiantes en el curso de esta asignación.
           </p>
         ) : grading ? (
           <div className="space-y-4">
             <p className="text-sm font-medium text-foreground">
               Calificar a {grading.student.firstName} {grading.student.lastName}
             </p>
+            {!grading.submission && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                No entregó. Al guardar, la nota queda registrada igual y la entrega se crea sin
+                archivo.
+              </p>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Nota</Label>
@@ -489,28 +509,42 @@ function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
           </div>
         ) : (
           <div className="space-y-2">
-            {submissions.map((submission) => (
-              <div key={submission.id} className="rounded-lg border border-border p-3">
+            {submissions.map((entry) => (
+              <div key={entry.student.id} className="rounded-lg border border-border p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-medium text-foreground">
-                      {submission.student.firstName} {submission.student.lastName}
+                      {entry.student.firstName} {entry.student.lastName}
+                      {!entry.inGroup && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">
+                          (ya no está en el curso)
+                        </span>
+                      )}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <Badge className={SUBMISSION_STATUS_COLORS[submission.status]} variant="outline">
-                        {SUBMISSION_STATUS_LABELS[submission.status]}
+                      <Badge
+                        className={
+                          entry.submission
+                            ? SUBMISSION_STATUS_COLORS[entry.submission.status] ?? NOT_SUBMITTED_COLOR
+                            : NOT_SUBMITTED_COLOR
+                        }
+                        variant="outline"
+                      >
+                        {entry.submission
+                          ? SUBMISSION_STATUS_LABELS[entry.submission.status] ?? entry.submission.status
+                          : NOT_SUBMITTED_LABEL}
                       </Badge>
-                      {submission.mark && (
+                      {entry.mark && (
                         <span className="text-sm font-semibold text-foreground">
-                          {submission.mark.value}
+                          {entry.mark.value}
                           <span className="font-normal text-muted-foreground">
-                            /{submission.mark.maxValue}
+                            /{entry.mark.maxValue}
                           </span>
                         </span>
                       )}
-                      {submission.submittedAt && (
+                      {entry.submission?.submittedAt && (
                         <span className="text-xs text-muted-foreground">
-                          {new Date(submission.submittedAt).toLocaleString("es-CO", {
+                          {new Date(entry.submission.submittedAt).toLocaleString("es-CO", {
                             day: "2-digit",
                             month: "short",
                             hour: "2-digit",
@@ -521,17 +555,22 @@ function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    {submission.attachmentKey && (
+                    {entry.submission?.attachmentKey && (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => openAttachment(submission.attachmentKey!, submission.attachmentName)}
+                        onClick={() =>
+                          openAttachment(
+                            entry.submission!.attachmentKey!,
+                            entry.submission!.attachmentName,
+                          )
+                        }
                       >
                         Ver archivo
                       </Button>
                     )}
-                    <Button size="sm" onClick={() => openGradeDialog(submission)}>
-                      {submission.status === "GRADED" ? "Editar nota" : "Calificar"}
+                    <Button size="sm" onClick={() => openGradeDialog(entry)}>
+                      {entry.mark ? "Editar nota" : "Calificar"}
                     </Button>
                   </div>
                 </div>
