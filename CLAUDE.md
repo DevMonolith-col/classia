@@ -125,6 +125,25 @@ lista de arriba) ni nada que invite a **pagar** desde el calendario: mostrar que
 agosto vence la pensión es cartera y está dentro; un botón de pago cruza la frontera de
 pagos.
 
+Aprobado explícitamente: **solicitud de demo desde el sitio público + bandeja de cotización
+interna** (2026-07-27, terminado ese mismo día). `/registro` dejó de ser una maqueta que pedía
+contraseña y no llamaba a nadie: hoy es un formulario real contra `POST /demo-requests`
+(público, con rate-limit) y las solicitudes se atienden en `/superadmin/solicitudes`, donde se
+anota el plan, el monto ofrecido y las notas internas. Dos límites que no se cruzan: **no hay
+alta autoservicio de colegio** (crear el tenant sigue siendo `POST /tenants`, con permiso de
+administrador) y **el monto cotizado es una anotación, no un cobro** — sigue sin pasar dinero
+por Classia. `demo_requests` es la única tabla que se escribe sin sesión y sin tenant, y por
+eso es la quinta de la lista blanca de `verify:rls`; el razonamiento completo está en la
+migración `20260727140000_demo_requests`.
+
+**Plugins: post-1.0, decidido el 2026-07-27.** No se construye el backend, pero tampoco se
+borró la sección: `/admin/plugins` es hoy una pantalla informativa que explica el catálogo en
+estudio y en qué estado está cada cosa. Lo que se borró es la maqueta de marketplace que
+simulaba plugins instalables con calificaciones e instalaciones inventadas, junto con
+`/admin/plugins/desarrolladores` (portal para terceros, que además contradice `plugins.md` §1:
+Classia no carga código de terceros). Volver a poner botones de instalar sin backend detrás es
+un error; construir cualquiera del catálogo exige aprobar el alcance acá, con fecha.
+
 Datos de menores, calificaciones, asistencia y comunicaciones institucionales están de por
 medio, con retención obligatoria por Ley 1620 y Ley 527 (de ahí el soft-delete que conserva
 la fila en mensajería). Las acciones sensibles se auditan vía `AuditService`, y las

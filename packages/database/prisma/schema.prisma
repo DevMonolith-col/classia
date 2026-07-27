@@ -76,49 +76,49 @@ model Tenant {
   // aquí directamente en vez de crear un modelo nuevo solo para un campo.
   maxAccessDurationMinutes Int?
 
-  memberships       TenantMembership[]
-  sessions          AuthSession[]
-  students          Student[]
-  groups            Group[]
-  subjects          Subject[]
-  announcements     Announcement[]
-  events            Event[]
-  calendarFeedTokens CalendarFeedToken[]
+  memberships         TenantMembership[]
+  sessions            AuthSession[]
+  students            Student[]
+  groups              Group[]
+  subjects            Subject[]
+  announcements       Announcement[]
+  events              Event[]
+  calendarFeedTokens  CalendarFeedToken[]
   passwordResetTokens PasswordResetToken[]
-  academicYears     AcademicYear[]
-  academicPeriods   AcademicPeriod[]
-  gradingScales     GradingScale[]
-  gradingCategories GradingCategory[]
-  reportCards       ReportCard[]
-  supportTickets    SupportTicket[]
-  elections         Election[]
-  documentTemplates DocumentTemplate[]
-  documentIssuances DocumentIssuance[]
-  feeConcepts       FeeConcept[]
-  invoices          Invoice[]
-  payments          Payment[]
-  generatedReports  GeneratedReport[]
-  reportSchedules   ReportSchedule[]
-  accessSessions    AccessSession[]
+  academicYears       AcademicYear[]
+  academicPeriods     AcademicPeriod[]
+  gradingScales       GradingScale[]
+  gradingCategories   GradingCategory[]
+  reportCards         ReportCard[]
+  supportTickets      SupportTicket[]
+  elections           Election[]
+  documentTemplates   DocumentTemplate[]
+  documentIssuances   DocumentIssuance[]
+  feeConcepts         FeeConcept[]
+  invoices            Invoice[]
+  payments            Payment[]
+  generatedReports    GeneratedReport[]
+  reportSchedules     ReportSchedule[]
+  accessSessions      AccessSession[]
 
   // Aislamiento RLS (docs/planning/aislamiento-rls-multitenant.md, Fase 1):
   // denormalizado en tablas que antes solo se scopeaban por un padre.
-  studentGuardians     StudentGuardian[]
-  attendanceRecords    AttendanceRecord[]
-  gradingScaleBands    GradingScaleBand[]
-  reportCardLines      ReportCardLine[]
-  questions            Question[]
-  questionOptions      QuestionOption[]
-  quizAnswers          QuizAnswer[]
-  homeworkSubmissions  HomeworkSubmission[]
-  conversationMembers  ConversationMember[]
-  conversationMessages ConversationMessage[]
-  announcementReads    AnnouncementRead[]
+  studentGuardians       StudentGuardian[]
+  attendanceRecords      AttendanceRecord[]
+  gradingScaleBands      GradingScaleBand[]
+  reportCardLines        ReportCardLine[]
+  questions              Question[]
+  questionOptions        QuestionOption[]
+  quizAnswers            QuizAnswer[]
+  homeworkSubmissions    HomeworkSubmission[]
+  conversationMembers    ConversationMember[]
+  conversationMessages   ConversationMessage[]
+  announcementReads      AnnouncementRead[]
   notificationDeliveries NotificationDelivery[]
-  ticketComments       TicketComment[]
-  electionCandidates   ElectionCandidate[]
-  electionVotes        ElectionVote[]
-  electionVoters       ElectionVoter[]
+  ticketComments         TicketComment[]
+  electionCandidates     ElectionCandidate[]
+  electionVotes          ElectionVote[]
+  electionVoters         ElectionVoter[]
 
   @@map("tenants")
 }
@@ -144,11 +144,11 @@ model User {
   announcementReads       AnnouncementRead[]
   notifications           Notification[]
   notificationPreferences NotificationPreference[]
-  assignedSupportTickets  SupportTicket[]           @relation("SupportTicketAssignee")
-  authoredSupportTickets  SupportTicket[]           @relation("SupportTicketAuthor")
-  authoredTicketComments  TicketComment[]           @relation("TicketCommentAuthor")
+  assignedSupportTickets  SupportTicket[]          @relation("SupportTicketAssignee")
+  authoredSupportTickets  SupportTicket[]          @relation("SupportTicketAuthor")
+  authoredTicketComments  TicketComment[]          @relation("TicketCommentAuthor")
   electionsCreated        Election[]
-  documentsIssued         DocumentIssuance[]        @relation("DocumentIssuedBy")
+  documentsIssued         DocumentIssuance[]       @relation("DocumentIssuedBy")
   feeConceptsCreated      FeeConcept[]
   paymentsRecorded        Payment[]
   reportsRequested        GeneratedReport[]
@@ -158,6 +158,7 @@ model User {
   eventsCreated           Event[]
   calendarFeedTokens      CalendarFeedToken[]
   passwordResetTokens     PasswordResetToken[]
+  demoRequestsHandled     DemoRequest[]
 
   @@map("users")
 }
@@ -201,7 +202,7 @@ model AuthSession {
   // nunca tienen uno. Se re-embebe en cada refresh (ver auth.service#refresh)
   // para que DataScopeGuard pueda aislar el alcance por (agente, ticket, colegio)
   // durante toda la vida de la sesión, no solo en el token inicial.
-  ticketId String?
+  ticketId         String?
 
   user   User           @relation(fields: [userId], references: [id])
   tenant Tenant?        @relation(fields: [tenantId], references: [id])
@@ -547,11 +548,11 @@ model ReportCard {
   generatedById  String
   generatedAt    DateTime         @default(now())
 
-  tenant       Tenant           @relation(fields: [tenantId], references: [id])
-  student      Student          @relation(fields: [studentId], references: [id])
-  academicYear AcademicYear     @relation(fields: [academicYearId], references: [id])
-  period       AcademicPeriod?  @relation(fields: [periodId], references: [id])
-  lines        ReportCardLine[]
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  student           Student            @relation(fields: [studentId], references: [id])
+  academicYear      AcademicYear       @relation(fields: [academicYearId], references: [id])
+  period            AcademicPeriod?    @relation(fields: [periodId], references: [id])
+  lines             ReportCardLine[]
   documentIssuances DocumentIssuance[]
 
   // Un boletín por estudiante/año/periodo. Evita duplicados cuando dos generate()
@@ -734,7 +735,7 @@ model Conversation {
   createdAt     DateTime         @default(now())
   archivedAt    DateTime?
   lastMessageAt DateTime         @default(now()) // evita traer todos los mensajes solo para ordenar/previsualizar la lista
-  directKey     String?          // clave determinística "userIdMenor:userIdMayor" solo para type = DIRECT; delega el control de concurrencia de "crear si no existe" a la BD
+  directKey     String? // clave determinística "userIdMenor:userIdMayor" solo para type = DIRECT; delega el control de concurrencia de "crear si no existe" a la BD
 
   members  ConversationMember[]
   messages ConversationMessage[]
@@ -1044,26 +1045,26 @@ enum TicketPriority {
 }
 
 model SupportTicket {
-  id          String         @id @default(uuid())
-  tenantId    String
-  authorId    String         // Usuario del colegio que lo reporta
-  assigneeId  String?        // SuperAdmin encargado de resolverlo
-  
+  id         String  @id @default(uuid())
+  tenantId   String
+  authorId   String // Usuario del colegio que lo reporta
+  assigneeId String? // SuperAdmin encargado de resolverlo
+
   title       String
   description String
   status      TicketStatus   @default(OPEN)
   priority    TicketPriority @default(MEDIUM)
-  category    String         
-  
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  category    String
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
   attachmentKey  String?
   attachmentName String?
 
-  tenant      Tenant         @relation(fields: [tenantId], references: [id])
-  author      User           @relation("SupportTicketAuthor", fields: [authorId], references: [id])
-  assignee    User?          @relation("SupportTicketAssignee", fields: [assigneeId], references: [id])
-  comments    TicketComment[]
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  author         User            @relation("SupportTicketAuthor", fields: [authorId], references: [id])
+  assignee       User?           @relation("SupportTicketAssignee", fields: [assigneeId], references: [id])
+  comments       TicketComment[]
   accessSessions AccessSession[]
   authSessions   AuthSession[]
 
@@ -1096,19 +1097,19 @@ enum AccessSessionStatus {
 // la revocación real depende de que DataScopeGuard consulte esta tabla en cada
 // request marcado isImpersonated (ver data-scope.guard.ts).
 model AccessSession {
-  id            String               @id @default(uuid())
-  ticketId      String
-  tenantId      String
-  requestedById String
-  approvedById  String?
-  scope         AccessScope
-  status        AccessSessionStatus @default(SOLICITADO)
-  reason        String
-  denialReason  String?
-  revokedReason String?
+  id                       String              @id @default(uuid())
+  ticketId                 String
+  tenantId                 String
+  requestedById            String
+  approvedById             String?
+  scope                    AccessScope
+  status                   AccessSessionStatus @default(SOLICITADO)
+  reason                   String
+  denialReason             String?
+  revokedReason            String?
   // Duración pedida al solicitar; se aplica tal cual al aprobar (grantedAt + esto).
   // Si el supervisor quiere otra duración, niega y pide que se re-solicite.
-  requestedDurationMinutes Int @default(240)
+  requestedDurationMinutes Int                 @default(240)
 
   requestedAt DateTime  @default(now())
   grantedAt   DateTime?
@@ -1131,20 +1132,20 @@ model AccessSession {
 }
 
 model TicketComment {
-  id          String        @id @default(uuid())
-  ticketId    String
+  id             String  @id @default(uuid())
+  ticketId       String
   tenantId       String
-  authorId    String        // Puede ser SuperAdmin o el cliente
+  authorId       String // Puede ser SuperAdmin o el cliente
   content        String
-  isInternal     Boolean       @default(false)
+  isInternal     Boolean @default(false)
   attachmentKey  String?
   attachmentName String?
 
-  createdAt      DateTime      @default(now())
+  createdAt DateTime @default(now())
 
-  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  tenant      Tenant        @relation(fields: [tenantId], references: [id])
-  author      User          @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tenant Tenant        @relation(fields: [tenantId], references: [id])
+  author User          @relation("TicketCommentAuthor", fields: [authorId], references: [id])
 
   @@index([ticketId])
   @@index([tenantId])
@@ -1469,4 +1470,60 @@ model ReportSchedule {
 
   @@index([tenantId, active])
   @@map("report_schedules")
+}
+
+// ─── Solicitudes de demo / cotización (comercial, previo al colegio) ─────────
+
+// TABLA GLOBAL, SIN tenantId Y SIN RLS — A PROPÓSITO.
+//
+// Una solicitud de demo llega del sitio público ANTES de que exista el
+// colegio: no hay tenant al que pertenezca, igual que `tenants` o
+// `system_settings`. Por eso está en GLOBAL_ALLOWLIST de
+// scripts/verify-rls.ts; ponerle una política de tenant la volvería ilegible
+// para todo el mundo (current_setting('app.tenant_id') es NULL en el request
+// público, y RLS falla cerrado). El aislamiento acá no es por colegio sino
+// por rol: solo SUPER_ADMIN lee la bandeja, gateado en el controller con
+// DEMO_REQUESTS_LIST/READ/UPDATE.
+//
+// Ojo con la asimetría: escribir es público (cualquiera en internet manda el
+// formulario, con rate-limit) y leer no lo es. Ningún endpoint devuelve una
+// solicitud sin sesión — ni siquiera la recién creada, que responde 201 vacío.
+enum DemoRequestStatus {
+  NEW // recién llegada del formulario, nadie la miró
+  CONTACTED // ya se habló con el colegio
+  QUOTED // se le pasó una cotización
+  WON // se convirtió en colegio
+  LOST // no siguió
+}
+
+model DemoRequest {
+  id           String   @id @default(uuid())
+  schoolName   String
+  contactName  String
+  contactEmail String
+  contactPhone String?
+  contactRole  String? // rector, coordinador, secretaria... cómo se presenta
+  city         String?
+  studentCount Int? // el dato que más mueve la cotización
+  interests    String[] @default([]) // qué dijo que necesita (notas, asistencia, cartera...)
+  message      String?
+  source       String? // desde qué parte del sitio llegó (hero, precios, login)
+
+  status         DemoRequestStatus @default(NEW)
+  quotedPlan     String? // nombre del plan que se le ofreció, en texto: los planes
+  // todavía no son un modelo, y fijarlos acá como enum
+  // obligaría a migrar la base cada vez que cambie el pricing
+  quotedAmount   Decimal?          @db.Decimal(12, 2)
+  quotedCurrency String?
+  quotedAt       DateTime?
+  internalNotes  String? // notas del equipo comercial, nunca visibles al colegio
+  handledById    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  handledBy User? @relation(fields: [handledById], references: [id])
+
+  @@index([status, createdAt])
+  @@map("demo_requests")
 }

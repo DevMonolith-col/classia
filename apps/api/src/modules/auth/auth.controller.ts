@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Throttle } from "@nestjs/throttler";
 import { Request } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
@@ -30,7 +30,6 @@ export class AuthController {
   // usuarios legítimos iniciando sesión en la misma ventana; un ataque real
   // intenta miles de contraseñas por minuto, así que sigue siendo efectivo.
   @Post("login")
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   login(
     @Body(new ZodValidationPipe(loginSchema)) body: LoginInput,
@@ -43,7 +42,6 @@ export class AuthController {
   // abuso no es solo adivinar credenciales sino usar el endpoint para bombardear una bandeja
   // ajena. Y a diferencia del login, nadie necesita pedir el enlace veinte veces por minuto.
   @Post("forgot-password")
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   forgotPassword(
     @Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput,
@@ -54,7 +52,6 @@ export class AuthController {
 
   // El límite también protege de probar enlaces al azar por fuerza bruta.
   @Post("reset-password")
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   resetPassword(
     @Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPasswordInput,
@@ -67,7 +64,7 @@ export class AuthController {
   // tope este endpoint es un oráculo para adivinar la contraseña de la cuenta cuyo token ya
   // se tiene. Mismo límite que reset-password.
   @Post("change-password")
-  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   changePassword(
     @Body(new ZodValidationPipe(changePasswordSchema)) body: ChangePasswordInput,

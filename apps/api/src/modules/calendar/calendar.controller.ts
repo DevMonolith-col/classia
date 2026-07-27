@@ -10,7 +10,7 @@ import {
   Res,
   UseGuards,
 } from "@nestjs/common";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Throttle } from "@nestjs/throttler";
 import { Request, Response } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { Permissions } from "../../common/decorators/permissions.decorator";
@@ -85,7 +85,7 @@ export class CalendarController {
    * alguien sin calendario sin que se entere.
    */
   @Post("feed/token")
-  @UseGuards(JwtAuthGuard, PermissionsGuard, ThrottlerGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Permissions(PERMISSIONS.EVENTS_LIST)
   issueToken(@CurrentUser() user: RequestUser, @Req() request: Request) {
