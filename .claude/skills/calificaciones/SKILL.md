@@ -41,6 +41,7 @@ esa distinción **no es opcional**:
 | `MarksService.upsertMarkInTransaction` | `marks.service.ts` | writer único, recibe el `tx` |
 | `MarksService.bulkCreate` | `marks.service.ts:320` | `upsert` inline (`:381`) — **el único que sigue aparte** |
 | Calificar una entrega | `homework-submissions.service.ts` | `upsertMarkInTransaction(..., tx)` |
+| Calificar por estudiante | `homework-submissions.service.ts` | mismo camino: `applyGrade()` |
 | Autocalificar un quiz | `quiz-attempts.service.ts` | `upsertMark(..., { notifyStudent })` |
 
 **Cuál de las dos usar.** Si ya estás dentro de `runInTenantTransaction`, tiene que ser
@@ -139,6 +140,19 @@ con `withCurrentMarks()`, una consulta aparte unida en memoria — una por llama
 entrega. Agregar la relación al schema significaría cambiar la forma de `Mark`, que tiene
 frontera estricta con notas/boletines (`asignaciones-calificacion-en-linea.md` §2).
 
+Desde ese mismo día `listForHomework` devuelve el **roster**: una fila por estudiante del curso,
+con `submission: null` para quien no entregó. No existe un estado que represente eso —
+`PENDING` es el default del schema y ningún camino lo escribe, así que se sacó del vocabulario
+del front y del fixture de e2e, que lo fabricaba y hacía que el test ejercitara una transición
+irreal.
+
+Para calificar a quien no entregó está `gradeByStudent()`, que hace `upsert` de la entrega con
+`submittedAt: null` y `status: "GRADED"` — ese par **es** la representación de "no entregó pero
+tiene nota". Comparte cuerpo con `grade()` a través de `applyGrade()`, así que la escritura de
+la `Mark` sigue pasando por el writer único, en la misma transacción y con el `publish()`
+después del commit. Valida que el estudiante sea del grupo de la tarea: sin eso el profesor
+puede escribirle una nota a un alumno que no cursa la materia.
+
 Si agregas otro consumidor que necesite la nota, pásalo por ese helper en vez de volver a
 resolver el join. `findForOwnStudent` (portal de familia) **deliberadamente no la lleva**: la
 nota del hijo vive en `/familia/calificaciones`, que lee `/marks`, y duplicarla en dos
@@ -188,6 +202,12 @@ Dos más desde el 2026-07-26, en el mismo archivo:
   `getHomeworkForTeacherCheck` existía desde siempre y **nunca había tenido un test que la
   ejerciera**. Verificado revirtiendo la comparación de `teacherId` a un simple "tiene ficha de
   profesor": el ajeno califica con 200 y el test cae.
+
+Y tres de la Fase 2 (roster completo, calificar a un no-entregador con `submittedAt: null`, y
+403 al calificar a un alumno de otro grupo). El primero **limpia la entrega del compañero antes
+de afirmar que no existe**: el test que le sigue se la crea, y sin esa limpieza la segunda
+corrida fallaba por un dato de la anterior. Si agregas tests sobre estos fixtures, corre la
+suite **dos veces seguidas** — la primera pasa igual.
 
 Sigue **sin haber** test de `POST /homework/:id/submissions`, de `POST /marks` / `upsertMark()`
 directo, ni de `bulkCreate`.

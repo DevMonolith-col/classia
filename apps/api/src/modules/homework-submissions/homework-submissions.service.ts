@@ -129,51 +129,71 @@ export class HomeworkSubmissionsService {
     };
   }
 
-  async listForHomework(homeworkId: string, actor: RequestUser) {
-    await this.getHomeworkForTeacherCheck(homeworkId, actor);
-
-    const submissions = await this.prisma.homeworkSubmission.findMany({
-      where: { homeworkId },
-      select: this.submissionSelect(),
-      orderBy: [{ submittedAt: "desc" }],
-    });
-
-    return this.withCurrentMarks(homeworkId, submissions);
-  }
-
   /**
-   * Adjunta a cada entrega su nota vigente.
+   * El **roster** de la tarea: una fila por estudiante del curso, haya entregado o no.
    *
-   * **Sin esto la UI del profesor pierde datos**: el diálogo de "Editar nota" no tenía la nota
-   * real para precargar, así que ponía 100 y guardaba 100 si el profesor solo venía a cambiar
-   * el comentario. La corrección tiene que empezar acá — mientras el backend no devuelva la
-   * nota, cualquier arreglo en el frontend es adivinar.
+   * Antes devolvía solo las entregas existentes, y eso dejaba fuera precisamente a quien el
+   * profesor necesita ver al cerrar el periodo — el que no entregó. "No entregó" se deriva de
+   * `submission === null` en vez de fabricar filas fantasma con estado `PENDING`
+   * (`asignaciones-calificacion-en-linea.md` §5: ese estado es inalcanzable, ningún camino crea
+   * una entrega sin estado explícito).
    *
-   * Va por una consulta aparte y no por un `include` porque `HomeworkSubmission` **no tiene
-   * relación con `Mark`**: se ligan por `(studentId, homeworkId)`, que es el `@@unique` de
-   * `Mark`. Agregar esa relación significaría cambiar la forma de `Mark`, que tiene frontera
-   * estricta con el dominio de notas/boletines (`asignaciones-calificacion-en-linea.md` §2).
-   * Es una query extra por llamada, no una por entrega.
+   * Incluye también a quien tiene entrega pero **ya no está en el grupo** (se cambió de curso a
+   * mitad de año). Filtrar solo por grupo lo desaparecería de la lista junto con su trabajo, y
+   * su nota seguiría contando para el boletín sin que nadie pueda verla acá.
+   *
+   * La nota vigente va por consulta aparte y no por un `include` porque `HomeworkSubmission`
+   * **no tiene relación con `Mark`**: se ligan por `(studentId, homeworkId)`, que es el
+   * `@@unique` de `Mark`. Agregar esa relación significaría cambiar la forma de `Mark`, que
+   * tiene frontera estricta con notas/boletines (§2). Son tres consultas fijas, no una por
+   * estudiante.
    */
-  private async withCurrentMarks<T extends { studentId: string }>(
-    homeworkId: string,
-    submissions: T[],
-  ) {
-    if (submissions.length === 0) return [];
+  async listForHomework(homeworkId: string, actor: RequestUser) {
+    const homework = await this.getHomeworkForTeacherCheck(homeworkId, actor);
 
-    const marks = await this.prisma.mark.findMany({
-      where: { homeworkId, studentId: { in: submissions.map((s) => s.studentId) } },
-      select: { id: true, studentId: true, value: true, maxValue: true },
-    });
-    const byStudent = new Map(marks.map((mark) => [mark.studentId, mark]));
+    const [groupStudents, submissions, marks] = await Promise.all([
+      this.prisma.student.findMany({
+        where: { groupId: homework.groupId, tenantId: homework.tenantId },
+        select: this.rosterStudentSelect(),
+      }),
+      this.prisma.homeworkSubmission.findMany({
+        where: { homeworkId },
+        select: this.rosterSubmissionSelect(),
+      }),
+      this.prisma.mark.findMany({
+        where: { homeworkId },
+        select: { id: true, studentId: true, value: true, maxValue: true },
+      }),
+    ]);
 
-    return submissions.map((submission) => {
-      const mark = byStudent.get(submission.studentId);
-      return {
-        ...submission,
-        mark: mark ? { id: mark.id, value: mark.value, maxValue: mark.maxValue } : null,
-      };
-    });
+    const submissionByStudent = new Map(submissions.map((s) => [s.studentId, s]));
+    const markByStudent = new Map(marks.map((m) => [m.studentId, m]));
+
+    const students = [...groupStudents];
+    const known = new Set(students.map((s) => s.id));
+    const strayIds = submissions.map((s) => s.studentId).filter((id) => !known.has(id));
+    if (strayIds.length > 0) {
+      students.push(
+        ...(await this.prisma.student.findMany({
+          where: { id: { in: strayIds } },
+          select: this.rosterStudentSelect(),
+        })),
+      );
+    }
+
+    return students
+      .sort((a, b) =>
+        `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`, "es"),
+      )
+      .map((student) => {
+        const mark = markByStudent.get(student.id);
+        return {
+          student,
+          inGroup: known.has(student.id),
+          submission: submissionByStudent.get(student.id) ?? null,
+          mark: mark ? { id: mark.id, value: mark.value, maxValue: mark.maxValue } : null,
+        };
+      });
   }
 
   async grade(
@@ -193,6 +213,50 @@ export class HomeworkSubmissionsService {
       throw new NotFoundException("Submission not found for this assignment.");
     }
 
+    return this.applyGrade(homework, previous.studentId, input, actor, request);
+  }
+
+  /**
+   * Calificar por estudiante en vez de por entrega, para poder calificar **a quien no
+   * entregó**. El endpoint por `submissionId` no puede: esa fila no existe si el alumno nunca
+   * subió nada, y al cierre de periodo ese es justo el caso que el profesor necesita resolver.
+   *
+   * Crea la entrega con `submittedAt: null` y `status: "GRADED"`, que es como queda
+   * representable "no entregó pero tiene un 0" sin inventar un estado nuevo.
+   */
+  async gradeByStudent(
+    homeworkId: string,
+    studentId: string,
+    input: GradeSubmissionInput,
+    actor: RequestUser,
+    request: Request,
+  ) {
+    const homework = await this.getHomeworkForTeacherCheck(homeworkId, actor);
+    await this.assertStudentBelongsToHomework(homework, studentId);
+
+    return this.applyGrade(homework, studentId, input, actor, request);
+  }
+
+  private async applyGrade(
+    homework: {
+      id: string;
+      tenantId: string;
+      teacherId: string;
+      subjectId: string;
+      title: string;
+      academicYearId: string | null;
+    },
+    studentId: string,
+    input: GradeSubmissionInput,
+    actor: RequestUser,
+    request: Request,
+  ) {
+    const homeworkId = homework.id;
+    const previous = await this.prisma.homeworkSubmission.findUnique({
+      where: { homeworkId_studentId: { homeworkId, studentId } },
+      select: this.submissionSelect(),
+    });
+
     const maxValue = input.maxValue ?? 100;
 
     // La nota se escribe por el writer único, que dentro de una transacción exige la
@@ -204,9 +268,22 @@ export class HomeworkSubmissionsService {
       this.tenantRlsContext,
       homework.tenantId,
       async (tx) => {
-        const updated = await tx.homeworkSubmission.update({
-          where: { id: submissionId },
-          data: {
+        const updated = await tx.homeworkSubmission.upsert({
+          where: { homeworkId_studentId: { homeworkId, studentId } },
+          create: {
+            homeworkId,
+            studentId,
+            tenantId: homework.tenantId,
+            status: "GRADED",
+            // Explícito y no por omisión: `submittedAt === null && status === "GRADED"` ES la
+            // representación de "no entregó pero tiene nota". Ver §5 del plan.
+            submittedAt: null,
+            feedbackComment: input.feedbackComment,
+            feedbackKey: input.feedbackKey,
+            feedbackName: input.feedbackName,
+            gradedAt: new Date(),
+          },
+          update: {
             status: "GRADED",
             feedbackComment: input.feedbackComment,
             feedbackKey: input.feedbackKey,
@@ -219,7 +296,7 @@ export class HomeworkSubmissionsService {
         const { publish } = await this.marks.upsertMarkInTransaction(
           {
             tenantId: homework.tenantId,
-            studentId: previous.studentId,
+            studentId,
             subjectId: homework.subjectId,
             teacherId: homework.teacherId,
             homeworkId,
@@ -249,14 +326,43 @@ export class HomeworkSubmissionsService {
       actorRole: actor.role,
       action: "homework_submission.graded",
       entityType: "HomeworkSubmission",
-      entityId: submissionId,
-      oldValues: this.toAuditJson(previous),
+      entityId: submission.id,
+      // Sin `oldValues` cuando la entrega no existía: la bitácora distingue así "le cambiaron
+      // la nota" de "lo calificaron sin haber entregado".
+      oldValues: previous ? this.toAuditJson(previous) : undefined,
       newValues: this.toAuditJson(submission),
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"],
     });
 
     return submission;
+  }
+
+  /**
+   * El estudiante tiene que ser del curso de la tarea — o tener ya una entrega, que es el caso
+   * de quien se cambió de grupo a mitad de año y dejó su trabajo atrás. Sin la segunda mitad,
+   * recalificarlo respondería 403 sobre una entrega que el roster sí muestra.
+   */
+  private async assertStudentBelongsToHomework(
+    homework: { id: string; tenantId: string; groupId: string },
+    studentId: string,
+  ) {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      select: { id: true, tenantId: true, groupId: true },
+    });
+    if (!student || student.tenantId !== homework.tenantId) {
+      throw new NotFoundException("Student not found.");
+    }
+    if (student.groupId === homework.groupId) return;
+
+    const existing = await this.prisma.homeworkSubmission.findUnique({
+      where: { homeworkId_studentId: { homeworkId: homework.id, studentId } },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new ForbiddenException("This student is not in the assignment's group.");
+    }
   }
 
   private async resolveStudent(actor: RequestUser) {
@@ -299,7 +405,15 @@ export class HomeworkSubmissionsService {
   private async getHomeworkForTeacherCheck(homeworkId: string, actor: RequestUser) {
     const homework = await this.prisma.homework.findUniqueOrThrow({
       where: { id: homeworkId },
-      select: { id: true, tenantId: true, teacherId: true, subjectId: true, title: true, academicYearId: true },
+      select: {
+        id: true,
+        tenantId: true,
+        teacherId: true,
+        subjectId: true,
+        groupId: true,
+        title: true,
+        academicYearId: true,
+      },
     });
 
     if (!this.isGlobalAdmin(actor) && actor.tenantId !== homework.tenantId) {
@@ -326,6 +440,27 @@ export class HomeworkSubmissionsService {
 
   private isGlobalAdmin(actor: RequestUser) {
     return actor.role === UserRole.SUPER_ADMIN || actor.role === UserRole.SUPPORT_AGENT;
+  }
+
+  private rosterStudentSelect() {
+    return { id: true, firstName: true, lastName: true, documentId: true };
+  }
+
+  /** Como `submissionSelect()` pero sin `student`: en el roster el estudiante va afuera. */
+  private rosterSubmissionSelect() {
+    return {
+      id: true,
+      homeworkId: true,
+      studentId: true,
+      status: true,
+      attachmentKey: true,
+      attachmentName: true,
+      submittedAt: true,
+      feedbackComment: true,
+      feedbackKey: true,
+      feedbackName: true,
+      gradedAt: true,
+    };
   }
 
   private submissionSelect() {

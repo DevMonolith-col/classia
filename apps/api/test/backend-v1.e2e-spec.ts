@@ -111,10 +111,10 @@ type GuardianScopingFixtures = {
   otherGroupId: string;
 };
 
-type SubmissionWithMark = {
-  id: string;
-  studentId: string;
-  status: string;
+type RosterEntry = {
+  student: { id: string; firstName: string; lastName: string };
+  inGroup: boolean;
+  submission: { id: string; status: string; submittedAt: string | null } | null;
   mark: { id: string; value: number; maxValue: number } | null;
 };
 type OwnSubmissionItem = {
@@ -1118,17 +1118,121 @@ describe("Backend v1 e2e", () => {
     );
     expect(graded.status).toBe(200);
 
-    const list = await api<SubmissionWithMark[]>(
+    const list = await api<RosterEntry[]>(
       `/homework/${ownChildHomeworkId}/submissions`,
       { headers: authHeaders(teacher.body.accessToken) },
     );
     expect(list.status).toBe(200);
 
-    const own = list.body.find((s) => s.studentId === ownChildStudentId);
+    const own = list.body.find((r) => r.student.id === ownChildStudentId);
     expect(own).toBeDefined();
     // El maxValue importa tanto como el valor: precargar 100 sobre una tarea calificada
     // sobre 5 rompe la validación "no superar el máximo" en la siguiente edición.
     expect(own?.mark).toMatchObject({ value: 3.7, maxValue: 5 });
+  });
+
+  // El roster es lo que hace utilizable el cierre de periodo: hasta el 2026-07-26 la lista
+  // devolvía solo las entregas existentes, así que el alumno que NO entregó -- justo el que hay
+  // que resolver -- no aparecía por ningún lado.
+  it("lists the whole roster, including the student who never submitted", async () => {
+    const prisma = app.get(PrismaService);
+    const tenantRlsContext = app.get(TenantRlsContextService);
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: DEMO_TENANT_SLUG } });
+    const { ownChildHomeworkId, ownChildStudentId, classmateStudentId } = guardianFixtures;
+
+    // El test que sigue califica a este mismo compañero para probar el upsert del
+    // no-entregador, y la BD de dev es compartida: sin esta limpieza, la segunda corrida lo
+    // encuentra con entrega y el `toBeNull` de abajo falla por un dato de la corrida anterior.
+    // Cada test limpia lo suyo antes, así ninguno depende del orden ni de la corrida previa.
+    await tenantRlsContext.runWithTenant(tenant.id, async () => {
+      await prisma.mark.deleteMany({
+        where: { studentId: classmateStudentId, homeworkId: ownChildHomeworkId },
+      });
+      await prisma.homeworkSubmission.deleteMany({
+        where: { studentId: classmateStudentId, homeworkId: ownChildHomeworkId },
+      });
+    });
+
+    const teacher = await loginAs(TEACHER_EMAIL);
+    expect(teacher.status).toBe(201);
+
+    const roster = await api<RosterEntry[]>(`/homework/${ownChildHomeworkId}/submissions`, {
+      headers: authHeaders(teacher.body.accessToken),
+    });
+    expect(roster.status).toBe(200);
+
+    const own = roster.body.find((r) => r.student.id === ownChildStudentId);
+    const classmate = roster.body.find((r) => r.student.id === classmateStudentId);
+
+    // El compañero comparte grupo con el hijo pero nunca entregó esta tarea: antes no salía.
+    expect(classmate).toBeDefined();
+    expect(classmate?.submission).toBeNull();
+    // "No entregó" se deriva de submission === null, no de un estado PENDING fabricado.
+    expect(own?.submission).not.toBeNull();
+  });
+
+  it("grades a student who never submitted, creating the submission with submittedAt null", async () => {
+    const prisma = app.get(PrismaService);
+    const tenantRlsContext = app.get(TenantRlsContextService);
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: DEMO_TENANT_SLUG } });
+    const { ownChildHomeworkId, classmateStudentId } = guardianFixtures;
+
+    // La BD de dev es compartida: si una corrida previa ya lo calificó, esto entraría por el
+    // camino de UPDATE y no probaría el create, que es lo que la fase agrega.
+    await tenantRlsContext.runWithTenant(tenant.id, async () => {
+      await prisma.mark.deleteMany({
+        where: { studentId: classmateStudentId, homeworkId: ownChildHomeworkId },
+      });
+      await prisma.homeworkSubmission.deleteMany({
+        where: { studentId: classmateStudentId, homeworkId: ownChildHomeworkId },
+      });
+    });
+
+    const teacher = await loginAs(TEACHER_EMAIL);
+    const graded = await api<{ id: string; status: string; submittedAt: string | null }>(
+      `/homework/${ownChildHomeworkId}/submissions/by-student/${classmateStudentId}/grade`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+        body: JSON.stringify({ value: 0, maxValue: 5, feedbackComment: "No entregó." }),
+      },
+    );
+    expect(graded.status).toBe(200);
+    expect(graded.body.status).toBe("GRADED");
+    // El par que representa "no entregó pero tiene nota".
+    expect(graded.body.submittedAt).toBeNull();
+
+    // Y la nota existe de verdad, anclada al año -- si no, no cuenta para el boletín.
+    const mark = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.mark.findFirst({
+        where: { studentId: classmateStudentId, homeworkId: ownChildHomeworkId },
+      }),
+    );
+    expect(mark?.value).toBe(0);
+    expect(mark?.academicYearId).toBe(guardianFixtures.activeYearId);
+
+    // El roster ahora lo muestra calificado sin entrega.
+    const roster = await api<RosterEntry[]>(`/homework/${ownChildHomeworkId}/submissions`, {
+      headers: authHeaders(teacher.body.accessToken),
+    });
+    const entry = roster.body.find((r) => r.student.id === classmateStudentId);
+    expect(entry?.submission?.submittedAt).toBeNull();
+    expect(entry?.mark).toMatchObject({ value: 0, maxValue: 5 });
+  });
+
+  it("refuses to grade a student from another group", async () => {
+    const teacher = await loginAs(TEACHER_EMAIL);
+
+    const attempt = await api<ErrorResponse>(
+      `/homework/${guardianFixtures.ownChildHomeworkId}/submissions/by-student/${guardianFixtures.otherChildStudentId}/grade`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+        body: JSON.stringify({ value: 5, maxValue: 5 }),
+      },
+    );
+    expect(attempt.status).toBe(403);
+    expect(attempt.body.message).toBe("This student is not in the assignment's group.");
   });
 
   // La validación existe en getHomeworkForTeacherCheck desde siempre y nunca tuvo un test que
@@ -1643,15 +1747,20 @@ async function ensureGuardianScopingFixtures(
     },
   });
 
-  // Entrega lista para calificar. El `update` la devuelve a PENDING en cada corrida:
-  // el test de calificación afirma la transición PENDING -> GRADED, y la BD de dev es
+  // Entrega lista para calificar. El `update` la devuelve al estado de recién entregada en
+  // cada corrida: el test de calificación afirma la transición a GRADED, y la BD de dev es
   // compartida, así que una corrida previa la habría dejado ya calificada.
+  //
+  // `SUBMITTED` y no `PENDING` desde el 2026-07-26: `PENDING` es el default del schema y
+  // **ningún camino del backend lo escribe** — `upsertMine` pone SUBMITTED o LATE según la
+  // fecha. El fixture estaba fabricando un estado que producción no produce, así que el test
+  // ejercitaba una transición irreal y la UI del profesor mostraba "PENDING" en dev.
   const ownChildSubmission = await prisma.homeworkSubmission.upsert({
     where: {
       homeworkId_studentId: { homeworkId: ownChildHomework.id, studentId: ownChild.id },
     },
     update: {
-      status: "PENDING",
+      status: "SUBMITTED",
       submittedAt: new Date("2026-07-20T10:00:00.000Z"),
       feedbackComment: null,
       gradedAt: null,
@@ -1660,7 +1769,7 @@ async function ensureGuardianScopingFixtures(
       tenantId: tenant.id,
       homeworkId: ownChildHomework.id,
       studentId: ownChild.id,
-      status: "PENDING",
+      status: "SUBMITTED",
       attachmentKey: "guardian-e2e/entrega-propia.pdf",
       attachmentName: "entrega-propia.pdf",
       submittedAt: new Date("2026-07-20T10:00:00.000Z"),

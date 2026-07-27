@@ -59,6 +59,20 @@ export class HomeworkSubmissionsController {
     return this.submissions.findForOwnStudent(homeworkId, studentId, user);
   }
 
+  // Antes del de `:submissionId` por la misma razón que `mine` va antes de `:id`, y porque es
+  // el que usa la UI: califica por estudiante, así que sirve también para quien no entregó.
+  @Patch("by-student/:studentId/grade")
+  @Permissions(PERMISSIONS.HOMEWORK_SUBMISSIONS_GRADE)
+  gradeByStudent(
+    @Param("homeworkId") homeworkId: string,
+    @Param("studentId") studentId: string,
+    @Body(new ZodValidationPipe(gradeSubmissionSchema)) body: GradeSubmissionInput,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+  ) {
+    return this.submissions.gradeByStudent(homeworkId, studentId, body, user, request);
+  }
+
   @Patch(":submissionId/grade")
   @Permissions(PERMISSIONS.HOMEWORK_SUBMISSIONS_GRADE)
   grade(

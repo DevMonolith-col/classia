@@ -346,11 +346,21 @@ navegador como profesor.
    entrega y **el profesor ajeno**, que era el que de verdad tenía cero cobertura: la validación
    de `getHomeworkForTeacherCheck` llevaba desde siempre sin un test que la ejerciera.
 
-**Fase 2 — Roster completo**
-4. `GET .../submissions` devuelve el roster con `submission | null` + `mark | null`.
-5. `PATCH .../by-student/:studentId/grade` con upsert.
-6. Quitar `PENDING` del vocabulario del front; derivar "no entregó" de `submission === null`.
-7. e2e: calificar a un no-entregador crea la submission con `submittedAt: null`.
+**Fase 2 — Roster completo** — **hecha el 2026-07-26.**
+4. ~~`GET .../submissions` devuelve el roster con `submission | null` + `mark | null`.~~ Hecho,
+   más `inGroup`: el roster incluye a quien tiene entrega pero **ya se cambió de curso**. Solo
+   filtrar por grupo lo desaparecía junto con su trabajo, mientras su nota seguía contando para
+   el boletín.
+5. ~~`PATCH .../by-student/:studentId/grade` con upsert.~~ Hecho, y **es el que usa la UI** para
+   todos los casos: el de `:submissionId` se mantiene pero ya no tiene consumidores.
+6. ~~Quitar `PENDING` del vocabulario del front.~~ Hecho. Al probarlo en el navegador apareció
+   que **el fixture de e2e sí fabricaba `PENDING`**, un estado que producción nunca escribe, así
+   que el test ejercitaba una transición irreal y la UI lo mostraba crudo en dev. El fixture pasa
+   a `SUBMITTED`, que es lo que realmente crea `upsertMine`.
+7. ~~e2e: calificar a un no-entregador crea la submission con `submittedAt: null`.~~ Hecho, más
+   uno de aislamiento: calificar a un alumno de **otro grupo** responde 403. Sin ese guard, el
+   profesor le crea entrega y le escribe una `Mark` de una materia que no cursa — verificado
+   revirtiéndolo.
 
 **Fase 3 — El workbench** (el corazón: aquí deja de doler)
 8. Ruta `/profesor/asignaciones/[homeworkId]/entregas` con el layout de 3 paneles.

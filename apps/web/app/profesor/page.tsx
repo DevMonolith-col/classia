@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api-client"
 import type { Schedule } from "@/components/admin/academic-types"
-import type { Homework, HomeworkSubmission } from "@/components/profesor/homework-types"
+import type { Homework, RosterEntry } from "@/components/profesor/homework-types"
 import type { Student } from "@/components/admin/student-types"
 
 type PendingGradingItem = { homework: Homework; pendingCount: number }
@@ -90,9 +90,12 @@ function useProfesorDashboard() {
           gradableHomework.map(async (h) => {
             const res = await apiFetch(`/homework/${h.id}/submissions`, { silent: true })
             if (!res.ok) return { homework: h, pendingCount: 0 }
-            const submissions = (await res.json()) as HomeworkSubmission[]
-            const pendingCount = submissions.filter(
-              (s) => s.status === "SUBMITTED" || s.status === "LATE",
+            // Desde el 2026-07-26 esto es el roster completo, no solo las entregas: hay filas
+            // con `submission: null` (no entregó), que no cuentan como pendientes por calificar.
+            const roster = (await res.json()) as RosterEntry[]
+            const pendingCount = roster.filter(
+              (entry) =>
+                entry.submission?.status === "SUBMITTED" || entry.submission?.status === "LATE",
             ).length
             return { homework: h, pendingCount }
           }),
