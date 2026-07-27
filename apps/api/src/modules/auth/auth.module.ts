@@ -8,6 +8,7 @@ import { EmailModule } from "../notifications/email/email.module";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { ForgotPasswordThrottlerGuard } from "./forgot-password-throttler.guard";
+import { ResetPasswordThrottlerGuard } from "./reset-password-throttler.guard";
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { ForgotPasswordThrottlerGuard } from "./forgot-password-throttler.guard"
     AccessControlModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, ForgotPasswordThrottlerGuard],
+  providers: [AuthService, JwtAuthGuard, ForgotPasswordThrottlerGuard, ResetPasswordThrottlerGuard],
   exports: [AuthService, JwtAuthGuard, JwtModule],
 })
 export class AuthModule {}
