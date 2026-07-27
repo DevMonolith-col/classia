@@ -108,7 +108,13 @@ diferencia real:
 
 - Desde **`/profesor/calificaciones`** (`POST/PATCH /marks`) **no se marca la entrega como
   `GRADED`** → el alumno no ve la retroalimentación asociada.
-- Desde **Entregas** (`homework-submissions`) sí, además de escribir la nota.
+- Desde el **workbench** (`/profesor/asignaciones/[id]/entregas`) sí, además de escribir la
+  nota, el comentario y el archivo corregido que se le devuelve.
+
+`feedbackKey`/`feedbackName` son **nullable además de opcionales** en `gradeSubmissionSchema`, y
+la diferencia importa: en Prisma `undefined` deja el campo como está y `null` lo borra. Sin el
+`null` se puede reemplazar una devolución pero no retirarla. El front manda siempre el estado
+actual del campo (`feedbackFile?.key ?? null`) justamente por eso.
 
 ## La asimetría deliberada del quiz
 

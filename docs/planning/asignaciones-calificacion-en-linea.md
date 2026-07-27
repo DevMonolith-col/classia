@@ -380,10 +380,14 @@ Y se corrigió el `attachmentKey` del fixture, que era `guardian-e2e/entrega-pro
 `FilesService#getDownloadUrl` exige el prefijo `tenants/<tenantId>/` y respondía 403, así que
 "Ver archivo" llevaba roto en dev desde siempre por un dato de prueba mal formado.
 
-**Fase 4 — Devolver el trabajo corregido**
-12. Cablear `FileUploadField` a `feedbackKey`/`feedbackName` (backend **ya listo**,
-    `service:113-114`).
-13. Mostrar el archivo devuelto en `app/alumno/tarea/[homeworkId]/page.tsx`.
+**Fase 4 — Devolver el trabajo corregido** — **hecha el 2026-07-26.**
+12. ~~Cablear `FileUploadField` a `feedbackKey`/`feedbackName`.~~ Hecho, en el panel de
+    calificación del workbench. El backend ya lo aceptaba, pero **hubo que hacer los campos
+    `nullable`**: eran solo `optional`, y en Prisma `undefined` deja el valor como está, así que
+    no había forma de **retirar** una devolución equivocada — solo de reemplazarla.
+13. ~~Mostrar el archivo devuelto en `app/alumno/tarea/[homeworkId]/page.tsx`.~~ Hecho. El
+    alumno ya veía `feedbackComment` pero no el archivo; ahora tiene "Ver trabajo corregido" con
+    el mismo visor. En `familia/tareas` ya estaba (llega como URL firmada, sin `FILES_READ`).
 
 **Fase 5 — Desbloquear a la familia** (coordinar `permissions.ts` antes) — **hecha el
 2026-07-26**, con la corrección de §5: no era `HOMEWORK_SUBMISSIONS_READ` sobre `/me`, sino

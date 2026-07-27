@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { AlertTriangle, CalendarClock, ChevronLeft, Loader2, Paperclip } from "lucide-react"
+import { AlertTriangle, CalendarClock, ChevronLeft, Download, Loader2, Paperclip } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
@@ -182,6 +182,19 @@ export default function AlumnoTareaPage() {
                     <p className="mb-1 text-xs font-medium text-muted-foreground">Retroalimentación del profesor</p>
                     {submission.feedbackComment}
                   </div>
+                )}
+                {/* El trabajo corregido que devuelve el profesor. El backend guardaba
+                    feedbackKey desde antes, pero no había ni cómo subirlo ni dónde verlo. */}
+                {submission.feedbackKey && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => openAttachment(submission.feedbackKey!, submission.feedbackName)}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Ver trabajo corregido
+                  </Button>
                 )}
                 {!closed && (
                   <div className="space-y-2 pt-2">
