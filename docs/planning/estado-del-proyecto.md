@@ -294,3 +294,27 @@ Lo que sí sigue declarado y muerto, verificado por grep:
     contrato, no estilo: `api-client.ts` trata todo 401 como "token vencido", intenta renovar y
     al fallar borra los tokens y manda a `/login`. Con 401, equivocarse al escribir la contraseña
     cerraba la sesión del usuario.
+11. **Pantallas que son maqueta y se dejan a propósito** (barrido del 2026-07-27: se buscaron
+    todas las `page.tsx` de más de 120 líneas sin un solo `apiFetch`). No son deuda técnica ni
+    olvidos — son decisiones de producto sin tomar, y están acá para que nadie las vuelva a
+    listar como "falta conectarlas":
+    - **`/admin/plugins` y `/admin/plugins/desarrolladores`** — 1843 líneas entre las dos, con
+      **cero backend**: no existe módulo `plugins` en `apps/api/src/modules/` ni modelo `Plugin`
+      en `schema.prisma`. `plugins.md` es un **catálogo propuesto**, no un plan aprobado, y
+      describe módulos de pago *posteriores* al core. **Decisión del 2026-07-27: se dejan, se
+      documentan, no se construyen.** Antes de tocarlas hay que aprobar el alcance en
+      `CLAUDE.md` con fecha, y ojo con dos cosas que el catálogo arrastra: credenciales de
+      pasarela (MercadoPago) cruzan la frontera de Pagos, y la sincronización con Google
+      Workspace / Microsoft 365 ya está explícitamente **no aprobada** para el calendario.
+      A favor de la maqueta: `plugins.md` §1 fija que Classia **no carga código de terceros en
+      caliente** (solo feature flags por `tenantId`), así que el modelo de amenazas es acotado.
+    - **`/registro`** — ver punto 7.
+    - **`/profesor/configuracion`** — 420 líneas, 0 `apiFetch`. Es el **gemelo exacto** de lo que
+      era `/familia/ajustes` antes del 2026-07-27, con los mismos datos inventados (incluido un
+      teléfono peruano, `+51 987 654 321`, en un producto colombiano). A diferencia de plugins,
+      **esto sí es deuda y sí hay que arreglarlo**: la receta ya está escrita y probada en
+      `familia/ajustes`, y hoy hay una asimetría abierta — el acudiente puede cambiar su
+      contraseña y el profesor no, aunque `POST /auth/change-password` no exige ningún permiso
+      (solo `JwtAuthGuard`) y ya le serviría tal cual. Es el siguiente trabajo natural.
+    - No confundir con `/login`, que aparece en ese barrido como falso positivo: usa el helper
+      `login()` de `lib/auth`, no `apiFetch`, y funciona.
