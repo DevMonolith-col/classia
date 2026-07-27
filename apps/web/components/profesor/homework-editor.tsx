@@ -1,8 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronLeft, Loader2, Plus, Trash2, X } from "lucide-react"
+import { ChevronLeft, ClipboardCheck, Loader2, Plus, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 import { ApiError, apiFetch } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
@@ -354,238 +355,68 @@ export function HomeworkEditor({ mode, schedule, homework }: Props) {
   )
 }
 
+/**
+ * Resumen de la corrección, con la puerta al workbench.
+ *
+ * Antes acá vivía la lista de entregas con su propio diálogo de calificar. Se fue al
+ * workbench (`/entregas`): dos implementaciones del mismo flujo se desincronizan, y ya pasó
+ * — la de esta pantalla precargaba 100 y pisaba la nota real durante meses.
+ */
 function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
-  const [submissions, setSubmissions] = useState<RosterEntry[]>([])
+  const [roster, setRoster] = useState<RosterEntry[]>([])
   const [loading, setLoading] = useState(false)
-  const [grading, setGrading] = useState<RosterEntry | null>(null)
-  const [value, setValue] = useState("100")
-  const [maxValue, setMaxValue] = useState("100")
-  const [feedbackComment, setFeedbackComment] = useState("")
-  const [submitting, setSubmitting] = useState(false)
-  const [preview, setPreview] = useState<{ key: string; name: string } | null>(null)
 
-  const loadSubmissions = useCallback(async () => {
+  useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    try {
-      const res = await apiFetch(`/homework/${homeworkId}/submissions`, { silent: true })
-      if (!res.ok) throw new Error()
-      setSubmissions((await res.json()) as RosterEntry[])
-    } catch {
-      setSubmissions([])
-    } finally {
-      setLoading(false)
+    apiFetch(`/homework/${homeworkId}/submissions`, { silent: true })
+      .then(async (res) => {
+        if (!res.ok) throw new Error()
+        const data = (await res.json()) as RosterEntry[]
+        if (!cancelled) setRoster(data)
+      })
+      .catch(() => {
+        if (!cancelled) setRoster([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
   }, [homeworkId])
 
-  useEffect(() => {
-    loadSubmissions()
-  }, [loadSubmissions])
-
-  const receivedCount = submissions.filter((entry) => entry.submission?.submittedAt).length
-  const ungradedCount = submissions.filter((entry) => !entry.mark).length
-
-  function openAttachment(key: string, name?: string | null) {
-    setPreview({ key, name: name ?? "Archivo" })
-  }
-
-  function openGradeDialog(entry: RosterEntry) {
-    setGrading(entry)
-    // Precargar la nota vigente cuando existe: el botón que abre esto dice "Editar nota", y
-    // poner 100 hacía que entrar a cambiar solo el comentario pisara la calificación real.
-    // Cuando NO existe, el campo va vacío a propósito -- un 100 servido de entrada es la misma
-    // pérdida de datos en el primer intento, solo que sin nada anterior que extrañar.
-    setValue(entry.mark ? String(entry.mark.value) : "")
-    setMaxValue(String(entry.mark?.maxValue ?? 100))
-    setFeedbackComment(entry.submission?.feedbackComment ?? "")
-  }
-
-  async function handleGradeSubmit() {
-    if (!grading) return
-    const numericValue = Number(value)
-    const numericMaxValue = Number(maxValue)
-    // `value.trim()` antes que `Number()`: `Number("")` es 0, no NaN, así que un campo vacío
-    // se colaba como un cero perfectamente válido.
-    if (
-      value.trim() === "" ||
-      Number.isNaN(numericValue) ||
-      Number.isNaN(numericMaxValue) ||
-      numericValue > numericMaxValue
-    ) {
-      toast.error("La nota debe ser un número válido y no superar el máximo.")
-      return
-    }
-
-    setSubmitting(true)
-    try {
-      // Por estudiante y no por entrega: en el roster hay filas sin `submission`, y ese
-      // endpoint hace el upsert que las crea con submittedAt null.
-      const res = await apiFetch(`/homework/${homeworkId}/submissions/by-student/${grading.student.id}/grade`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          value: numericValue,
-          maxValue: numericMaxValue,
-          feedbackComment: feedbackComment.trim() || undefined,
-        }),
-        silent: true,
-      })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { message?: string | string[] }
-        const message = Array.isArray(body.message) ? body.message.join(" ") : body.message
-        throw new Error(message || "No se pudo calificar la entrega.")
-      }
-      toast.success("Entrega calificada")
-      setGrading(null)
-      loadSubmissions()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo calificar la entrega.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  const received = roster.filter((entry) => entry.submission?.submittedAt).length
+  const ungraded = roster.filter((entry) => !entry.mark).length
 
   return (
     <Card className="mt-6">
       <CardHeader>
         <CardTitle>Entregas</CardTitle>
-        {/* Cuenta entregas y pendientes por separado: el total del roster incluye a los que no
-            entregaron, así que decir "N entregas recibidas" sobre él sería falso. */}
         <CardDescription>
-          {receivedCount} entrega{receivedCount === 1 ? "" : "s"} recibida
-          {receivedCount === 1 ? "" : "s"} de {submissions.length} estudiante
-          {submissions.length === 1 ? "" : "s"}
-          {ungradedCount > 0 && ` · ${ungradedCount} sin calificar`}
+          {loading
+            ? "Cargando…"
+            : `${received} entrega${received === 1 ? "" : "s"} recibida${
+                received === 1 ? "" : "s"
+              } de ${roster.length} estudiante${roster.length === 1 ? "" : "s"}${
+                ungraded > 0 ? ` · ${ungraded} sin calificar` : " · todo calificado"
+              }`}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {loading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} className="h-16 animate-pulse rounded-lg bg-secondary" />
-            ))}
-          </div>
-        ) : submissions.length === 0 ? (
+        {!loading && roster.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
             No hay estudiantes en el curso de esta asignación.
           </p>
-        ) : grading ? (
-          <div className="space-y-4">
-            <p className="text-sm font-medium text-foreground">
-              Calificar a {grading.student.firstName} {grading.student.lastName}
-            </p>
-            {!grading.submission && (
-              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                No entregó. Al guardar, la nota queda registrada igual y la entrega se crea sin
-                archivo.
-              </p>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Nota</Label>
-                <Input type="number" min={0} value={value} onChange={(e) => setValue(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Nota máxima</Label>
-                <Input type="number" min={1} value={maxValue} onChange={(e) => setMaxValue(e.target.value)} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Comentario (opcional)</Label>
-              <Textarea
-                value={feedbackComment}
-                onChange={(e) => setFeedbackComment(e.target.value)}
-                placeholder="Retroalimentación para el estudiante..."
-                rows={3}
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setGrading(null)} disabled={submitting}>
-                Cancelar
-              </Button>
-              <Button type="button" onClick={handleGradeSubmit} disabled={submitting}>
-                {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Guardar calificación
-              </Button>
-            </div>
-          </div>
         ) : (
-          <div className="space-y-2">
-            {submissions.map((entry) => (
-              <div key={entry.student.id} className="rounded-lg border border-border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-medium text-foreground">
-                      {entry.student.firstName} {entry.student.lastName}
-                      {!entry.inGroup && (
-                        <span className="ml-2 text-xs font-normal text-muted-foreground">
-                          (ya no está en el curso)
-                        </span>
-                      )}
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <Badge
-                        className={
-                          entry.submission
-                            ? SUBMISSION_STATUS_COLORS[entry.submission.status] ?? NOT_SUBMITTED_COLOR
-                            : NOT_SUBMITTED_COLOR
-                        }
-                        variant="outline"
-                      >
-                        {entry.submission
-                          ? SUBMISSION_STATUS_LABELS[entry.submission.status] ?? entry.submission.status
-                          : NOT_SUBMITTED_LABEL}
-                      </Badge>
-                      {entry.mark && (
-                        <span className="text-sm font-semibold text-foreground">
-                          {entry.mark.value}
-                          <span className="font-normal text-muted-foreground">
-                            /{entry.mark.maxValue}
-                          </span>
-                        </span>
-                      )}
-                      {entry.submission?.submittedAt && (
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(entry.submission.submittedAt).toLocaleString("es-CO", {
-                            day: "2-digit",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    {entry.submission?.attachmentKey && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          openAttachment(
-                            entry.submission!.attachmentKey!,
-                            entry.submission!.attachmentName,
-                          )
-                        }
-                      >
-                        Ver archivo
-                      </Button>
-                    )}
-                    <Button size="sm" onClick={() => openGradeDialog(entry)}>
-                      {entry.mark ? "Editar nota" : "Calificar"}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <Button asChild className="w-full gap-2 sm:w-auto">
+            <Link href={`/profesor/asignaciones/${homeworkId}/entregas`}>
+              <ClipboardCheck className="h-4 w-4" />
+              {ungraded > 0 ? `Calificar (${ungraded})` : "Ver calificaciones"}
+            </Link>
+          </Button>
         )}
       </CardContent>
-
-      <AttachmentPreviewDialog
-        open={Boolean(preview)}
-        onOpenChange={(open) => !open && setPreview(null)}
-        fileKey={preview?.key ?? null}
-        fileName={preview?.name}
-      />
     </Card>
   )
 }

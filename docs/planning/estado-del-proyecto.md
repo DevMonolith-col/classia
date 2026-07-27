@@ -211,7 +211,7 @@ Lo que sí sigue declarado y muerto, verificado por grep:
 **En planeación, con documento propio:**
 
 1. ~~**Chat en tiempo real**~~ → **hecho el 2026-07-26**, las siete fases (ver §2). Lo que quedó explícitamente fuera y **no está aprobado**: llamadas de voz y video — los botones decorativos que las insinuaban se borraron en vez de dejarlos mintiendo.
-2. **Calificar asignaciones en línea** → `asignaciones-calificacion-en-linea.md`. **Fases 1 y 5 hechas el 2026-07-26** (el bug de pérdida de datos y el desbloqueo de la familia). Queda lo grande: el roster completo con los que no entregaron (Fase 2), el workbench de 3 paneles que es el corazón del plan (Fase 3) y devolver el trabajo corregido desde la UI (Fase 4, backend ya listo). **Tiene frontera estricta con "notas y reportes"** — leer su §2 antes de tocar `Mark`.
+2. **Calificar asignaciones en línea** → `asignaciones-calificacion-en-linea.md`. **Fases 1, 2, 3 y 5 hechas el 2026-07-26**: el bug de pérdida de datos, el roster con los que no entregaron, el workbench de 3 paneles (`/profesor/asignaciones/[id]/entregas`) y el desbloqueo de la familia. **Queda solo la Fase 4** — devolver el trabajo corregido desde la UI; el backend ya acepta `feedbackKey`/`feedbackName` y `familia/tareas` ya muestra el enlace de descarga, así que hoy hay un campo que nadie puede llenar. **Tiene frontera estricta con "notas y reportes"** — leer su §2 antes de tocar `Mark`.
 3. **Notas y reportes** (dominio de calificaciones/boletines, no confundir con el módulo `reports` de §2) — trabajo paralelo de otro equipo. Su contrato de handoff (5 puntos verificados) está en `asignaciones-calificacion-en-linea.md` §2.
 4. **Unificación de UI por rol** → `frontend-unificacion-roles.md`. Nada implementado todavía.
 
