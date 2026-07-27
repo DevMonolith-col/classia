@@ -34,6 +34,24 @@ export const resetPasswordSchema = z.object({
 
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(6).max(128),
+    // Mismo mínimo que `resetPasswordSchema`, por el mismo motivo: exigir más acá que en la
+    // creación de usuarios dejaría cuentas que no pueden cambiar la contraseña que ya tienen.
+    newPassword: z.string().min(6).max(128),
+    // El JWT no lleva el id de la sesión, así que el cliente manda su refresh token para que
+    // el servidor sepa cuál de las sesiones NO cerrar. Mismo idioma que `/auth/logout`, que
+    // también identifica la sesión por el refresh token del cuerpo.
+    refreshToken: z.string().min(32),
+  })
+  .refine((input) => input.currentPassword !== input.newPassword, {
+    message: "La contraseña nueva debe ser distinta de la actual.",
+    path: ["newPassword"],
+  });
+
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
 export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(32),
 });
