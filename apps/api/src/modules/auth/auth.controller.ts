@@ -6,11 +6,13 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
 import {
+  ChangePasswordInput,
   ForgotPasswordInput,
   LoginInput,
   RefreshTokenInput,
   ImpersonateInput,
   ResetPasswordInput,
+  changePasswordSchema,
   forgotPasswordSchema,
   loginSchema,
   refreshTokenSchema,
@@ -59,6 +61,20 @@ export class AuthController {
     @Req() request: Request,
   ) {
     return this.auth.resetPassword(body, request);
+  }
+
+  // Con sesión abierta, pero igual limitado: el cuerpo lleva `currentPassword`, así que sin
+  // tope este endpoint es un oráculo para adivinar la contraseña de la cuenta cuyo token ya
+  // se tiene. Mismo límite que reset-password.
+  @Post("change-password")
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  changePassword(
+    @Body(new ZodValidationPipe(changePasswordSchema)) body: ChangePasswordInput,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+  ) {
+    return this.auth.changePassword(user, body, request);
   }
 
   @Post("refresh")
