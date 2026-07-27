@@ -62,6 +62,8 @@ export const PERMISSIONS = {
   HOMEWORK_SUBMISSIONS_CREATE: "homework-submissions:create",
   HOMEWORK_SUBMISSIONS_LIST: "homework-submissions:list",
   HOMEWORK_SUBMISSIONS_READ: "homework-submissions:read",
+  // La entrega de un estudiante propio: el hijo si es acudiente, uno mismo si es alumno.
+  HOMEWORK_SUBMISSIONS_READ_SELF: "homework-submissions:read-self",
   HOMEWORK_SUBMISSIONS_GRADE: "homework-submissions:grade",
   FILES_UPLOAD: "files:upload",
   FILES_READ: "files:read",
@@ -531,6 +533,9 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.SCHEDULES_READ_SELF,
     PERMISSIONS.HOMEWORK_LIST,
     PERMISSIONS.HOMEWORK_READ,
+    // La entrega de su hijo y la retroalimentación del profesor. NO abre
+    // HOMEWORK_SUBMISSIONS_LIST, que devuelve las entregas de todo el curso.
+    PERMISSIONS.HOMEWORK_SUBMISSIONS_READ_SELF,
     PERMISSIONS.MARKS_LIST,
     PERMISSIONS.MARKS_READ,
     PERMISSIONS.ATTENDANCE_LIST,
@@ -561,6 +566,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.MARKS_READ,
     PERMISSIONS.HOMEWORK_SUBMISSIONS_CREATE,
     PERMISSIONS.HOMEWORK_SUBMISSIONS_READ,
+    PERMISSIONS.HOMEWORK_SUBMISSIONS_READ_SELF,
     PERMISSIONS.FILES_UPLOAD,
     PERMISSIONS.FILES_READ,
     PERMISSIONS.QUIZ_ATTEMPTS_START,

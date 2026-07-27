@@ -47,6 +47,18 @@ export class HomeworkSubmissionsController {
     return this.submissions.findMine(homeworkId, user);
   }
 
+  // Hermana de `me` para quien no ES el estudiante: el acudiente pregunta por su hijo. La
+  // pertenencia la valida el servicio contra resolveOwnStudentIds, no el decorador.
+  @Get("by-student/:studentId")
+  @Permissions(PERMISSIONS.HOMEWORK_SUBMISSIONS_READ_SELF)
+  findForOwnStudent(
+    @Param("homeworkId") homeworkId: string,
+    @Param("studentId") studentId: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.submissions.findForOwnStudent(homeworkId, studentId, user);
+  }
+
   @Patch(":submissionId/grade")
   @Permissions(PERMISSIONS.HOMEWORK_SUBMISSIONS_GRADE)
   grade(

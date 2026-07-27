@@ -111,6 +111,14 @@ type GuardianScopingFixtures = {
   otherGroupId: string;
 };
 
+type OwnSubmissionItem = {
+  id: string;
+  studentId: string;
+  status: string;
+  feedbackComment: string | null;
+  attachmentUrl: string | null;
+  feedbackUrl: string | null;
+};
 type ScheduleListItem = {
   id: string;
   dayOfWeek: number;
@@ -465,6 +473,41 @@ describe("Backend v1 e2e", () => {
     // lo que hace útil al módulo de horarios.
     expect(listedIds).toContain(guardianFixtures.ownScheduleId);
     expect(listedIds).toContain(guardianFixtures.otherTeacherScheduleId);
+  });
+
+  it("lets a GUARDIAN read their own child's submission, but never a classmate's", async () => {
+    const guardian = await loginAs(GUARDIAN_EMAIL);
+    expect(guardian.status).toBe(201);
+
+    const own = await api<OwnSubmissionItem>(
+      `/homework/${guardianFixtures.ownChildHomeworkId}/submissions/by-student/${guardianFixtures.ownChildStudentId}`,
+      { headers: authHeaders(guardian.body.accessToken) },
+    );
+    expect(own.status).toBe(200);
+    expect(own.body.studentId).toBe(guardianFixtures.ownChildStudentId);
+
+    // El adjunto viaja como URL ya firmada. La key no sale nunca, que es lo que permite no
+    // darle FILES_READ al acudiente: ese permiso es "descargá cualquier archivo del colegio
+    // cuya key conozcas".
+    expect(own.body.attachmentUrl).toEqual(expect.any(String));
+    expect(own.body).not.toHaveProperty("attachmentKey");
+    expect(own.body).not.toHaveProperty("feedbackKey");
+
+    // El compañero está en el MISMO grupo y en la MISMA tarea: si el scoping se hiciera por
+    // grupo, o se confiara en que el homework ya acota, esto respondería 200.
+    const classmate = await api<ErrorResponse>(
+      `/homework/${guardianFixtures.ownChildHomeworkId}/submissions/by-student/${guardianFixtures.classmateStudentId}`,
+      { headers: authHeaders(guardian.body.accessToken) },
+    );
+    expect(classmate.status).toBe(403);
+    expect(classmate.body.message).toBe("You can only view your own children's submissions.");
+
+    // Y la ruta del profesor, que devuelve las entregas de todo el curso, sigue cerrada.
+    const roster = await api<ErrorResponse>(
+      `/homework/${guardianFixtures.ownChildHomeworkId}/submissions`,
+      { headers: authHeaders(guardian.body.accessToken) },
+    );
+    expect(roster.status).toBe(403);
   });
 
   it("scopes GET /students/mine to the guardian's own children, not to their group", async () => {
