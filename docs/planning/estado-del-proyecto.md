@@ -178,7 +178,15 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
 
 ### Otros
 - `/registro`: formulario de planes estático, no crea un tenant real (el endpoint `POST /tenants` existe pero requiere permiso de administrador — no hay alta autoservicio).
-- `/recuperar-password`: sin flujo real de recuperación.
+- ~~`/recuperar-password`: sin flujo real de recuperación.~~ **Implementado el 2026-07-27.**
+  `POST /auth/forgot-password` + `POST /auth/reset-password`, modelo `PasswordResetToken`
+  (tenant-owned, con su política RLS), correo por el `EmailService` que ya existía, y la
+  pantalla nueva `/restablecer-password` a la que apunta el enlace. Cuatro propiedades, cada
+  una verificada revirtiéndola: la respuesta es idéntica exista o no la cuenta (si no, probar
+  correos revelaría quién pertenece al colegio), el enlace sirve **una sola vez**, la
+  contraseña anterior deja de funcionar, y **se revocan todas las sesiones del usuario en
+  todos los colegios** — sin eso, quien pidió el reseteo porque le robaron la cuenta deja
+  viva la sesión del atacante.
 
 ---
 
@@ -239,6 +247,7 @@ Lo que sí sigue declarado y muerto, verificado por grep:
    sidebar**: antes de conectarla hay que decidir si el flujo de justificar una inasistencia
    se quiere, porque hoy nadie llega a esa pantalla.
 6. ~~**`pnpm lint` está roto en todo el repo** por falta de `eslint.config.js` (ESLint v9).~~ **Resuelto** (corrección del 2026-07-25): los configs se agregaron en `e27e4b9` y CI tiene paso de lint desde `94a502b`.
-7. **`/registro`** (alta autoservicio de tenant) y **`/recuperar-password`**: sin flujo real.
+7. **`/registro`** (alta autoservicio de tenant): sin flujo real. (`/recuperar-password` **ya
+   está hecho** — 2026-07-27, ver §3.)
 8. **App móvil (React Native/Expo): sigue en el roadmap, sin fecha** — confirmado con el dueño del producto el 2026-07-25. Nunca se inicializó `apps/mobile`; las variables `EXPO_PUBLIC_*` de `.env.example` están reservadas para cuando arranque. No está descartada, pero tampoco hay nada construido, así que **no se debe escribir código web "preparando" la paridad con una app que no existe**. El brief original que la mandaba "desde la primera versión profesional" está en `archive/01-arquitecto-saas.md`.
 9. **Estado de cuenta para familias**: `PAYMENTS_READ_SELF` está concedido a `GUARDIAN` y `STUDENT` (`permissions.ts:524,545`) y `GET /students/:studentId/balance` existe y valida propiedad con `assertCanAccessStudent` — pero **no hay UI**: solo existe `/admin/pagos`, no `/familia/pagos`. Las familias no pueden ver lo que deben. Mismo patrón que `GET /notifications/unread-count` en §4: backend adelantado al frontend. Decisión de producto pendiente, no olvido técnico — sin recaudo en línea (ver `CLAUDE.md`, frontera de Pagos), la pantalla diría "esto debes, ve a pagarlo al banco".

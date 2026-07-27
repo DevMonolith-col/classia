@@ -6,12 +6,16 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
 import {
+  ForgotPasswordInput,
   LoginInput,
   RefreshTokenInput,
   ImpersonateInput,
+  ResetPasswordInput,
+  forgotPasswordSchema,
   loginSchema,
   refreshTokenSchema,
   impersonateSchema,
+  resetPasswordSchema,
 } from "./auth.schemas";
 import { AuthService } from "./auth.service";
 
@@ -31,6 +35,30 @@ export class AuthController {
     @Req() request: Request,
   ) {
     return this.auth.login(body, request);
+  }
+
+  // Más estricto que login (5/min contra 20): acá cada intento manda un correo, así que el
+  // abuso no es solo adivinar credenciales sino usar el endpoint para bombardear una bandeja
+  // ajena. Y a diferencia del login, nadie necesita pedir el enlace veinte veces por minuto.
+  @Post("forgot-password")
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  forgotPassword(
+    @Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput,
+    @Req() request: Request,
+  ) {
+    return this.auth.forgotPassword(body, request);
+  }
+
+  // El límite también protege de probar enlaces al azar por fuerza bruta.
+  @Post("reset-password")
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  resetPassword(
+    @Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPasswordInput,
+    @Req() request: Request,
+  ) {
+    return this.auth.resetPassword(body, request);
   }
 
   @Post("refresh")
