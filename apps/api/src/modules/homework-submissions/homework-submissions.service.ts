@@ -1,11 +1,13 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
+import { AudienceScopeService } from "../../common/audience/audience-scope.service";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
 import { runInTenantTransaction } from "../../core/prisma/run-in-tenant-transaction";
 import { TenantRlsContextService } from "../../core/prisma/tenant-rls-context.service";
+import { StorageService } from "../../core/storage/storage.service";
 import { MarksService } from "../marks/marks.service";
 import { GradeSubmissionInput, SubmitHomeworkInput } from "./homework-submissions.schemas";
 
@@ -16,6 +18,8 @@ export class HomeworkSubmissionsService {
     private readonly prisma: PrismaService,
     private readonly tenantRlsContext: TenantRlsContextService,
     private readonly marks: MarksService,
+    private readonly audience: AudienceScopeService,
+    private readonly storage: StorageService,
   ) {}
 
   async upsertMine(
@@ -79,6 +83,50 @@ export class HomeworkSubmissionsService {
       where: { homeworkId_studentId: { homeworkId, studentId: student.id } },
       select: this.submissionSelect(),
     });
+  }
+
+  /**
+   * La entrega de un estudiante propio: el hijo si el actor es acudiente, uno mismo si es
+   * alumno. Es lo que sostiene a `familia/tareas`.
+   *
+   * **`/me` no servía para esto**: `findMine` resuelve la fila `Student` por el `userId` del
+   * actor, y un acudiente no tiene ninguna — lanza "This account has no student profile.".
+   * El plan de asignaciones (§6, paso 14) daba por hecho que alcanzaba con concederle
+   * `HOMEWORK_SUBMISSIONS_READ`, y no: hacía falta esta ruta.
+   *
+   * **Devuelve URLs firmadas en vez de las keys**, y por eso el acudiente no necesita
+   * `FILES_READ`. `FilesService#getDownloadUrl` solo valida que la key empiece con el prefijo
+   * del tenant: no tiene noción de dueño del archivo, así que ese permiso es "descargar
+   * cualquier archivo del colegio cuya key conozcas". Firmar acá deja el alcance atado a la
+   * entrega que el actor ya probó poder ver.
+   */
+  async findForOwnStudent(homeworkId: string, studentId: string, actor: RequestUser) {
+    const ownStudentIds = await this.audience.resolveOwnStudentIds(actor);
+    if (!ownStudentIds.includes(studentId)) {
+      throw new ForbiddenException("You can only view your own children's submissions.");
+    }
+
+    const student = await this.prisma.student.findUniqueOrThrow({
+      where: { id: studentId },
+      select: { id: true, tenantId: true, groupId: true },
+    });
+    // Valida de paso que la tarea sea del grupo del estudiante: sin esto, un homeworkId de otro
+    // curso devolvería null y ese null ya diría que la tarea existe.
+    await this.assertAccessible(homeworkId, student);
+
+    const submission = await this.prisma.homeworkSubmission.findUnique({
+      where: { homeworkId_studentId: { homeworkId, studentId } },
+      select: this.submissionSelect(),
+    });
+    if (!submission) return null;
+
+    const { attachmentKey, feedbackKey, ...rest } = submission;
+
+    return {
+      ...rest,
+      attachmentUrl: attachmentKey ? await this.storage.getSignedDownloadUrl(attachmentKey) : null,
+      feedbackUrl: feedbackKey ? await this.storage.getSignedDownloadUrl(feedbackKey) : null,
+    };
   }
 
   async listForHomework(homeworkId: string, actor: RequestUser) {
