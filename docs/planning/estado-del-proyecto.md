@@ -181,12 +181,18 @@ Las páginas marcadas como mock existen visualmente (con buen diseño) pero **no
 - ~~`/recuperar-password`: sin flujo real de recuperación.~~ **Implementado el 2026-07-27.**
   `POST /auth/forgot-password` + `POST /auth/reset-password`, modelo `PasswordResetToken`
   (tenant-owned, con su política RLS), correo por el `EmailService` que ya existía, y la
-  pantalla nueva `/restablecer-password` a la que apunta el enlace. Cuatro propiedades, cada
+  pantalla nueva `/restablecer-password` a la que apunta el enlace. Cinco propiedades, cada
   una verificada revirtiéndola: la respuesta es idéntica exista o no la cuenta (si no, probar
   correos revelaría quién pertenece al colegio), el enlace sirve **una sola vez**, la
   contraseña anterior deja de funcionar, y **se revocan todas las sesiones del usuario en
   todos los colegios** — sin eso, quien pidió el reseteo porque le robaron la cuenta deja
   viva la sesión del atacante.
+  - **La quinta se agregó el 2026-07-27 al revisar el commit**: que el cuerpo sea idéntico no
+    alcanza si el **tiempo** no lo es. El envío del correo estaba con `await` y solo ocurre
+    para una cuenta real, así que con `EMAIL_PROVIDER=resend` —una llamada de red— cronometrar
+    el endpoint reconstruía el padrón que el mensaje genérico oculta. El envío va sin `await`.
+    Los tests no lo veían porque afirmaban sobre cuerpo y status, donde los dos caminos ya eran
+    idénticos: **la propiedad estaba bien elegida y mal medida**.
 
 ---
 
