@@ -4,13 +4,13 @@ import { useState, useEffect } from "react"
 import {
   Globe2,
   Mail,
-  Database,
   Save,
-  Server,
   ShieldCheck,
   CreditCard,
   CheckCircle2,
-  AlertCircle
+  XCircle,
+  AlertCircle,
+  Loader2,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -41,9 +41,10 @@ export default function SuperAdminSettingsPage() {
     planProMaxStudents: 1000,
     planProMaxUsers: 100,
     planProMaxStorageGb: 50,
-    backupFreq: "Diario (12:00 AM)",
-    backupRetention: "30 días",
   })
+
+  const [smtpTesting, setSmtpTesting] = useState(false)
+  const [smtpResult, setSmtpResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   useEffect(() => {
     async function loadSettings() {
@@ -82,6 +83,20 @@ export default function SuperAdminSettingsPage() {
     setSettings(prev => ({ ...prev, [key]: value }))
   }
 
+  const handleTestSmtp = async () => {
+    setSmtpTesting(true)
+    setSmtpResult(null)
+    try {
+      const res = await apiFetch("/settings/smtp-test", { method: "POST" })
+      const data = await res.json()
+      setSmtpResult(data)
+    } catch {
+      setSmtpResult({ ok: false, message: "Sin conexión con el servidor." })
+    } finally {
+      setSmtpTesting(false)
+    }
+  }
+
   if (loading) {
     return <div className="p-8 text-center text-muted-foreground">Cargando configuración...</div>
   }
@@ -109,7 +124,7 @@ export default function SuperAdminSettingsPage() {
           </div>
         )}
         <Tabs defaultValue="general" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 h-auto p-1 bg-secondary/50">
+          <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3 h-auto p-1 bg-secondary/50">
             <TabsTrigger value="general" className="py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm">
               <Globe2 className="h-4 w-4 mr-2" />
               General
@@ -121,10 +136,6 @@ export default function SuperAdminSettingsPage() {
             <TabsTrigger value="plans" className="py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm">
               <CreditCard className="h-4 w-4 mr-2" />
               Planes y Límites
-            </TabsTrigger>
-            <TabsTrigger value="infra" className="py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm">
-              <Server className="h-4 w-4 mr-2" />
-              Infraestructura
             </TabsTrigger>
           </TabsList>
 
@@ -198,7 +209,11 @@ export default function SuperAdminSettingsPage() {
                 <CardTitle className="flex items-center gap-2">
                   <Mail className="h-5 w-5 text-blue-500" /> Servidor de Correo Saliente
                 </CardTitle>
-                <CardDescription>Las credenciales SMTP usadas para enviar todos los correos transaccionales del sistema (notificaciones, reseteos de contraseña).</CardDescription>
+                <CardDescription>
+                  El envío real de correo (notificaciones, reseteos de contraseña) usa el proveedor
+                  configurado en el servidor (Resend), no estos campos. Se guardan como referencia pero
+                  &quot;Probar conexión&quot; valida el proveedor activo del servidor.
+                </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
@@ -222,9 +237,19 @@ export default function SuperAdminSettingsPage() {
                   <Input id="smtp-from" value={settings.smtpFrom} onChange={e => updateSetting("smtpFrom", e.target.value)} />
                 </div>
               </CardContent>
-              <CardFooter className="bg-secondary/20 justify-between">
-                <p className="text-xs text-muted-foreground">Estado actual: Conectado correctamente</p>
-                <Button variant="outline" size="sm">Probar conexión SMTP</Button>
+              <CardFooter className="bg-secondary/20 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+                {smtpResult ? (
+                  <p className={`flex items-center gap-1.5 text-xs ${smtpResult.ok ? "text-emerald-600" : "text-destructive"}`}>
+                    {smtpResult.ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+                    {smtpResult.message}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Sin probar todavía.</p>
+                )}
+                <Button variant="outline" size="sm" onClick={handleTestSmtp} disabled={smtpTesting} className="gap-2">
+                  {smtpTesting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {smtpTesting ? "Probando..." : "Probar conexión"}
+                </Button>
               </CardFooter>
             </Card>
           </TabsContent>
@@ -280,49 +305,6 @@ export default function SuperAdminSettingsPage() {
                       <Label>Almacenamiento (GB)</Label>
                       <Input type="number" value={settings.planProMaxStorageGb} onChange={e => updateSetting("planProMaxStorageGb", parseInt(e.target.value) || 0)} />
                     </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* INFRA TAB */}
-          <TabsContent value="infra" className="space-y-6">
-            <Card className="shadow-sm border-l-4 border-l-emerald-500">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Database className="h-5 w-5 text-emerald-500" /> Backups de Base de Datos
-                </CardTitle>
-                <CardDescription>Gestión de las políticas de retención y estado del sistema de respaldo automatizado PostgreSQL.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between p-4 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg border border-emerald-100 dark:border-emerald-900">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
-                    <div>
-                      <p className="font-medium text-emerald-900 dark:text-emerald-100">Estado: Saludable</p>
-                      <p className="text-sm text-emerald-700 dark:text-emerald-400">Último backup completado hace 2 horas</p>
-                    </div>
-                  </div>
-                  <Button variant="outline" className="border-emerald-200 hover:bg-emerald-100 text-emerald-800 dark:hover:bg-emerald-900/40">Forzar Backup Ahora</Button>
-                </div>
-
-                <div className="grid sm:grid-cols-2 gap-6 pt-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="backup-freq">Frecuencia de Backup Automático</Label>
-                    <select id="backup-freq" value={settings.backupFreq} onChange={e => updateSetting("backupFreq", e.target.value)} className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                      <option>Cada 6 Horas</option>
-                      <option>Diario (12:00 AM)</option>
-                      <option>Semanal (Domingos)</option>
-                    </select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="backup-retention">Retención en Storage (S3)</Label>
-                    <select id="backup-retention" value={settings.backupRetention} onChange={e => updateSetting("backupRetention", e.target.value)} className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                      <option>7 días</option>
-                      <option>30 días</option>
-                      <option>90 días</option>
-                    </select>
                   </div>
                 </div>
               </CardContent>
