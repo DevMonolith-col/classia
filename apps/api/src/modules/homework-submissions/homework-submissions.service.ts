@@ -132,10 +132,47 @@ export class HomeworkSubmissionsService {
   async listForHomework(homeworkId: string, actor: RequestUser) {
     await this.getHomeworkForTeacherCheck(homeworkId, actor);
 
-    return this.prisma.homeworkSubmission.findMany({
+    const submissions = await this.prisma.homeworkSubmission.findMany({
       where: { homeworkId },
       select: this.submissionSelect(),
       orderBy: [{ submittedAt: "desc" }],
+    });
+
+    return this.withCurrentMarks(homeworkId, submissions);
+  }
+
+  /**
+   * Adjunta a cada entrega su nota vigente.
+   *
+   * **Sin esto la UI del profesor pierde datos**: el diálogo de "Editar nota" no tenía la nota
+   * real para precargar, así que ponía 100 y guardaba 100 si el profesor solo venía a cambiar
+   * el comentario. La corrección tiene que empezar acá — mientras el backend no devuelva la
+   * nota, cualquier arreglo en el frontend es adivinar.
+   *
+   * Va por una consulta aparte y no por un `include` porque `HomeworkSubmission` **no tiene
+   * relación con `Mark`**: se ligan por `(studentId, homeworkId)`, que es el `@@unique` de
+   * `Mark`. Agregar esa relación significaría cambiar la forma de `Mark`, que tiene frontera
+   * estricta con el dominio de notas/boletines (`asignaciones-calificacion-en-linea.md` §2).
+   * Es una query extra por llamada, no una por entrega.
+   */
+  private async withCurrentMarks<T extends { studentId: string }>(
+    homeworkId: string,
+    submissions: T[],
+  ) {
+    if (submissions.length === 0) return [];
+
+    const marks = await this.prisma.mark.findMany({
+      where: { homeworkId, studentId: { in: submissions.map((s) => s.studentId) } },
+      select: { id: true, studentId: true, value: true, maxValue: true },
+    });
+    const byStudent = new Map(marks.map((mark) => [mark.studentId, mark]));
+
+    return submissions.map((submission) => {
+      const mark = byStudent.get(submission.studentId);
+      return {
+        ...submission,
+        mark: mark ? { id: mark.id, value: mark.value, maxValue: mark.maxValue } : null,
+      };
     });
   }
 

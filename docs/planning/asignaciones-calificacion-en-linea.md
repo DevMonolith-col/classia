@@ -147,7 +147,15 @@ Son deuda real que vive en territorio de notas:
 
 ## 3. Los dos bugs de este plan
 
-### Bug 1 — "Editar nota" te sobrescribe la nota con 100
+### Bug 1 — "Editar nota" te sobrescribe la nota con 100 — **ARREGLADO el 2026-07-26**
+
+> El código de abajo ya no es el actual. `openGradeDialog` precarga la nota vigente, que el
+> backend adjunta en `listForHomework` vía `withCurrentMarks()` (no por `submissionSelect()`:
+> `HomeworkSubmission` no tiene relación con `Mark`, se ligan por `(studentId, homeworkId)`).
+> Cuando no hay nota previa el campo va vacío en vez de 100, y `handleGradeSubmit` ahora
+> rechaza el vacío — validaba con `Number.isNaN(Number(value))` y `Number("")` es `0`, así que
+> un campo vacío se guardaba como un cero. Se conserva el diagnóstico porque explica por qué la
+> causa raíz estaba en el backend.
 
 ```ts
 // apps/web/components/profesor/homework-editor.tsx:386-391
@@ -321,12 +329,22 @@ mock, `mockTasks` en `app/familia/tareas/page.tsx:38-112`).
 Cada fase se cierra con typecheck limpio (api + web), e2e verdes y verificación en
 navegador como profesor.
 
-**Fase 1 — Parar el sangrado (independiente, mergeable sola)**
-1. `submissionSelect()` incluye la nota vigente; `openGradeDialog` la precarga en vez de
-   poner `100`. **Arregla la pérdida de datos del Bug 1 sin ninguna UI nueva.**
-2. Mostrar la nota en la lista de entregas actual.
-3. Primeros e2e: `grade()` crea la Mark, la actualiza si existe, y respeta el scoping de
-   profesor ajeno (hoy: cero cobertura).
+**Fase 1 — Parar el sangrado (independiente, mergeable sola)** — **hecha el 2026-07-26.**
+1. ~~`submissionSelect()` incluye la nota vigente; `openGradeDialog` la precarga en vez de
+   poner `100`.~~ Hecho, con dos precisiones que el plan no anticipaba: la nota **no** entra por
+   `submissionSelect()` sino por un helper aparte (`withCurrentMarks`), porque
+   `HomeworkSubmission` no tiene relación con `Mark` — se ligan por `(studentId, homeworkId)`, y
+   agregar la relación sería cambiar la forma de `Mark`, que está fuera de alcance por §2. Y
+   cuando **no** hay nota previa el campo queda vacío en vez de 100: servir un 100 de entrada es
+   la misma pérdida de datos en la primera calificación. Eso destapó que `handleGradeSubmit`
+   validaba con `Number.isNaN(Number(value))`, y `Number("")` es `0`, así que un campo vacío se
+   guardaba como un cero.
+2. ~~Mostrar la nota en la lista de entregas actual.~~ Hecho.
+3. ~~Primeros e2e~~ Hechos los dos que faltaban. El de "crea la Mark / la actualiza si existe"
+   ya existía (`anchors the mark to the active academic year`, que borra la nota antes para
+   forzar el camino de `create` y después recalifica). Los nuevos son la nota devuelta con la
+   entrega y **el profesor ajeno**, que era el que de verdad tenía cero cobertura: la validación
+   de `getHomeworkForTeacherCheck` llevaba desde siempre sin un test que la ejerciera.
 
 **Fase 2 — Roster completo**
 4. `GET .../submissions` devuelve el roster con `submission | null` + `mark | null`.

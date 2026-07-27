@@ -48,6 +48,11 @@ export type HomeworkSubmission = {
   feedbackName?: string | null
   gradedAt?: string | null
   student: { id: string; firstName: string; lastName: string }
+  /**
+   * Nota vigente de esta entrega, o `null` si todavía no se calificó. La liga con `Mark` es
+   * `(studentId, homeworkId)`, no una relación: el backend la adjunta en `listForHomework`.
+   */
+  mark?: { id: string; value: number; maxValue: number } | null
 }
 
 export const SUBMISSION_STATUS_LABELS: Record<HomeworkSubmission["status"], string> = {

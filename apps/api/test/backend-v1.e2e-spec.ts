@@ -111,6 +111,12 @@ type GuardianScopingFixtures = {
   otherGroupId: string;
 };
 
+type SubmissionWithMark = {
+  id: string;
+  studentId: string;
+  status: string;
+  mark: { id: string; value: number; maxValue: number } | null;
+};
 type OwnSubmissionItem = {
   id: string;
   studentId: string;
@@ -1091,6 +1097,63 @@ describe("Backend v1 e2e", () => {
     );
     expect(healed?.academicYearId).toBe(activeYearId);
     expect(healed?.value).toBe(4.8);
+  });
+
+  // El dato que le faltaba a la UI del profesor. `openGradeDialog` precargaba 100 porque no
+  // tenía de dónde sacar la nota real, así que entrar a "Editar nota" para cambiar solo el
+  // comentario la pisaba con 100. Mientras el backend no devuelva la nota vigente, cualquier
+  // arreglo del frontend es adivinar.
+  it("returns each submission with its current mark, so the grade dialog can preload it", async () => {
+    const { ownChildHomeworkId, ownChildSubmissionId, ownChildStudentId } = guardianFixtures;
+    const teacher = await loginAs(TEACHER_EMAIL);
+    expect(teacher.status).toBe(201);
+
+    const graded = await api<{ status: string }>(
+      `/homework/${ownChildHomeworkId}/submissions/${ownChildSubmissionId}/grade`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(authHeaders(teacher.body.accessToken)),
+        body: JSON.stringify({ value: 3.7, maxValue: 5, feedbackComment: "Faltó el punto 4." }),
+      },
+    );
+    expect(graded.status).toBe(200);
+
+    const list = await api<SubmissionWithMark[]>(
+      `/homework/${ownChildHomeworkId}/submissions`,
+      { headers: authHeaders(teacher.body.accessToken) },
+    );
+    expect(list.status).toBe(200);
+
+    const own = list.body.find((s) => s.studentId === ownChildStudentId);
+    expect(own).toBeDefined();
+    // El maxValue importa tanto como el valor: precargar 100 sobre una tarea calificada
+    // sobre 5 rompe la validación "no superar el máximo" en la siguiente edición.
+    expect(own?.mark).toMatchObject({ value: 3.7, maxValue: 5 });
+  });
+
+  // La validación existe en getHomeworkForTeacherCheck desde siempre y nunca tuvo un test que
+  // la ejerciera: es exactamente el patrón de "protección escrita, nunca probada".
+  it("stops a teacher from grading a colleague's assignment", async () => {
+    const otherTeacher = await loginAs(OTHER_TEACHER_EMAIL);
+    expect(otherTeacher.status).toBe(201);
+
+    const attempt = await api<ErrorResponse>(
+      `/homework/${guardianFixtures.ownChildHomeworkId}/submissions/${guardianFixtures.ownChildSubmissionId}/grade`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(authHeaders(otherTeacher.body.accessToken)),
+        body: JSON.stringify({ value: 1, maxValue: 5 }),
+      },
+    );
+    expect(attempt.status).toBe(403);
+    expect(attempt.body.message).toBe("You can only manage submissions for your own classes.");
+
+    // Y la lista de entregas de esa tarea tampoco es suya.
+    const roster = await api<ErrorResponse>(
+      `/homework/${guardianFixtures.ownChildHomeworkId}/submissions`,
+      { headers: authHeaders(otherTeacher.body.accessToken) },
+    );
+    expect(roster.status).toBe(403);
   });
 
   // El mismo `finalizeAttemptIfComplete` corre en dos momentos opuestos, y la nota
