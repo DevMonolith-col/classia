@@ -125,12 +125,29 @@ si se unifica en cualquiera de las dos direcciones.
 El actor auditado en el camino del alumno es **el alumno**, no el profesor: la nota existe
 porque él envió el quiz, y la bitácora dice eso.
 
-## Bug abierto en la UI
+## La pérdida de datos de la UI, y cómo llega la nota a la entrega
 
-`homework-editor.tsx:386-391` — `openGradeDialog` precarga siempre `setValue("100")`, incluso
-cuando el botón dice "Editar nota" (`:515`, cuando la entrega ya está `GRADED`). La causa es que
-`submissionSelect()` no incluye la `Mark`, así que la UI no tiene la nota real para precargar.
-Editar una nota la pisa con 100 si el profesor no reescribe el campo. Es pérdida de datos.
+**Arreglado el 2026-07-26.** `openGradeDialog` precargaba siempre `setValue("100")` y
+`setMaxValue("100")`, incluso cuando el botón dice "Editar nota" (la entrega ya está `GRADED`).
+Entrar a cambiar solo el comentario pisaba la calificación con 100/100 — y sobre una tarea
+calificada sobre 5, además rompía la validación "no superar el máximo" de la edición siguiente.
+
+La causa estaba en el backend: `submissionSelect()` no tiene la `Mark`, así que la UI no tenía
+de dónde sacarla. **`HomeworkSubmission` no tiene relación con `Mark`**: se ligan por
+`(studentId, homeworkId)`, que es el `@@unique` de `Mark`. Por eso `listForHomework` la adjunta
+con `withCurrentMarks()`, una consulta aparte unida en memoria — una por llamada, no una por
+entrega. Agregar la relación al schema significaría cambiar la forma de `Mark`, que tiene
+frontera estricta con notas/boletines (`asignaciones-calificacion-en-linea.md` §2).
+
+Si agregas otro consumidor que necesite la nota, pásalo por ese helper en vez de volver a
+resolver el join. `findForOwnStudent` (portal de familia) **deliberadamente no la lleva**: la
+nota del hijo vive en `/familia/calificaciones`, que lee `/marks`, y duplicarla en dos
+pantallas invita a que se desincronicen.
+
+Cuando no hay nota previa el campo va **vacío**, no en 100: un 100 servido de entrada es la
+misma pérdida de datos en la primera calificación. Eso obligó a arreglar también la validación
+de `handleGradeSubmit`, que usaba `Number.isNaN(Number(value))` — y `Number("")` es `0`, no
+`NaN`, así que un campo vacío se colaba como un cero válido.
 
 ## Semántica de valores
 
@@ -161,6 +178,16 @@ Dos detalles de los que depende que sirvan de algo, y que es fácil borrar sin d
   `create`. Sin eso entra por `update`, que también setea el año, y no prueba nada.
 - El segundo **espera de verdad antes de afirmar que no hay notificación**. El listener es
   asíncrono; aseverar la ausencia sin darle tiempo pasaría igual con el comportamiento contrario.
+
+Dos más desde el 2026-07-26, en el mismo archivo:
+
+- **"returns each submission with its current mark, so the grade dialog can preload it"** — el
+  dato que le faltaba a la UI para no pisar la nota con 100. Afirma `value` **y** `maxValue`:
+  precargar 100 sobre una tarea sobre 5 rompe la validación de la edición siguiente.
+- **"stops a teacher from grading a colleague's assignment"** — la validación de
+  `getHomeworkForTeacherCheck` existía desde siempre y **nunca había tenido un test que la
+  ejerciera**. Verificado revirtiendo la comparación de `teacherId` a un simple "tiene ficha de
+  profesor": el ajeno califica con 200 y el test cae.
 
 Sigue **sin haber** test de `POST /homework/:id/submissions`, de `POST /marks` / `upsertMark()`
 directo, ni de `bulkCreate`.

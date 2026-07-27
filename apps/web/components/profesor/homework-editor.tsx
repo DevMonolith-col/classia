@@ -385,8 +385,12 @@ function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
 
   function openGradeDialog(submission: HomeworkSubmission) {
     setGrading(submission)
-    setValue("100")
-    setMaxValue("100")
+    // Precargar la nota vigente cuando existe: el botón que abre esto dice "Editar nota", y
+    // poner 100 hacía que entrar a cambiar solo el comentario pisara la calificación real.
+    // Cuando NO existe, el campo va vacío a propósito -- un 100 servido de entrada es la misma
+    // pérdida de datos en el primer intento, solo que sin nada anterior que extrañar.
+    setValue(submission.mark ? String(submission.mark.value) : "")
+    setMaxValue(String(submission.mark?.maxValue ?? 100))
     setFeedbackComment(submission.feedbackComment ?? "")
   }
 
@@ -394,7 +398,14 @@ function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
     if (!grading) return
     const numericValue = Number(value)
     const numericMaxValue = Number(maxValue)
-    if (Number.isNaN(numericValue) || Number.isNaN(numericMaxValue) || numericValue > numericMaxValue) {
+    // `value.trim()` antes que `Number()`: `Number("")` es 0, no NaN, así que un campo vacío
+    // se colaba como un cero perfectamente válido.
+    if (
+      value.trim() === "" ||
+      Number.isNaN(numericValue) ||
+      Number.isNaN(numericMaxValue) ||
+      numericValue > numericMaxValue
+    ) {
       toast.error("La nota debe ser un número válido y no superar el máximo.")
       return
     }
@@ -489,6 +500,14 @@ function SubmissionsSection({ homeworkId }: { homeworkId: string }) {
                       <Badge className={SUBMISSION_STATUS_COLORS[submission.status]} variant="outline">
                         {SUBMISSION_STATUS_LABELS[submission.status]}
                       </Badge>
+                      {submission.mark && (
+                        <span className="text-sm font-semibold text-foreground">
+                          {submission.mark.value}
+                          <span className="font-normal text-muted-foreground">
+                            /{submission.mark.maxValue}
+                          </span>
+                        </span>
+                      )}
                       {submission.submittedAt && (
                         <span className="text-xs text-muted-foreground">
                           {new Date(submission.submittedAt).toLocaleString("es-CO", {
