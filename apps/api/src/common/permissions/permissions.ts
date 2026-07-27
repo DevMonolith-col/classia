@@ -98,6 +98,12 @@ export const PERMISSIONS = {
   PAYMENTS_READ_SELF: "payments:read-self", // ver el propio estado de cuenta (guardián/estudiante)
   // Reportes
   REPORTS_MANAGE: "reports:manage", // generar, previsualizar, programar reportes
+  // Solicitudes de demo del sitio público (bandeja comercial de plataforma, sin colegio
+  // asociado). Crearlas NO necesita permiso: ese endpoint es público. Estos tres gatean
+  // solo la lectura y el seguimiento interno.
+  DEMO_REQUESTS_LIST: "demo-requests:list",
+  DEMO_REQUESTS_READ: "demo-requests:read",
+  DEMO_REQUESTS_UPDATE: "demo-requests:update", // estado, cotización y notas internas
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -176,6 +182,12 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.DOCUMENTS_MANAGE,
     PERMISSIONS.PAYMENTS_MANAGE,
     PERMISSIONS.REPORTS_MANAGE,
+    // Solo SUPER_ADMIN: la bandeja comercial no pertenece a ningún colegio, y el staff de
+    // soporte (SUPPORT_AGENT/SUPPORT_SUPERVISOR) no tiene por qué ver a qué precio se le
+    // cotizó a un prospecto ni sus datos de contacto.
+    PERMISSIONS.DEMO_REQUESTS_LIST,
+    PERMISSIONS.DEMO_REQUESTS_READ,
+    PERMISSIONS.DEMO_REQUESTS_UPDATE,
   ],
   TENANT_ADMIN: [
     PERMISSIONS.TENANTS_READ,
