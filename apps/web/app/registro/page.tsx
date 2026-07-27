@@ -2,42 +2,133 @@
 
 import Link from "next/link"
 import { useState } from "react"
-import { Eye, EyeOff, Building2, Users, GraduationCap } from "lucide-react"
+import { Building2, CheckCircle2, Loader2, Mail, MapPin, Phone, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { apiFetch } from "@/lib/api-client"
 
-const plans = [
-  {
-    id: "basico",
-    name: "Básico",
-    price: "$299",
-    features: ["Hasta 200 estudiantes", "5 usuarios admin"],
-  },
-  {
-    id: "profesional",
-    name: "Profesional",
-    price: "$599",
-    features: ["Hasta 1,000 estudiantes", "20 usuarios admin"],
-    popular: true,
-  },
-  {
-    id: "empresarial",
-    name: "Empresarial",
-    price: "Personalizado",
-    features: ["Estudiantes ilimitados", "Soporte 24/7"],
-  },
-]
+// Solicitud de demo real, contra POST /demo-requests (público, con rate-limit).
+//
+// Reemplaza un asistente falso de tres pasos que elegía plan, pedía los datos del colegio y
+// una CONTRASEÑA, y al final no llamaba a ninguna API: los datos se perdían y la persona
+// quedaba esperando una cuenta que nadie iba a crear. El alta de colegio sigue siendo manual
+// (POST /tenants exige permiso de administrador); esto es el paso previo, comercial.
+//
+// Acá no se elige plan ni se muestran precios a propósito: la cotización se arma adentro, en
+// /superadmin/solicitudes, con el tamaño real del colegio. Un precio de lista en el formulario
+// es una promesa que después hay que sostener.
+
+// Debe reflejar DEMO_REQUEST_INTERESTS en demo-requests.schemas.ts (API): el backend valida
+// contra esa lista y rechaza cualquier otro valor con 400.
+const INTERESES = [
+  { value: "CALIFICACIONES", label: "Notas y boletines" },
+  { value: "ASISTENCIA", label: "Asistencia" },
+  { value: "COMUNICACION", label: "Comunicación con familias" },
+  { value: "CARTERA", label: "Cartera y facturación" },
+  { value: "BOLETINES", label: "Informes académicos" },
+  { value: "HORARIOS", label: "Horarios" },
+  { value: "CERTIFICADOS", label: "Certificados" },
+  { value: "OTRO", label: "Otra cosa" },
+] as const
+
+const CARGOS = ["Rector(a)", "Coordinador(a)", "Secretaría", "Administración", "Docente", "Otro"]
 
 export default function RegistroPage() {
-  const [showPassword, setShowPassword] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState("profesional")
-  const [step, setStep] = useState(1)
+  const [enviando, setEnviando] = useState(false)
+  const [enviado, setEnviado] = useState(false)
+  const [error, setError] = useState("")
+
+  const [schoolName, setSchoolName] = useState("")
+  const [city, setCity] = useState("")
+  const [contactName, setContactName] = useState("")
+  const [contactRole, setContactRole] = useState("")
+  const [contactEmail, setContactEmail] = useState("")
+  const [contactPhone, setContactPhone] = useState("")
+  const [studentCount, setStudentCount] = useState("")
+  const [interests, setInterests] = useState<string[]>([])
+  const [message, setMessage] = useState("")
+
+  const toggleInterest = (value: string) => {
+    setInterests((current) =>
+      current.includes(value) ? current.filter((item) => item !== value) : [...current, value],
+    )
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError("")
+    setEnviando(true)
+
+    try {
+      const parsedStudentCount = Number.parseInt(studentCount, 10)
+      const res = await apiFetch("/demo-requests", {
+        method: "POST",
+        // Sin sesión: es el sitio público. Sin `silent` el api-client mostraría además su
+        // propio toast genérico encima del mensaje de esta pantalla.
+        skipAuth: true,
+        silent: true,
+        body: JSON.stringify({
+          schoolName: schoolName.trim(),
+          contactName: contactName.trim(),
+          contactEmail: contactEmail.trim(),
+          contactPhone: contactPhone.trim() || undefined,
+          contactRole: contactRole || undefined,
+          city: city.trim() || undefined,
+          studentCount: Number.isFinite(parsedStudentCount) ? parsedStudentCount : undefined,
+          interests,
+          message: message.trim() || undefined,
+          source: "registro",
+        }),
+      })
+
+      if (res.status === 429) {
+        setError("Recibimos varias solicitudes desde esta conexión. Espera un minuto e intenta de nuevo.")
+        return
+      }
+
+      if (!res.ok) {
+        setError("No pudimos enviar la solicitud. Revisa los datos e intenta de nuevo.")
+        return
+      }
+
+      setEnviado(true)
+    } catch {
+      setError("No pudimos conectarnos. Verifica tu conexión e intenta de nuevo.")
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  if (enviado) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-secondary p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-success/10">
+              <CheckCircle2 className="h-7 w-7 text-success" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-foreground">Recibimos tu solicitud</h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Te vamos a escribir a <span className="font-medium text-foreground">{contactEmail}</span>{" "}
+                para coordinar la demostración y pasarte una propuesta con el tamaño de{" "}
+                {schoolName || "tu colegio"}.
+              </p>
+            </div>
+            <Button asChild variant="outline" className="w-full">
+              <Link href="/">Volver al inicio</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-secondary p-4 py-8">
+    <div className="flex min-h-screen flex-col items-center bg-secondary p-4 py-10">
       <div className="w-full max-w-2xl">
-        {/* Logo */}
         <div className="mb-8 flex flex-col items-center">
           <Link href="/" className="flex items-center gap-2">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
@@ -45,286 +136,213 @@ export default function RegistroPage() {
             </div>
             <span className="text-2xl font-bold text-foreground">Classia</span>
           </Link>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Solicita tu demo gratuita por 30 días
-          </p>
-        </div>
-
-        {/* Progress Steps */}
-        <div className="mb-8 flex items-center justify-center gap-4">
-          {[1, 2, 3].map((s) => (
-            <div key={s} className="flex items-center gap-2">
-              <div
-                className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
-                  step >= s
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground"
-                }`}
-              >
-                {s}
-              </div>
-              {s < 3 && (
-                <div
-                  className={`h-0.5 w-8 ${step > s ? "bg-primary" : "bg-muted"}`}
-                />
-              )}
-            </div>
-          ))}
         </div>
 
         <Card>
           <CardHeader className="space-y-1 pb-4">
-            <h1 className="text-center text-2xl font-bold text-foreground">
-              {step === 1 && "Elige tu Plan"}
-              {step === 2 && "Datos de la Institución"}
-              {step === 3 && "Crea tu Cuenta"}
-            </h1>
+            <h1 className="text-center text-2xl font-bold text-foreground">Solicita una demostración</h1>
             <p className="text-center text-sm text-muted-foreground">
-              {step === 1 && "Selecciona el plan que mejor se adapte a tu institución"}
-              {step === 2 && "Cuéntanos sobre tu escuela o colegio"}
-              {step === 3 && "Configura tu acceso de administrador"}
+              Cuéntanos de tu colegio y te preparamos una propuesta a la medida. Sin tarjeta, sin
+              compromiso.
             </p>
           </CardHeader>
+
           <CardContent>
-            {/* Step 1: Plan Selection */}
-            {step === 1 && (
-              <div className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-3">
-                  {plans.map((plan) => (
-                    <button
-                      key={plan.id}
-                      type="button"
-                      onClick={() => setSelectedPlan(plan.id)}
-                      className={`relative rounded-xl border p-4 text-left transition-all ${
-                        selectedPlan === plan.id
-                          ? "border-primary bg-primary/5 ring-2 ring-primary"
-                          : "border-border hover:border-muted-foreground"
-                      }`}
-                    >
-                      {plan.popular && (
-                        <span className="absolute -top-2 left-1/2 -translate-x-1/2 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
-                          Popular
-                        </span>
-                      )}
-                      <p className="font-semibold text-foreground">{plan.name}</p>
-                      <p className="text-xl font-bold text-foreground">{plan.price}</p>
-                      <ul className="mt-2 space-y-1">
-                        {plan.features.map((feature) => (
-                          <li
-                            key={feature}
-                            className="text-xs text-muted-foreground"
-                          >
-                            • {feature}
-                          </li>
-                        ))}
-                      </ul>
-                    </button>
-                  ))}
-                </div>
-                <Button onClick={() => setStep(2)} className="w-full">
-                  Continuar
-                </Button>
-              </div>
-            )}
-
-            {/* Step 2: Institution Info */}
-            {step === 2 && (
-              <form className="space-y-4">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">
-                    Nombre de la Institución
-                  </label>
+            <form className="space-y-5" onSubmit={handleSubmit}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Nombre del colegio" required>
                   <div className="relative">
-                    <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input placeholder="Colegio San Martín" className="pl-10" />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">
-                      País
-                    </label>
-                    <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                      <option>México</option>
-                      <option>Argentina</option>
-                      <option>Colombia</option>
-                      <option>Chile</option>
-                      <option>Perú</option>
-                      <option>Otro</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">
-                      Ciudad
-                    </label>
-                    <Input placeholder="Ciudad de México" />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">
-                      Número de Estudiantes
-                    </label>
-                    <div className="relative">
-                      <GraduationCap className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <select className="w-full rounded-md border border-input bg-background py-2 pl-10 pr-3 text-sm">
-                        <option>1-100</option>
-                        <option>101-300</option>
-                        <option>301-500</option>
-                        <option>501-1000</option>
-                        <option>1000+</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">
-                      Número de Profesores
-                    </label>
-                    <div className="relative">
-                      <Users className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <select className="w-full rounded-md border border-input bg-background py-2 pl-10 pr-3 text-sm">
-                        <option>1-10</option>
-                        <option>11-30</option>
-                        <option>31-50</option>
-                        <option>51-100</option>
-                        <option>100+</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">
-                    Teléfono de Contacto
-                  </label>
-                  <Input type="tel" placeholder="+52 555 123 4567" />
-                </div>
-
-                <div className="flex gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setStep(1)}
-                    className="flex-1"
-                  >
-                    Atrás
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => setStep(3)}
-                    className="flex-1"
-                  >
-                    Continuar
-                  </Button>
-                </div>
-              </form>
-            )}
-
-            {/* Step 3: Account Setup */}
-            {step === 3 && (
-              <form className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">
-                      Nombre
-                    </label>
-                    <Input placeholder="Juan" />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">
-                      Apellido
-                    </label>
-                    <Input placeholder="García" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">
-                    Correo Electrónico
-                  </label>
-                  <Input type="email" placeholder="admin@colegio.edu" />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">
-                    Contraseña
-                  </label>
-                  <div className="relative">
+                    <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      type={showPassword ? "text" : "password"}
-                      placeholder="Mínimo 8 caracteres"
-                      className="pr-10"
+                      required
+                      value={schoolName}
+                      onChange={(event) => setSchoolName(event.target.value)}
+                      placeholder="Colegio San Martín"
+                      className="pl-10"
+                      maxLength={160}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </button>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Debe contener al menos 8 caracteres, una mayúscula y un número
-                  </p>
-                </div>
+                </Field>
 
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">
-                    Confirmar Contraseña
-                  </label>
-                  <Input type="password" placeholder="Repite tu contraseña" />
-                </div>
+                <Field label="Ciudad">
+                  <div className="relative">
+                    <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={city}
+                      onChange={(event) => setCity(event.target.value)}
+                      placeholder="Bogotá, Colombia"
+                      className="pl-10"
+                      maxLength={80}
+                    />
+                  </div>
+                </Field>
+              </div>
 
-                <div className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    id="terms"
-                    className="mt-1 h-4 w-4 rounded border-border text-primary"
-                  />
-                  <label htmlFor="terms" className="text-sm text-muted-foreground">
-                    Acepto los{" "}
-                    <Link href="#" className="text-primary hover:underline">
-                      Términos de Servicio
-                    </Link>{" "}
-                    y la{" "}
-                    <Link href="#" className="text-primary hover:underline">
-                      Política de Privacidad
-                    </Link>
-                  </label>
-                </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Tu nombre" required>
+                  <div className="relative">
+                    <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      required
+                      value={contactName}
+                      onChange={(event) => setContactName(event.target.value)}
+                      placeholder="María Rodríguez"
+                      className="pl-10"
+                      maxLength={120}
+                    />
+                  </div>
+                </Field>
 
-                <div className="flex gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setStep(2)}
-                    className="flex-1"
+                <Field label="Tu cargo">
+                  <select
+                    value={contactRole}
+                    onChange={(event) => setContactRole(event.target.value)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                   >
-                    Atrás
-                  </Button>
-                  <Button type="submit" className="flex-1" asChild>
-                    <Link href="/admin">Crear Cuenta</Link>
-                  </Button>
+                    <option value="">Selecciona…</option>
+                    {CARGOS.map((cargo) => (
+                      <option key={cargo} value={cargo}>
+                        {cargo}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Correo" required>
+                  <div className="relative">
+                    <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      required
+                      type="email"
+                      value={contactEmail}
+                      onChange={(event) => setContactEmail(event.target.value)}
+                      placeholder="rectoria@colegio.edu.co"
+                      className="pl-10"
+                      maxLength={160}
+                    />
+                  </div>
+                </Field>
+
+                <Field label="Teléfono o WhatsApp">
+                  <div className="relative">
+                    <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={contactPhone}
+                      onChange={(event) => setContactPhone(event.target.value)}
+                      placeholder="+57 300 000 0000"
+                      className="pl-10"
+                      maxLength={40}
+                    />
+                  </div>
+                </Field>
+              </div>
+
+              <Field
+                label="¿Cuántos estudiantes tiene?"
+                hint="Es lo que más define la propuesta. Un aproximado sirve."
+              >
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={20000}
+                  value={studentCount}
+                  onChange={(event) => setStudentCount(event.target.value)}
+                  placeholder="450"
+                  className="sm:max-w-[200px]"
+                />
+              </Field>
+
+              <Field label="¿Qué necesitas resolver?" hint="Puedes marcar varias." group>
+                <div className="flex flex-wrap gap-2">
+                  {INTERESES.map((interes) => {
+                    const active = interests.includes(interes.value)
+                    return (
+                      <button
+                        key={interes.value}
+                        type="button"
+                        onClick={() => toggleInterest(interes.value)}
+                        aria-pressed={active}
+                        className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                          active
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:border-muted-foreground"
+                        }`}
+                      >
+                        {interes.label}
+                      </button>
+                    )
+                  })}
                 </div>
-              </form>
-            )}
+              </Field>
+
+              <Field label="Algo más que debamos saber">
+                <Textarea
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  placeholder="Hoy llevamos las notas en Excel y queremos que las familias vean el boletín en línea."
+                  rows={4}
+                  maxLength={2000}
+                />
+              </Field>
+
+              {error && (
+                <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+
+              <Button type="submit" className="w-full gap-2" disabled={enviando}>
+                {enviando && <Loader2 className="h-4 w-4 animate-spin" />}
+                {enviando ? "Enviando…" : "Solicitar demostración"}
+              </Button>
+
+              <p className="text-center text-xs text-muted-foreground">
+                Usamos estos datos solo para contactarte sobre Classia.
+              </p>
+            </form>
           </CardContent>
         </Card>
 
-        {/* Footer */}
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          ¿Ya tienes una cuenta?{" "}
+          ¿Tu colegio ya usa Classia?{" "}
           <Link href="/login" className="font-medium text-primary hover:underline">
             Inicia sesión
           </Link>
         </p>
       </div>
     </div>
+  )
+}
+
+// `group`: para un conjunto de controles (los chips de intereses) en vez de un solo campo.
+// Envolver botones en un <label> haría que cada clic dispare además el comportamiento del
+// label sobre el primer control que encuentre — se rompe justo el que quiere marcar.
+function Field({
+  label,
+  required,
+  hint,
+  group,
+  children,
+}: {
+  label: string
+  required?: boolean
+  hint?: string
+  group?: boolean
+  children: React.ReactNode
+}) {
+  const Wrapper = group ? "div" : "label"
+
+  return (
+    <Wrapper className="block" {...(group ? { role: "group", "aria-label": label } : {})}>
+      <span className="mb-2 block text-sm font-medium text-foreground">
+        {label}
+        {required && <span className="text-destructive"> *</span>}
+      </span>
+      {children}
+      {hint && <span className="mt-1 block text-xs text-muted-foreground">{hint}</span>}
+    </Wrapper>
   )
 }

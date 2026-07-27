@@ -49,8 +49,10 @@ export function LandingHero() {
           {/* CTAs */}
           <div className="mt-10 flex flex-col gap-4 sm:flex-row">
             <Button size="lg" asChild className="gap-2">
+              {/* "Comenzar Gratis" prometía un alta autoservicio que nunca existió: /registro
+                  es una solicitud de demo que contesta una persona. */}
               <Link href="/registro">
-                Comenzar Gratis
+                Solicitar Demostración
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>

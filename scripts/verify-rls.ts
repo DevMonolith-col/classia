@@ -23,6 +23,7 @@ const GLOBAL_ALLOWLIST: Record<string, string> = {
   users: "un usuario puede pertenecer a varios colegios via TenantMembership; el aislamiento real vive en tenant_memberships, no acá.",
   system_settings: "configuración global de la plataforma, no de un colegio.",
   notification_preferences: "pendiente de decisión de producto (ver Fase 1 del plan) -- sin tenantId todavía a propósito.",
+  demo_requests: "solicitudes de demo del sitio público: llegan ANTES de que exista el colegio, así que no hay tenantId al cual scopearlas. El POST corre sin sesión (app.tenant_id es NULL) y una política estándar rechazaría el INSERT. El control de acceso es por rol en el controller: escribir es público con rate-limit, leer exige DEMO_REQUESTS_LIST/READ (solo SUPER_ADMIN).",
 };
 
 // Tablas con tenantId nullable por diseño (sesiones/acciones de plataforma

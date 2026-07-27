@@ -50,6 +50,7 @@ import { UsersModule } from "./modules/users/users.module";
 import { SupportModule } from "./modules/support/support.module";
 import { SettingsModule } from "./modules/settings/settings.module";
 import { ElectionsModule } from "./modules/elections/elections.module";
+import { DemoRequestsModule } from "./modules/demo-requests/demo-requests.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { PaymentsModule } from "./modules/payments/payments.module";
 import { ReportsModule } from "./modules/reports/reports.module";
@@ -127,6 +128,7 @@ import { AccessControlModule } from "./modules/access-control/access-control.mod
     AccessControlModule,
     SettingsModule,
     ElectionsModule,
+    DemoRequestsModule,
     DocumentsModule,
     PaymentsModule,
     ReportsModule,

@@ -9,6 +9,7 @@ import {
   Building2,
   ClipboardList,
   Gauge,
+  Inbox,
   LifeBuoy,
   LogOut,
   Menu,
@@ -41,6 +42,7 @@ type NavItem = {
 const navigation: NavItem[] = [
   { name: "Panel SaaS", href: "/superadmin", icon: Gauge, available: true, roles: ["SUPER_ADMIN"] },
   { name: "Colegios", href: "/superadmin/tenants", icon: Building2, available: true, roles: ["SUPER_ADMIN"] },
+  { name: "Solicitudes", href: "/superadmin/solicitudes", icon: Inbox, available: true, roles: ["SUPER_ADMIN"] },
   { name: "Usuarios globales", href: "/superadmin/users", icon: Users, available: true, roles: ["SUPER_ADMIN"] },
   { name: "Auditoria", href: "/superadmin/audit", icon: ClipboardList, available: true, roles: ["SUPER_ADMIN"] },
   { 
