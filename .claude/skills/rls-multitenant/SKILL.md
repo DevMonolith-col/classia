@@ -79,10 +79,10 @@ Los `$queryRaw` **dentro** del wrapper heredan el contexto gratis (el `FOR UPDAT
 
 ## Jobs de BullMQ
 
-Un processor corre sin request HTTP, así que nadie le setea el contexto. Los 4 que existen
-(`notifications`, `documents`, `reports`, `access-session-expiry`) ya lo resuelven con el mismo
-patrón: el `tenantId` viaja en `job.data` desde que se encola, y el processor envuelve todo su
-trabajo:
+Un processor corre sin request HTTP, así que nadie le setea el contexto. Los 6 que existen
+(`notifications`, `documents`, `reports`, `access-session-expiry`, `event-reminders`,
+`password-reset-cleanup`) lo resuelven con el mismo patrón: el `tenantId` viaja en `job.data`
+desde que se encola, y el processor envuelve todo su trabajo:
 
 ```ts
 async process(job: Job<{ deliveryId: string; tenantId: string }>) {
@@ -91,6 +91,18 @@ async process(job: Job<{ deliveryId: string; tenantId: string }>) {
 ```
 
 Si agregas un processor, encolar sin `tenantId` no falla ruidosamente — procesa cero filas.
+
+**La excepción son los barridos periódicos**, que hoy son dos (`access-session-expiry` con
+`job.name === "sweep"`, y `password-reset-cleanup` entero). No hay un colegio al que asociarlos,
+así que el payload va vacío a propósito y el reparto es otro: el cliente de bypass **solo
+descubre** las candidatas de todos los colegios (`select` mínimo, típicamente `id` y `tenantId`,
+o `distinct: ["tenantId"]`), y el trabajo real de cada una corre dentro de
+`runWithTenant(tenantId, ...)`. **El bypass abre la puerta a encontrarlas, no a tocarlas** — si
+el `where` del barrido está mal, borra o cambia de menos, no de más. Un barrido que hace el
+trabajo con el cliente de bypass es un bug esperando: RLS deja de ser la barrera de abajo.
+
+Al escribirlo, dejá dicho en el processor que el payload va vacío a propósito; si no, el
+siguiente que pase lo "arregla" agregándole un `tenantId` que no existe.
 
 ## Lectura cross-tenant
 

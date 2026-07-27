@@ -8,6 +8,10 @@ import { setupApp } from "../src/app.setup";
 import { PrismaService } from "../src/core/prisma/prisma.service";
 import { TenantRlsContextService } from "../src/core/prisma/tenant-rls-context.service";
 import { EmailService } from "../src/modules/notifications/email/email.service";
+import {
+  PasswordResetCleanupService,
+  RESET_TOKEN_RETENTION_MS,
+} from "../src/modules/auth/password-reset-cleanup.service";
 import { NotificationsProcessor } from "../src/modules/notifications/notifications.processor";
 
 const DEMO_TENANT_SLUG = "demo";
@@ -475,6 +479,71 @@ describe("Backend v1 e2e", () => {
       await new Promise((resolve) => setTimeout(resolve, 600));
       emailSpy.mockRestore();
     }
+  });
+
+  // El barrido de tokens vencidos. La migración creó el índice sobre `expiresAt` "para poder
+  // barrer los vencidos" y el barrido no existía: la tabla crecía una fila por solicitud.
+  //
+  // Las lecturas van dentro de `runWithTenant` a propósito: un `findUnique` suelto en un `it()`
+  // corre sin contexto, RLS devuelve `null`, y entonces "la fila vieja se borró" pasaría
+  // aunque no se hubiera borrado nada. Por eso además se afirma `not.toBeNull()` sobre la
+  // reciente: si el contexto faltara, esa afirmación cae y el test lo dice.
+  it("sweeps expired password reset tokens without touching the live ones", async () => {
+    const prisma = app.get(PrismaService);
+    const tenantRlsContext = app.get(TenantRlsContextService);
+    const cleanup = app.get(PasswordResetCleanupService);
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: DEMO_TENANT_SLUG } });
+
+    const user = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.user.findUniqueOrThrow({ where: { email: GUARDIAN_EMAIL }, select: { id: true } }),
+    );
+
+    const vencido = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.passwordResetToken.create({
+        data: {
+          tenantId: tenant.id,
+          userId: user.id,
+          tokenHash: `barrido-vencido-${Date.now()}`,
+          // Un día más allá de la retención: dentro del rango que el barrido debe borrar.
+          expiresAt: new Date(Date.now() - RESET_TOKEN_RETENTION_MS - 24 * 60 * 60 * 1000),
+        },
+        select: { id: true },
+      }),
+    );
+
+    // Uno vencido hace poco: ya no sirve como enlace, pero está dentro de la ventana de
+    // retención. Es el que distingue "barre lo viejo" de "borra todo lo vencido".
+    const reciente = await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.passwordResetToken.create({
+        data: {
+          tenantId: tenant.id,
+          userId: user.id,
+          tokenHash: `barrido-reciente-${Date.now()}`,
+          expiresAt: new Date(Date.now() - 60 * 60 * 1000),
+        },
+        select: { id: true },
+      }),
+    );
+
+    const resultado = await cleanup.purgeExpiredTokens();
+    expect(resultado.deleted).toBeGreaterThanOrEqual(1);
+
+    const [viejaDespues, recienteDespues] = await tenantRlsContext.runWithTenant(
+      tenant.id,
+      async () => [
+        await prisma.passwordResetToken.findUnique({ where: { id: vencido.id } }),
+        await prisma.passwordResetToken.findUnique({ where: { id: reciente.id } }),
+      ],
+    );
+
+    // Primero la que debe seguir viva: si esta fuera null, el contexto de tenant no llegó y
+    // la afirmación de abajo no probaría nada.
+    expect(recienteDespues).not.toBeNull();
+    expect(viejaDespues).toBeNull();
+
+    await tenantRlsContext.runWithTenant(tenant.id, () =>
+      prisma.passwordResetToken.delete({ where: { id: reciente.id } }),
+    );
   });
 
   it("refreshes and revokes refresh tokens on logout", async () => {

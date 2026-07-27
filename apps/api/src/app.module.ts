@@ -25,6 +25,7 @@ import { AcademicModule } from "./modules/academic/academic.module";
 import { AttendanceModule } from "./modules/attendance/attendance.module";
 import { AuditModule } from "./modules/audit/audit.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { PasswordResetCleanupModule } from "./modules/auth/password-reset-cleanup.module";
 import { BootstrapModule } from "./modules/bootstrap/bootstrap.module";
 import { ConversationsModule } from "./modules/conversations/conversations.module";
 import { CalendarModule } from "./modules/calendar/calendar.module";
@@ -83,6 +84,7 @@ import { AccessControlModule } from "./modules/access-control/access-control.mod
     HealthModule,
     TenantsModule,
     AuthModule,
+    PasswordResetCleanupModule,
     BootstrapModule,
     UsersModule,
     GroupsModule,
