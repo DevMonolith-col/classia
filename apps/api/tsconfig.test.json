@@ -1,0 +1,17 @@
+{
+  // `tsconfig.json` excluye `test` y los `*.spec.ts` porque es el que usa `nest build`: los
+  // tests no van al bundle. El efecto secundario era que **nadie los typechequeaba**, y así
+  // sobrevivió un `CalendarEventType` usado sin importar en `test/helpers/calendar-fixtures.ts`
+  // que dejó CI en rojo nueve commits seguidos: la línea vive dentro de un `create` que solo
+  // corre cuando la fila no existe todavía, o sea nunca en una base de desarrollo con historia
+  // y siempre en la base limpia de CI.
+  //
+  // Este config no compila nada — solo existe para que `pnpm typecheck` cubra también `test/`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node", "multer", "jest"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

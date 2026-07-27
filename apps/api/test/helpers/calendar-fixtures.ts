@@ -7,7 +7,7 @@
 //
 // Todo lo que toca tablas con RLS forzado corre dentro de runWithTenant: sin contexto de
 // tenant esas escrituras no fallan, escriben cero filas.
-import { TenantStatus, UserRole, UserStatus } from "@prisma/client";
+import { CalendarEventType, TenantStatus, UserRole, UserStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { PrismaService } from "../../src/core/prisma/prisma.service";
 import { TenantRlsContextService } from "../../src/core/prisma/tenant-rls-context.service";
@@ -183,18 +183,28 @@ export async function ensureFixtures(
 
     // Invoice exige academicYearId. En dev el seed ya sembró un año, pero CI solo aplica
     // migraciones y nunca siembra.
-    const existingYear = await prisma.academicYear.findFirst({
-      where: { tenantId: tenantA.id },
+    //
+    // **Tiene que estar ACTIVO, no solo existir.** `HomeworkService#create` tira 403 si no hay
+    // ninguno con `isActive` y `list()` filtra por él, así que un año inactivo deja sin tareas
+    // a la agregación del calendario. La versión anterior buscaba "cualquier año" y creaba uno
+    // sin activar: en dev daba igual —el seed ya había dejado el suyo activo— y en la base
+    // limpia de CI rompía dos tests. Es el mismo patrón que el import faltante de este archivo:
+    // el camino solo se recorre cuando la fila no existe, o sea nunca en dev y siempre en CI.
+    const activeYear = await prisma.academicYear.findFirst({
+      where: { tenantId: tenantA.id, isActive: true },
       select: { id: true },
     });
     const academicYear =
-      existingYear ??
-      (await prisma.academicYear.create({
-        data: {
+      activeYear ??
+      (await prisma.academicYear.upsert({
+        where: { tenantId_name: { tenantId: tenantA.id, name: "EVENTS-E2E-YEAR" } },
+        update: { isActive: true },
+        create: {
           tenantId: tenantA.id,
           name: "EVENTS-E2E-YEAR",
           startDate: new Date("2026-01-27"),
           endDate: new Date("2026-11-27"),
+          isActive: true,
         },
         select: { id: true },
       }));
