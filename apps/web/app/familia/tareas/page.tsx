@@ -38,6 +38,9 @@ interface Homework {
   group: { id: string; name: string }
   subject: { id: string; name: string }
   teacher: { id: string; user: { firstName: string; lastName: string } | null } | null
+  /** El enunciado que sube el profesor -- no confundir con el archivo que entrega el alumno. */
+  attachmentKey: string | null
+  attachmentName: string | null
 }
 
 interface Submission {
@@ -98,6 +101,7 @@ export default function TareasFamiliaPage() {
   const [showFilters, setShowFilters] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [downloadingAttachment, setDownloadingAttachment] = useState(false)
 
   const loadStudents = useCallback(async () => {
     setError("")
@@ -155,6 +159,26 @@ export default function TareasFamiliaPage() {
       setHomework([])
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  /**
+   * El acudiente no tiene FILES_READ (backlog "Seguridad y Permisos" 2.1), así
+   * que no puede resolver la key del adjunto por su cuenta -- pide una URL
+   * firmada al endpoint dueño del dato, que valida que este hijo tenga tarea
+   * en ese curso antes de firmarla (GET /homework/:id/attachment-url).
+   */
+  const handleDownloadAttachment = useCallback(async (homeworkId: string) => {
+    setDownloadingAttachment(true)
+    try {
+      const res = await apiFetch(`/homework/${homeworkId}/attachment-url`, { silent: true })
+      if (!res.ok) throw new Error("No se pudo obtener el enunciado.")
+      const data = (await res.json()) as { url: string; name: string | null }
+      window.open(data.url, "_blank", "noopener,noreferrer")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo descargar el enunciado.")
+    } finally {
+      setDownloadingAttachment(false)
     }
   }, [])
 
@@ -379,6 +403,23 @@ export default function TareasFamiliaPage() {
                 <p className="whitespace-pre-line text-sm text-foreground">
                   {selectedTask.description}
                 </p>
+              )}
+
+              {selectedTask.attachmentKey && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={downloadingAttachment}
+                  onClick={() => handleDownloadAttachment(selectedTask.id)}
+                >
+                  {downloadingAttachment ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  {selectedTask.attachmentName ?? "Descargar enunciado"}
+                </Button>
               )}
 
               <div className="flex items-center gap-3 text-sm text-muted-foreground">
