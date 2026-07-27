@@ -9,6 +9,10 @@ export const PERMISSIONS = {
   GROUPS_LIST: "groups:list",
   GROUPS_READ: "groups:read",
   GROUPS_UPDATE: "groups:update",
+  // "Mis grupos" (GET /groups/mine/stats): el profesor no tiene GROUPS_LIST
+  // (esa es la ruta de administración, con tenantId de query), solo puede
+  // ver los conteos agregados de los grupos donde dicta clase.
+  GROUPS_READ_SELF: "groups:read-self",
   STUDENTS_CREATE: "students:create",
   STUDENTS_LIST: "students:list",
   STUDENTS_READ: "students:read",
@@ -479,6 +483,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.SCHEDULES_LIST,
     PERMISSIONS.SCHEDULES_READ,
     PERMISSIONS.SCHEDULES_READ_SELF,
+    PERMISSIONS.GROUPS_READ_SELF,
     PERMISSIONS.ATTENDANCE_CREATE,
     PERMISSIONS.ATTENDANCE_LIST,
     PERMISSIONS.ATTENDANCE_READ,

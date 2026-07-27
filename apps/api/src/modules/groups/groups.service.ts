@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import { Prisma, UserRole } from "@prisma/client";
 import { Request } from "express";
+import { AudienceScopeService } from "../../common/audience/audience-scope.service";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditService } from "../../core/audit/audit.service";
 import { PrismaService } from "../../core/prisma/prisma.service";
@@ -11,6 +12,7 @@ export class GroupsService {
   constructor(
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly audience: AudienceScopeService,
   ) {}
 
   list(actor: RequestUser, tenantId?: string) {
@@ -21,6 +23,43 @@ export class GroupsService {
       select: this.groupSelect(),
       orderBy: [{ grade: "asc" }, { section: "asc" }, { name: "asc" }],
     });
+  }
+
+  /**
+   * Conteos agregados de "mis grupos" (backlog "Rendimiento y Escalabilidad" 1.2):
+   * el dashboard del profesor pedía `GET /students?groupId=` por cada grupo que
+   * dicta, solo para contar estudiantes -- un N+1 clásico (una llamada HTTP y una
+   * query por grupo). Acá se resuelve en dos queries totales sin importar cuántos
+   * grupos tenga el profesor: una para los grupos, una `groupBy` agregada para los
+   * conteos. Un estudiante pertenece a un solo grupo (`Student.groupId`), así que
+   * sumar los conteos por grupo da el total real sin necesitar deduplicar.
+   */
+  async statsMine(actor: RequestUser) {
+    const groupIds = await this.audience.resolveTeacherGroupIds(actor);
+    if (groupIds.length === 0) return [];
+
+    const [groups, counts] = await Promise.all([
+      this.prisma.group.findMany({
+        where: { id: { in: groupIds }, tenantId: actor.tenantId },
+        select: { id: true, name: true, grade: true, section: true },
+        orderBy: [{ grade: "asc" }, { section: "asc" }],
+      }),
+      this.prisma.student.groupBy({
+        by: ["groupId"],
+        where: { groupId: { in: groupIds }, tenantId: actor.tenantId, isActive: true },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const studentCountByGroup = new Map(counts.map((c) => [c.groupId, c._count._all]));
+
+    return groups.map((group) => ({
+      groupId: group.id,
+      name: group.name,
+      grade: group.grade,
+      section: group.section,
+      studentCount: studentCountByGroup.get(group.id) ?? 0,
+    }));
   }
 
   async findOne(groupId: string, actor: RequestUser) {
