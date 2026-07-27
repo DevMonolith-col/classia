@@ -6,7 +6,7 @@ import { useState, useEffect } from "react"
 import {
   Home, BookOpen, ClipboardList, Calendar, CalendarDays,
   MessageSquare, FileText, Bell, Settings, FileCheck2,
-  LogOut, Menu, X, Megaphone,
+  LogOut, Menu, X, Megaphone, Wallet,
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 import { NavUnreadBadge, UnreadBell } from "@/components/shared/unread-bell"
@@ -23,6 +23,9 @@ const navigation = [
   { name: "Calendario",      href: "/familia/calendario",    icon: CalendarDays },
   { name: "Horario",         href: "/familia/horario",       icon: Calendar },
   { name: "Asistencia",      href: "/familia/asistencia",    icon: BookOpen },
+  // "Estado de cuenta" y no "Pagos": la pantalla muestra cartera, no cobra. Un rótulo que
+  // promete pagar manda a la familia a buscar un botón que no existe ni va a existir acá.
+  { name: "Estado de cuenta", href: "/familia/pagos",        icon: Wallet },
   { name: "Certificados",    href: "/familia/certificados",  icon: FileCheck2 },
   { name: "Mensajes",        href: "/familia/mensajes",      icon: MessageSquare },
   { name: "Comunicados",     href: "/familia/comunicados",   icon: Megaphone },
