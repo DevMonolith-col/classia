@@ -598,8 +598,9 @@ generado, no un grep del `.prisma`) y cruza cada uno contra una consulta
 directa a `pg_class`/`pg_namespace` (`relrowsecurity`/`relforcerowsecurity`
 reales en la base de datos, no lo que el código *cree* que debería estar
 aplicado). Clasificación con una lista blanca explícita y corta
-(`GLOBAL_ALLOWLIST`, 4 tablas: `tenants`, `users`, `system_settings`,
-`notification_preferences`, cada una con su razón en el propio código) --
+(`GLOBAL_ALLOWLIST`, 5 tablas: `tenants`, `users`, `system_settings`,
+`notification_preferences` y, desde el 2026-07-27, `demo_requests` -- cada una
+con su razón en el propio código) --
 **todo lo demás, sin excepción, debe tener RLS habilitado y forzado**, o el
 script falla con `exit 1` y el `ALTER TABLE` exacto que hace falta. A
 propósito NO usa "¿el modelo tiene `tenantId`?" como criterio: ese es
@@ -611,7 +612,10 @@ lista blanca con una justificación.
 Verificado en vivo contra la BD de dev: `52 modelos revisados -- 46
 estándar + 2 nullable-tenant (auth_sessions/audit_logs) + 4 en la lista
 blanca -- verify:rls OK`, coincide exactamente con la clasificación
-documentada en la Fase 2. No se probó en vivo el caso negativo (desactivar
+documentada en la Fase 2. (Al 2026-07-27 son `55 modelos -- 48 estándar + 2
+nullable-tenant + 5 en la lista blanca`: el guardarraíl hizo su trabajo con
+`demo_requests`, el modelo nuevo de las solicitudes de demo, que falló el
+script hasta clasificarlo explícitamente.) No se probó en vivo el caso negativo (desactivar
 RLS a mano en una tabla real para confirmar que el script lo detecta) --
 el harness de este entorno bloqueó ese comando por tratarse de una
 modificación de seguridad sobre la base de datos real, correctamente. La
