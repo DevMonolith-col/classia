@@ -26,7 +26,10 @@ type NavItem = {
   name: string;
   href?: string;
   icon: any;
-  children?: { name: string; href: string; icon: any }[];
+  // `soon`: la pantalla existe y se puede abrir, pero explica que la función
+  // todavía no está — no es un enlace muerto ni una sección deshabilitada.
+  // Mismo criterio que el badge "Pronto" del sidebar de superadmin.
+  children?: { name: string; href: string; icon: any; soon?: boolean }[];
 }
 
 const navigation: NavItem[] = [
@@ -71,7 +74,7 @@ const navigation: NavItem[] = [
       { name: "Gobierno Escolar", href: "/admin/elecciones", icon: Vote },
       { name: "Certificados", href: "/admin/certificados", icon: FileCheck2 },
       { name: "Soporte", href: "/admin/soporte", icon: LifeBuoy },
-      { name: "Plugins", href: "/admin/plugins", icon: Puzzle },
+      { name: "Plugins", href: "/admin/plugins", icon: Puzzle, soon: true },
       { name: "Configuración", href: "/admin/configuracion", icon: Settings },
     ]
   }
@@ -215,7 +218,12 @@ export function AdminSidebar({ isCollapsed, onToggle }: Props) {
                             ].join(" ")}
                           >
                             <child.icon className="h-4 w-4 shrink-0" />
-                            {child.name}
+                            <span className="truncate">{child.name}</span>
+                            {child.soon && (
+                              <span className="ml-auto shrink-0 rounded bg-sidebar-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                                Pronto
+                              </span>
+                            )}
                           </Link>
                         )
                       })}
