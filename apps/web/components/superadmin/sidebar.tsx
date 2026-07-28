@@ -11,18 +11,16 @@ import {
   Gauge,
   Inbox,
   LifeBuoy,
-  LogOut,
   Menu,
   PanelLeftClose,
-  Search,
   Settings,
   ShieldCheck,
   Users,
-  X,
   ChevronDown,
   MessageSquare,
 } from "lucide-react"
 import { getStoredUser, logout } from "@/lib/auth"
+import { PortalSidebar } from "@/components/shared/portal-sidebar"
 
 const SUPERADMIN_ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super Administrador",
@@ -67,7 +65,6 @@ interface Props {
 export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
   const pathname = usePathname()
   const router = useRouter()
-  const [mobileOpen, setMobileOpen] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ "Soporte": true })
   const [user, setUser] = useState<{ firstName: string; lastName: string; email: string; role: string } | null>(null)
 
@@ -96,65 +93,40 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
     router.push("/login")
   }
 
+  const statusCard = (
+    <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/60 p-3">
+      <div className="flex items-center gap-2 text-sidebar-foreground">
+        <Activity className="h-4 w-4" />
+        <span className="text-sm font-semibold">Sistema operativo</span>
+      </div>
+      <p className="mt-1 text-xs text-sidebar-foreground/60">API, base de datos y Redis sin incidentes criticos.</p>
+    </div>
+  )
+
   return (
-    <>
-      <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background px-4 lg:hidden">
-        <button onClick={() => setMobileOpen(true)} className="rounded-md p-2 text-foreground" aria-label="Abrir menu">
-          <Menu className="h-5 w-5" />
-        </button>
-        <Link href="/superadmin" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <span className="text-sm font-bold text-primary-foreground">C</span>
-          </div>
-          <span className="font-bold">Classia SaaS</span>
-        </Link>
+    <PortalSidebar
+      isCollapsed={isCollapsed}
+      onToggle={onToggle}
+      collapseIcon={PanelLeftClose}
+      brandInitial="C"
+      brandName="Classia"
+      mobileBrandName="Classia SaaS"
+      brandSubtitle="Operacion SaaS"
+      brandHref="/superadmin"
+      expandedWidthClass="lg:w-72"
+      mobileTopBarRightSlot={
         <button className="relative rounded-md p-2 text-foreground" aria-label="Notificaciones">
           <Bell className="h-5 w-5" />
           <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
         </button>
-      </header>
-
-      {mobileOpen && <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setMobileOpen(false)} />}
-
-      <aside
-        className={[
-          "fixed inset-y-0 left-0 z-40 flex flex-col bg-sidebar transition-all duration-300",
-          "w-64",
-          isCollapsed ? "lg:w-16" : "lg:w-72",
-          mobileOpen ? "translate-x-0" : "-translate-x-full",
-          "lg:translate-x-0",
-        ].join(" ")}
-      >
-        <div className={`flex h-16 shrink-0 items-center border-b border-sidebar-border ${isCollapsed ? "justify-center px-2" : "px-4"}`}>
-          {!isCollapsed && (
-            <Link href="/superadmin" className="flex flex-1 items-center gap-2 overflow-hidden">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary">
-                <span className="text-sm font-bold text-sidebar-primary-foreground">C</span>
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold text-sidebar-foreground">Classia</p>
-                <p className="truncate text-[11px] font-medium uppercase tracking-wide text-sidebar-foreground/50">Operacion SaaS</p>
-              </div>
-            </Link>
-          )}
-          <button
-            onClick={onToggle}
-            className="hidden shrink-0 rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
-            aria-label="Contraer menu"
-          >
-            <PanelLeftClose className="h-5 w-5" />
-          </button>
-          <button
-            onClick={() => setMobileOpen(false)}
-            className="shrink-0 rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:hidden"
-            aria-label="Cerrar menu"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-
-
+      }
+      initials={initials}
+      displayName={displayName}
+      roleLabel={SUPERADMIN_ROLE_LABELS[user?.role ?? ""] ?? "Super Administrador"}
+      onLogout={handleLogout}
+      extraFooterContent={statusCard}
+    >
+      {(closeMobileMenu) => (
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
           {navigation.map((item) => {
             if (item.roles && user && !item.roles.includes(user.role)) return null
@@ -162,9 +134,9 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
             if (item.children) {
               const isExpanded = expanded[item.name]
               const hasActiveChild = item.children.some(child => pathname === child.href || pathname.startsWith(`${child.href}/`))
-              
+
               const visibleChildren = item.children.filter(child => !child.roles || (user && child.roles.includes(user.role)))
-              
+
               if (visibleChildren.length === 0 && user) return null
 
               return (
@@ -188,7 +160,7 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
                       </>
                     )}
                   </button>
-                  
+
                   {!isCollapsed && isExpanded && (
                     <div className="mt-1 space-y-0.5 pl-9 pr-1">
                       {visibleChildren.map(child => {
@@ -197,7 +169,7 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
                           <Link
                             key={child.name}
                             href={child.href}
-                            onClick={() => setMobileOpen(false)}
+                            onClick={closeMobileMenu}
                             className={[
                               "flex items-center gap-2 truncate rounded-md px-3 py-2 text-xs font-medium transition-colors",
                               childActive
@@ -246,7 +218,7 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
               <Link
                 key={item.name}
                 href={item.href!}
-                onClick={() => setMobileOpen(false)}
+                onClick={closeMobileMenu}
                 title={isCollapsed ? item.name : undefined}
                 className={[
                   "flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
@@ -261,43 +233,7 @@ export function SuperAdminSidebar({ isCollapsed, onToggle }: Props) {
             )
           })}
         </nav>
-
-        <div className="shrink-0 space-y-3 border-t border-sidebar-border p-3">
-          {!isCollapsed && (
-            <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/60 p-3">
-              <div className="flex items-center gap-2 text-sidebar-foreground">
-                <Activity className="h-4 w-4" />
-                <span className="text-sm font-semibold">Sistema operativo</span>
-              </div>
-              <p className="mt-1 text-xs text-sidebar-foreground/60">API, base de datos y Redis sin incidentes criticos.</p>
-            </div>
-          )}
-          {!isCollapsed && (
-            <div className="flex items-center gap-2 px-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent">
-                <span className="text-xs font-semibold text-sidebar-accent-foreground">{initials}</span>
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
-                <p className="truncate text-xs text-sidebar-foreground/50">
-                  {SUPERADMIN_ROLE_LABELS[user?.role ?? ""] ?? "Super Administrador"}
-                </p>
-              </div>
-            </div>
-          )}
-          <button
-            onClick={handleLogout}
-            title={isCollapsed ? "Cerrar sesion" : undefined}
-            className={[
-              "flex w-full items-center rounded-lg py-2 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
-              isCollapsed ? "justify-center px-2" : "gap-2 px-3",
-            ].join(" ")}
-          >
-            <LogOut className="h-4 w-4 shrink-0" />
-            {!isCollapsed && "Cerrar sesion"}
-          </button>
-        </div>
-      </aside>
-    </>
+      )}
+    </PortalSidebar>
   )
 }

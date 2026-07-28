@@ -5,6 +5,8 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
+import { ForgotPasswordThrottlerGuard } from "./forgot-password-throttler.guard";
+import { ResetPasswordThrottlerGuard } from "./reset-password-throttler.guard";
 import {
   ChangePasswordInput,
   ForgotPasswordInput,
@@ -41,7 +43,9 @@ export class AuthController {
   // Más estricto que login (5/min contra 20): acá cada intento manda un correo, así que el
   // abuso no es solo adivinar credenciales sino usar el endpoint para bombardear una bandeja
   // ajena. Y a diferencia del login, nadie necesita pedir el enlace veinte veces por minuto.
+  // Trackeado por email (no por IP): ver ForgotPasswordThrottlerGuard.
   @Post("forgot-password")
+  @UseGuards(ForgotPasswordThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   forgotPassword(
     @Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput,
@@ -50,8 +54,12 @@ export class AuthController {
     return this.auth.forgotPassword(body, request);
   }
 
-  // El límite también protege de probar enlaces al azar por fuerza bruta.
+  // El límite también protege de probar enlaces al azar por fuerza bruta. Trackeado por token
+  // (no por IP): es el segundo paso del mismo flujo que forgot-password, y dejarlo por IP
+  // habría vuelto a bloquear a un colegio completando el onboarding en bloque desde la misma
+  // red. Ver ResetPasswordThrottlerGuard.
   @Post("reset-password")
+  @UseGuards(ResetPasswordThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   resetPassword(
     @Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPasswordInput,
