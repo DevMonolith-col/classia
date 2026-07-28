@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { AlertTriangle, BookOpen, FileText, Loader2, MessageSquare, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api-client"
+import { useTeacherId } from "@/lib/bootstrap"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,7 +36,7 @@ function CalificacionesProfesorPageContent() {
   const searchParams = useSearchParams()
   const scheduleIdParam = searchParams.get("scheduleId")
 
-  const [teacherId, setTeacherId] = useState<string | null>(null)
+  const { teacherId, loading: teacherLoading, error: teacherError } = useTeacherId()
   const [schedules, setSchedules] = useState<TeacherSchedule[]>([])
   const [loadingSetup, setLoadingSetup] = useState(true)
   const [setupError, setSetupError] = useState("")
@@ -55,47 +56,50 @@ function CalificacionesProfesorPageContent() {
   const [loadingGrid, setLoadingGrid] = useState(false)
   const [gridError, setGridError] = useState("")
 
-  const loadSetup = useCallback(async () => {
-    setLoadingSetup(true)
-    setSetupError("")
-    try {
-      const bootstrapRes = await apiFetch("/app/bootstrap", { silent: true })
-      if (!bootstrapRes.ok) throw new Error("No se pudo cargar tu perfil de profesor.")
-      const bootstrap = (await bootstrapRes.json()) as {
-        summary?: { kind?: string; teacher?: { id?: string } }
-      }
-      const id = bootstrap.summary?.teacher?.id
-      if (!bootstrap.summary || bootstrap.summary.kind !== "teacher" || !id) {
-        throw new Error("Esta cuenta no tiene un perfil de profesor asociado.")
-      }
-      setTeacherId(id)
-
-      const [schedulesRes, yearsRes] = await Promise.all([
-        apiFetch(`/schedules?teacherId=${id}`, { silent: true }),
-        apiFetch("/academic-years", { silent: true }),
-      ])
-      
-      const schedulesData = schedulesRes.ok ? ((await schedulesRes.json()) as TeacherSchedule[]) : []
-      setSchedules(schedulesData)
-      if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
-
-      if (yearsRes.ok) {
-        const years = (await yearsRes.json()) as AcademicYear[]
-        setAcademicYears(years)
-        const activeYear = years.find((y) => y.isActive)
-        if (activeYear) setSelectedYearId(activeYear.id)
-        else if (years.length > 0) setSelectedYearId(years[0].id)
-      }
-    } catch (err) {
-      setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
-    } finally {
-      setLoadingSetup(false)
-    }
-  }, [scheduleIdParam])
-
   useEffect(() => {
+    if (teacherLoading) return
+    if (teacherError) {
+      setSetupError(teacherError)
+      setLoadingSetup(false)
+      return
+    }
+    if (!teacherId) return
+
+    let cancelled = false
+    async function loadSetup() {
+      setLoadingSetup(true)
+      setSetupError("")
+      try {
+        const [schedulesRes, yearsRes] = await Promise.all([
+          apiFetch(`/schedules?teacherId=${teacherId}`, { silent: true }),
+          apiFetch("/academic-years", { silent: true }),
+        ])
+
+        const schedulesData = schedulesRes.ok ? ((await schedulesRes.json()) as TeacherSchedule[]) : []
+        if (cancelled) return
+        setSchedules(schedulesData)
+        if (!scheduleIdParam && schedulesData.length > 0) setSelectedScheduleId(schedulesData[0].id)
+
+        if (yearsRes.ok) {
+          const years = (await yearsRes.json()) as AcademicYear[]
+          if (cancelled) return
+          setAcademicYears(years)
+          const activeYear = years.find((y) => y.isActive)
+          if (activeYear) setSelectedYearId(activeYear.id)
+          else if (years.length > 0) setSelectedYearId(years[0].id)
+        }
+      } catch (err) {
+        if (!cancelled) setSetupError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
+      } finally {
+        if (!cancelled) setLoadingSetup(false)
+      }
+    }
+
     loadSetup()
-  }, [loadSetup])
+    return () => {
+      cancelled = true
+    }
+  }, [teacherId, teacherLoading, teacherError, scheduleIdParam])
 
   const selectedSchedule = schedules.find((s) => s.id === selectedScheduleId) ?? null
 

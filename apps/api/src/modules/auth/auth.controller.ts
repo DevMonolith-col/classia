@@ -5,6 +5,8 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
+import { ForgotPasswordThrottlerGuard } from "./forgot-password-throttler.guard";
+import { ResetPasswordThrottlerGuard } from "./reset-password-throttler.guard";
 import {
   ChangePasswordInput,
   ForgotPasswordInput,
@@ -41,8 +43,13 @@ export class AuthController {
   // Más estricto que login (5/min contra 20): acá cada intento manda un correo, así que el
   // abuso no es solo adivinar credenciales sino usar el endpoint para bombardear una bandeja
   // ajena. Y a diferencia del login, nadie necesita pedir el enlace veinte veces por minuto.
+  // Trackeado por email (no por IP): ver ForgotPasswordThrottlerGuard, que fija ahí adentro
+  // su límite de 5/min por dirección. Este @Throttle gobierna al guard GLOBAL, que sigue
+  // trackeando por IP: 100/min es techo contra rociar enlaces a mil direcciones desde un
+  // script, y a la vez deja pasar a un colegio entero completando el onboarding en bloque.
   @Post("forgot-password")
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(ForgotPasswordThrottlerGuard)
+  @Throttle({ default: { limit: 100, ttl: 60_000 } })
   forgotPassword(
     @Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput,
     @Req() request: Request,
@@ -50,9 +57,15 @@ export class AuthController {
     return this.auth.forgotPassword(body, request);
   }
 
-  // El límite también protege de probar enlaces al azar por fuerza bruta.
+  // El límite también protege de probar enlaces al azar por fuerza bruta. Trackeado por token
+  // (no por IP): es el segundo paso del mismo flujo que forgot-password, y dejarlo por IP
+  // habría vuelto a bloquear a un colegio completando el onboarding en bloque desde la misma
+  // red. Ver ResetPasswordThrottlerGuard.
+  // Igual que forgot-password: el 10/min por token vive en el guard, este número es el
+  // techo por IP del guard global.
   @Post("reset-password")
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(ResetPasswordThrottlerGuard)
+  @Throttle({ default: { limit: 100, ttl: 60_000 } })
   resetPassword(
     @Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPasswordInput,
     @Req() request: Request,
