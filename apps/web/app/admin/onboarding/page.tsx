@@ -174,7 +174,7 @@ function ImportCard({
 
 export default function OnboardingPage() {
   return (
-    <div className="space-y-6 p-4 lg:p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Onboarding masivo</h1>
         <p className="text-sm text-muted-foreground">

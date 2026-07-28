@@ -36,6 +36,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CalendarGrid, monthRange, type CalendarViewMode } from "@/components/shared/calendar/calendar-grid"
 import {
   type CalendarEvent,
@@ -201,145 +202,144 @@ export default function CalendarioAdminPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="lg:pl-64">
-        <div className="px-4 py-6 lg:px-8">
-          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground lg:text-3xl">Calendario Escolar</h1>
-              <p className="mt-1 text-muted-foreground">
-                Gestiona los eventos y actividades del año escolar
-              </p>
+    <>
+      <div className="p-4 sm:p-6 lg:p-8">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Calendario Escolar</h1>
+            <p className="mt-1 text-muted-foreground">
+              Gestiona los eventos y actividades del año escolar
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className="gap-2" onClick={() => setSubscribeOpen(true)}>
+              <CalendarPlus className="h-4 w-4" />
+              Suscribir a mi calendario
+            </Button>
+            <Button className="gap-2" onClick={() => openCreate()}>
+              <Plus className="h-4 w-4" />
+              Nuevo Evento
+            </Button>
+          </div>
+        </div>
+
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {statCards.map((card) => (
+            <Card key={card.label}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${card.tint}`}>
+                    <card.icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-foreground">{card.value}</p>
+                    <p className="text-xs text-muted-foreground">{card.label}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {error && (
+          <div className="mb-6 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="flex-1">
+              <p>{error}</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" className="gap-2" onClick={() => setSubscribeOpen(true)}>
-                <CalendarPlus className="h-4 w-4" />
-                Suscribir a mi calendario
-              </Button>
+            <Button variant="outline" size="sm" onClick={loadEvents}>
+              Reintentar
+            </Button>
+          </div>
+        )}
+
+        {/* Filtro por tipo. Paridad literal con el control segmentado de
+            /admin/asignaciones: TabsList y TabsTrigger sin clases locales. */}
+        <Tabs
+          value={selectedType}
+          onValueChange={(value) => setSelectedType(value as TypeFilter)}
+          className="mb-6"
+        >
+          <TabsList>
+            {(["Todos", ...EVENT_TYPES] as TypeFilter[]).map((type) => (
+              <TabsTrigger key={type} value={type}>
+                {type === "Todos" ? "Todos" : EVENT_TYPE_LABELS[type]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        <CalendarGrid
+          events={visibleEvents}
+          currentDate={currentDate}
+          viewMode={viewMode}
+          onCurrentDateChange={setCurrentDate}
+          onViewModeChange={setViewMode}
+          onSelectEvent={setSelectedEvent}
+          onSelectDay={openCreate}
+          loading={loading}
+        />
+
+        {!loading && !error && visibleEvents.length === 0 && (
+          <Card className="mt-6">
+            <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
+              <CalendarIcon className="h-10 w-10 text-muted-foreground" />
+              <div>
+                <p className="font-medium text-foreground">
+                  {selectedType === "Todos"
+                    ? "No hay eventos en este rango"
+                    : `No hay eventos de tipo ${EVENT_TYPE_LABELS[selectedType]} en este rango`}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Haz clic en cualquier día de la grilla para crear uno.
+                </p>
+              </div>
               <Button className="gap-2" onClick={() => openCreate()}>
                 <Plus className="h-4 w-4" />
                 Nuevo Evento
               </Button>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
+        )}
 
-          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {statCards.map((card) => (
-              <Card key={card.label}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${card.tint}`}>
-                      <card.icon className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold text-foreground">{card.value}</p>
-                      <p className="text-xs text-muted-foreground">{card.label}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {error && (
-            <div className="mb-6 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="flex-1">
-                <p>{error}</p>
+        <Card className="mt-6 lg:hidden">
+          <CardHeader>
+            <CardTitle className="text-lg">Próximos Eventos</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {loading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Cargando eventos…
               </div>
-              <Button variant="outline" size="sm" onClick={loadEvents}>
-                Reintentar
-              </Button>
-            </div>
-          )}
-
-          <Card className="mb-6">
-            <CardContent className="flex flex-wrap gap-2 p-4">
-              {(["Todos", ...EVENT_TYPES] as TypeFilter[]).map((type) => (
-                <Button
-                  key={type}
-                  variant={selectedType === type ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedType(type)}
-                >
-                  {type === "Todos" ? "Todos" : EVENT_TYPE_LABELS[type]}
-                </Button>
-              ))}
-            </CardContent>
-          </Card>
-
-          <CalendarGrid
-            events={visibleEvents}
-            currentDate={currentDate}
-            viewMode={viewMode}
-            onCurrentDateChange={setCurrentDate}
-            onViewModeChange={setViewMode}
-            onSelectEvent={setSelectedEvent}
-            onSelectDay={openCreate}
-            loading={loading}
-          />
-
-          {!loading && !error && visibleEvents.length === 0 && (
-            <Card className="mt-6">
-              <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
-                <CalendarIcon className="h-10 w-10 text-muted-foreground" />
-                <div>
-                  <p className="font-medium text-foreground">
-                    {selectedType === "Todos"
-                      ? "No hay eventos en este rango"
-                      : `No hay eventos de tipo ${EVENT_TYPE_LABELS[selectedType]} en este rango`}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Haz clic en cualquier día de la grilla para crear uno.
-                  </p>
-                </div>
-                <Button className="gap-2" onClick={() => openCreate()}>
-                  <Plus className="h-4 w-4" />
-                  Nuevo Evento
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card className="mt-6 lg:hidden">
-            <CardHeader>
-              <CardTitle className="text-lg">Próximos Eventos</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {loading && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Cargando eventos…
-                </div>
-              )}
-              {!loading &&
-                visibleEvents
-                  .slice()
-                  .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
-                  .slice(0, 5)
-                  .map((event) => (
-                    <button
-                      key={event.id}
-                      onClick={() => setSelectedEvent(event)}
-                      className="flex w-full items-center gap-3 rounded-lg border border-input p-3 text-left transition-colors hover:bg-muted"
-                    >
-                      <div className={`h-10 w-1 rounded-full ${EVENT_TYPE_COLORS[event.type]}`} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium text-foreground">{event.title}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {new Date(event.startsAt).toLocaleDateString("es-CO", {
-                            day: "numeric",
-                            month: "short",
-                          })}
-                          {event.allDay ? "" : ` · ${formatEventRange(event)}`}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-            </CardContent>
-          </Card>
-        </div>
-      </main>
+            )}
+            {!loading &&
+              visibleEvents
+                .slice()
+                .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+                .slice(0, 5)
+                .map((event) => (
+                  <button
+                    key={event.id}
+                    onClick={() => setSelectedEvent(event)}
+                    className="flex w-full items-center gap-3 rounded-lg border border-input p-3 text-left transition-colors hover:bg-muted"
+                  >
+                    <div className={`h-10 w-1 rounded-full ${EVENT_TYPE_COLORS[event.type]}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-foreground">{event.title}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {new Date(event.startsAt).toLocaleDateString("es-CO", {
+                          day: "numeric",
+                          month: "short",
+                        })}
+                        {event.allDay ? "" : ` · ${formatEventRange(event)}`}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+          </CardContent>
+        </Card>
+      </div>
 
       {selectedEvent && (
         <div
@@ -456,6 +456,6 @@ export default function CalendarioAdminPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   )
 }

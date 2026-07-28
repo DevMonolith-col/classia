@@ -551,70 +551,68 @@ export default function AdminCalificacionesPage() {
                 </div>
               ) : (
                 <>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="sticky left-0 bg-background pl-6 z-10 border-r min-w-[200px] border-b border-border">Estudiante</TableHead>
-                          {isConsolidadoView && subjectsToDisplay.map((subject) => (
-                            <TableHead key={subject.id} className="min-w-[120px] text-center border-b border-border">
-                              <span className="truncate" title={subject.name}>{subject.name}</span>
-                            </TableHead>
-                          ))}
-                          {!isConsolidadoView && <TableHead className="border-b border-border">Documento</TableHead>}
-                          <TableHead className="pr-6 text-right min-w-[140px] border-b border-border">Acciones</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {paginatedStudents.map((student) => (
-                          <TableRow
-                            key={student.id}
-                            className="cursor-pointer"
-                            onClick={() => setSelectedStudentId(student.id)}
-                          >
-                            <TableCell className="sticky left-0 bg-background pl-6 border-r border-border">
-                              <div className="font-medium text-foreground">
-                                {student.firstName} {student.lastName}
-                              </div>
-                              <div className="text-xs text-muted-foreground mt-0.5">
-                                {student.documentId ?? "-"}
-                              </div>
-                            </TableCell>
-
-                            {isConsolidadoView && subjectsToDisplay.map((subject) => {
-                              const finalGrade = getStudentGradeForSubject(student.id, subject.id)
-                              return (
-                                <TableCell key={subject.id} className="text-center">
-                                  {finalGrade.percent !== null ? (
-                                    <Badge variant="secondary" className="font-medium bg-secondary text-secondary-foreground">
-                                      {finalGrade.percent}
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-muted-foreground text-xs">—</span>
-                                  )}
-                                </TableCell>
-                              )
-                            })}
-
-                            {!isConsolidadoView && (
-                              <TableCell className="text-sm text-muted-foreground">
-                                {student.documentId ?? "-"}
-                              </TableCell>
-                            )}
-
-                            <TableCell className="pr-6 text-right" onClick={(e) => e.stopPropagation()}>
-                              <Button variant="outline" size="sm" asChild>
-                                 <Link href={`/admin/calificaciones/${student.id}`}>
-                                   <FileText className="mr-2 h-4 w-4" />
-                                   Boletín
-                                 </Link>
-                              </Button>
-                            </TableCell>
-                          </TableRow>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="sticky left-0 bg-background pl-6 z-10 border-r min-w-[200px] border-b border-border">Estudiante</TableHead>
+                        {isConsolidadoView && subjectsToDisplay.map((subject) => (
+                          <TableHead key={subject.id} className="min-w-[120px] text-center border-b border-border">
+                            <span className="truncate" title={subject.name}>{subject.name}</span>
+                          </TableHead>
                         ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                        {!isConsolidadoView && <TableHead className="border-b border-border">Documento</TableHead>}
+                        <TableHead className="pr-6 text-right min-w-[140px] border-b border-border">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedStudents.map((student) => (
+                        <TableRow
+                          key={student.id}
+                          className="cursor-pointer"
+                          onClick={() => setSelectedStudentId(student.id)}
+                        >
+                          <TableCell className="sticky left-0 bg-background pl-6 border-r border-border">
+                            <div className="font-medium text-foreground">
+                              {student.firstName} {student.lastName}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {student.documentId ?? "-"}
+                            </div>
+                          </TableCell>
+
+                          {isConsolidadoView && subjectsToDisplay.map((subject) => {
+                            const finalGrade = getStudentGradeForSubject(student.id, subject.id)
+                            return (
+                              <TableCell key={subject.id} className="text-center">
+                                {finalGrade.percent !== null ? (
+                                  <Badge variant="secondary" className="font-medium bg-secondary text-secondary-foreground">
+                                    {finalGrade.percent}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground text-xs">—</span>
+                                )}
+                              </TableCell>
+                            )
+                          })}
+
+                          {!isConsolidadoView && (
+                            <TableCell className="text-sm text-muted-foreground">
+                              {student.documentId ?? "-"}
+                            </TableCell>
+                          )}
+
+                          <TableCell className="pr-6 text-right" onClick={(e) => e.stopPropagation()}>
+                            <Button variant="outline" size="sm" asChild>
+                               <Link href={`/admin/calificaciones/${student.id}`}>
+                                 <FileText className="mr-2 h-4 w-4" />
+                                 Boletín
+                               </Link>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
 
                   {pageCount > 1 && (
                     <div className="flex items-center justify-between border-t border-border p-4">
