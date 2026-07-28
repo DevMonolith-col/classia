@@ -16,6 +16,7 @@ import {
   assignTicketSchema,
   AssignTicketDto
 } from "./support.schemas"
+import { PlatformRoute } from "../../common/decorators/platform-route.decorator";
 
 // "Staff" = todo el personal de la plataforma que trabaja soporte (ve la
 // bandeja global, comenta, cambia estado). "Supervisor" = quien además
@@ -30,6 +31,8 @@ function isSupportSupervisor(role: UserRole) {
   return role === UserRole.SUPER_ADMIN || role === UserRole.SUPPORT_SUPERVISOR
 }
 
+// Ruta de plataforma (ver platform-route.decorator.ts). Bandeja de soporte: es cross-tenant por diseño y lee vía el rol de bypass.
+@PlatformRoute()
 @Controller("support")
 @UseGuards(JwtAuthGuard)
 export class SupportController {

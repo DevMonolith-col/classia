@@ -33,7 +33,10 @@ import {
   ListUsersInput,
 } from "./users.schemas";
 import { UsersService } from "./users.service";
+import { PlatformRoute } from "../../common/decorators/platform-route.decorator";
 
+// Ruta de plataforma (ver platform-route.decorator.ts). Usuarios globales y sus membresías, transversal a todos los colegios.
+@PlatformRoute()
 @Controller("users")
 @UseGuards(JwtAuthGuard, PermissionsGuard, DataScopeGuard)
 @DataScope(AccessScope.DATOS_PERSONALES)

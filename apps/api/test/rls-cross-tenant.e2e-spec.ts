@@ -172,16 +172,45 @@ describe("RLS cross-tenant isolation regression", () => {
   // El hueco documentado a propósito en docs/planning/aislamiento-rls-multitenant.md
   // (Fase 2, "encontrado pero NO arreglado"): SUPER_ADMIN sin impersonar pasa el
   // chequeo de rol (isGlobalAdmin) en el código de la app, así que la única
-  // defensa real contra leer otro tenant acá es RLS. Este test prueba
-  // exactamente esa garantía -- si algún día se rompe (el mismo tipo de bug
-  // que se encontró y arregló hoy en runWithTenant/$queryRaw), este test
-  // debe fallar en rojo, no filtrar datos en silencio.
-  it("SUPER_ADMIN without impersonating fails closed on tenant B's data (documented gap, must stay closed)", async () => {
+  // defensa real contra leer otro tenant acá era RLS.
+  //
+  // **Actualizado el 2026-07-27**: ahora hay una segunda defensa, y llega antes. Un
+  // SUPER_ADMIN que no está impersonando ya no alcanza ninguna ruta de colegio -- se
+  // corta en JwtAuthGuard#assertPlatformScope con 403, sin llegar a la query. Por eso
+  // este test espera 403 y no 404: el 404 de antes significaba "RLS no encontró la fila";
+  // el 403 significa "esta sesión no tiene nada que hacer en una ruta de colegio". Las
+  // dos son fallar cerrado; la nueva falla más temprano y con un motivo más honesto.
+  //
+  // La garantía de RLS que este test cuidaba no se quedó sin cobertura: la cubren los
+  // casos de TENANT_ADMIN de arriba, que sí llegan hasta la base.
+  it("SUPER_ADMIN without impersonating cannot even reach a school route", async () => {
     const res = await api<ErrorResponse>(`/students/${fixtures.tenantBStudentId}`, {
       headers: authHeaders(superAdminSession.accessToken),
     });
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
+  });
+
+  // La contracara del anterior: el corte es por ALCANCE de la ruta, no un "bloqueá todo
+  // lo que toque un SUPER_ADMIN". Sin este caso, alguien podría cerrar el hueco rompiendo
+  // el panel de plataforma entero y los tests seguirían en verde.
+  it("SUPER_ADMIN keeps working on platform routes (the cut is by route scope, not by role)", async () => {
+    const res = await api<Array<{ id: string }>>("/tenants", {
+      headers: authHeaders(superAdminSession.accessToken),
+    });
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  // El colegio propio tampoco: la membresía en `demo` que le da el seed era justamente lo
+  // que convertía "tener rol de plataforma" en "tener una puerta a un colegio".
+  it("SUPER_ADMIN cannot reach a school route of the tenant it belongs to either", async () => {
+    const res = await api<ErrorResponse>("/students", {
+      headers: authHeaders(superAdminSession.accessToken),
+    });
+
+    expect(res.status).toBe(403);
   });
 
   it("sanity check: tenant A's admin CAN read tenant A's own data (rules out an over-broad 404-everything bug)", async () => {

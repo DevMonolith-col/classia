@@ -22,7 +22,11 @@ import {
   resetPasswordSchema,
 } from "./auth.schemas";
 import { AuthService } from "./auth.service";
+import { PlatformRoute } from "../../common/decorators/platform-route.decorator";
 
+// Ruta de plataforma (ver platform-route.decorator.ts). Sesión: login, refresh, logout y la propia impersonación. Bloquearla dejaría a un
+// super admin sin poder ni entrar a un colegio por el camino correcto.
+@PlatformRoute()
 @Controller("auth")
 export class AuthController {
   constructor(private readonly auth: AuthService) {}

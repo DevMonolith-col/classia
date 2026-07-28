@@ -68,15 +68,20 @@ export function middleware(request: NextRequest) {
       const currentSection = PROTECTED_SECTIONS.find((s) => pathname.startsWith(s))
 
       if (correctSection && currentSection && currentSection !== correctSection) {
-        // Permitir que quien puede impersonar acceda a /admin (modo impersonación).
-        // Alineado con el backend (auth.service.impersonate): solo SUPER_ADMIN y
-        // SUPPORT_SUPERVISOR pueden entrar al colegio; el agente no.
-        if (
-          (payload.role === "SUPER_ADMIN" || payload.role === "SUPPORT_SUPERVISOR") &&
-          currentSection === "/admin"
-        ) {
-          return NextResponse.next()
-        }
+        // Acá había una excepción que dejaba entrar a /admin a SUPER_ADMIN y
+        // SUPPORT_SUPERVISOR "en modo impersonación". Se eliminó el 2026-07-27 por dos
+        // razones, y la segunda es la que importa:
+        //
+        // 1. No hacía falta para impersonar. La sesión de impersonación **no lleva esos
+        //    roles**: `auth.service#impersonate` la emite con rol TENANT_ADMIN (el rol
+        //    real vive en la AuthSession, marcado `isImpersonated`), así que ya enruta a
+        //    /admin por el camino normal, sin excepción alguna.
+        // 2. Sí servía para lo otro: un SUPER_ADMIN con membresía en un colegio —el seed
+        //    le da una en `demo`— entraba al panel de ese colegio sin ticket, sin sesión
+        //    de acceso aprobada, sin vencimiento y sin la franja que avisa que hay alguien
+        //    de soporte adentro. El control de verdad es del backend
+        //    (JwtAuthGuard#assertPlatformScope, que responde 403); esto evita además que
+        //    la UI muestre una pantalla que después no puede cargar nada.
         return NextResponse.redirect(new URL(correctSection, request.url))
       }
     }

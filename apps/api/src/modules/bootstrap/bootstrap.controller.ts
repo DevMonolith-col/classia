@@ -3,7 +3,10 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { RequestUser } from "../../common/types/request-context";
 import { BootstrapService } from "./bootstrap.service";
+import { PlatformRoute } from "../../common/decorators/platform-route.decorator";
 
+// Ruta de plataforma (ver platform-route.decorator.ts). Perfil, permisos y resumen del usuario que acaba de entrar; lo llama cualquier rol.
+@PlatformRoute()
 @Controller("app")
 @UseGuards(JwtAuthGuard)
 export class BootstrapController {

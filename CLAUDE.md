@@ -48,6 +48,19 @@ RLS defiende contra "me olvidé el filtro", no contra "resolví el tenant equivo
 arriba. El scoping por rol (el acudiente solo ve sus hijos, el profesor solo sus grupos)
 sigue siendo responsabilidad del código: `apps/api/src/common/permissions/permissions.ts`.
 
+**El panel de plataforma no es una puerta a los colegios** (desde el 2026-07-27). Un
+`SUPER_ADMIN` que no esté impersonando solo alcanza las rutas marcadas con `@PlatformRoute()`
+—once controllers: auth, bootstrap, tenants, users, audit, settings, support, access-control,
+demo-requests, health, files—; **todo lo demás responde 403**, por `JwtAuthGuard#assertPlatformScope`.
+Es lista blanca y cerrado por default, igual que `GLOBAL_ALLOWLIST`: un módulo nuevo nace
+bloqueado, y antes de marcarlo la pregunta no es "¿lo necesita el panel?" sino "¿esta ruta
+tiene sentido sin un colegio detrás?". Para entrar a un colegio el camino es la impersonación
+(`auth.service#impersonate`): ticket de ese colegio + `AccessSession` aprobada por un
+supervisor, con alcance y vencimiento. Esa sesión corre con rol `TENANT_ADMIN` y
+`isImpersonated`, así que ni pasa por este chequeo. El hueco que esto cerró —y por qué las
+tres piezas que lo formaban se veían razonables por separado— está en
+`docs/planning/auditoria-seguridad-2026-07.md`, Apéndice II.
+
 **Cuando un rol acotado necesita "lo mío", va ruta propia y no un permiso más sobre la ruta
 de administración.** El idioma del repo es `GET .../mine` + un permiso `*_READ_SELF`
 (`students`, `schedules`, `documents`, `homework-submissions`). El motivo: `list()` acepta
