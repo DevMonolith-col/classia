@@ -14,7 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import type { AuditLog, AuditLogsResponse } from "@/components/superadmin/audit-types"
-import { ROLE_LABELS, type User } from "@/components/superadmin/user-types"
+import { ROLE_LABELS, type User, type UsersResponse } from "@/components/superadmin/user-types"
 import { humanizeAuditAction } from "@/components/shared/audit-labels"
 
 const PAGE_SIZE = 20
@@ -62,7 +62,13 @@ export default function AdminActividadPage() {
 
   const loadUsers = useCallback(async () => {
     const res = await apiFetch("/users", { silent: true })
-    setUsers(res.ok ? (((await res.json()) as User[]) ?? []) : [])
+    if (!res.ok) {
+      setUsers([])
+      return
+    }
+    // GET /users devuelve el sobre paginado { items, pageInfo }, no un arreglo.
+    const data = (await res.json()) as UsersResponse
+    setUsers(data.items ?? [])
   }, [])
 
   useEffect(() => {
