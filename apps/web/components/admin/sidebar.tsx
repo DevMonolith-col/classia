@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, GraduationCap, BookOpen, Calendar,
   MessageSquare, BarChart3, Settings,
   Bell, FileText, ClipboardCheck, ClipboardList, Puzzle, CalendarClock, Megaphone, SlidersHorizontal, LifeBuoy, ChevronDown,
-  UserCog, School, BookMarked, Mail, Briefcase, Vote, FileCheck2, Wallet, UploadCloud
+  UserCog, School, BookMarked, Mail, Briefcase, Vote, FileCheck2, Wallet, UploadCloud, History
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 import { NavUnreadBadge, UnreadBell } from "@/components/shared/unread-bell"
@@ -75,6 +75,7 @@ const navigation: NavItem[] = [
       { name: "Pagos", href: "/admin/pagos", icon: Wallet },
       { name: "Gobierno Escolar", href: "/admin/elecciones", icon: Vote },
       { name: "Certificados", href: "/admin/certificados", icon: FileCheck2 },
+      { name: "Actividad", href: "/admin/actividad", icon: History },
       { name: "Soporte", href: "/admin/soporte", icon: LifeBuoy },
       { name: "Plugins", href: "/admin/plugins", icon: Puzzle, soon: true },
       { name: "Configuración", href: "/admin/configuracion", icon: Settings },
