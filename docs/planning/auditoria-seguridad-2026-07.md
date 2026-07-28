@@ -225,6 +225,67 @@ test de aislamiento que también pasa con el filtro quitado no prueba nada.
 
 ---
 
+## Apéndice II — el panel de Classia era una puerta a un colegio (2026-07-27)
+
+Tampoco salió de una auditoría: salió de una pregunta del dueño del producto mirando la app
+—"¿no se supone que desde el panel de Classia no deberíamos poder entrar a ningún colegio?"—
+después de ver a un `SUPER_ADMIN` navegando por `/admin`. Tenía razón.
+
+**Qué pasaba.** Tres piezas que por separado se defienden y juntas dejaban la puerta abierta:
+
+1. `PermissionsGuard` le devuelve `true` a `SUPER_ADMIN` sin mirar permisos.
+2. `DataScopeGuard` se auto-anula cuando la sesión **no** es de impersonación
+   (`if (!user.isImpersonated) return true`), así que el gate de ticket/alcance/vencimiento
+   solo corría para quien ya venía por el camino correcto.
+3. El middleware del frontend dejaba pasar a `/admin` mirando **solo el rol**, aunque su
+   propio comentario decía "modo impersonación".
+
+Y el login exige membresía en el tenant, con lo cual el hueco parecía teórico… salvo que el
+seed le da al `SUPER_ADMIN` una `TenantMembership` en `demo` (`seed.ts:79`). Con eso, entrar
+al colegio no requería ticket, ni `AccessSession` aprobada, ni vencimiento, ni la franja
+ámbar que le avisa al colegio que hay alguien de soporte adentro — y sin ninguno de esos, sin
+el rastro de auditoría que esa maquinaria produce. RLS no lo frenaba: lo scopea al tenant del
+JWT, que es justo el colegio donde tiene la membresía.
+
+**Por qué no lo atrapó nada.** El test de la Fase 7 de RLS (`rls-cross-tenant.e2e-spec.ts`)
+cubría el caso vecino y por eso daba sensación de cobertura: probaba que un `SUPER_ADMIN`
+**no** alcanza los datos de OTRO colegio. Nadie había escrito el caso de **su propio**
+colegio, porque tener membresía ahí se leía como algo normal.
+
+**El arreglo, y por qué es una lista blanca.** `JwtAuthGuard#assertPlatformScope`: si el rol
+es `SUPER_ADMIN` y la sesión no es de impersonación, solo pasan las rutas marcadas con
+`@PlatformRoute()`. Once controllers están marcados (auth, bootstrap, tenants, users, audit,
+settings, support, access-control, demo-requests, health, files); **todo lo demás queda
+bloqueado por default**, que es el mismo criterio de `GLOBAL_ALLOWLIST` en `verify-rls.ts`:
+un módulo nuevo nace cerrado. Si el criterio fuera "bloquear lo que sé que es de colegio",
+cada módulo agregado después quedaría abierto sin que nadie lo decidiera.
+
+Dos detalles que conviene saber antes de tocarlo:
+
+- **La impersonación no se ve afectada y no hizo falta exceptuarla**: `auth.service#impersonate`
+  emite la sesión con rol `TENANT_ADMIN` (el rol real vive en la `AuthSession`), así que ni
+  siquiera entra al chequeo. Por lo mismo, la excepción del middleware **nunca sirvió** para
+  impersonar: se eliminó en vez de remendarla.
+- **`files` es el eslabón flojo de la lista blanca.** Está marcado como plataforma solo
+  porque el chat de un ticket sube adjuntos por `POST /files`. Como `FILES_READ` significa
+  "descargá cualquier archivo del colegio cuya key conozcas", lo correcto a futuro es firmar
+  el adjunto desde el módulo `support` —igual que `homework-submissions` con sus entregas— y
+  sacar `files` de la lista.
+
+Medido contra la API de dev con una sesión real de `SUPER_ADMIN`: 403 en `/students`,
+`/marks`, `/groups`, `/homework`, `/invoices`, `/fee-concepts` y `/attendance/sessions`; 200
+en `/tenants`, `/users`, `/audit/logs`, `/settings`, `/demo-requests` y `/app/bootstrap`. El
+rector del colegio (`TENANT_ADMIN`) sigue en 200 en todas las suyas, que es la
+no-regresión que importa. Tres tests nuevos en `rls-cross-tenant.e2e-spec.ts`, verificados
+por reversión: al desactivar el guard caen exactamente los dos que afirman el bloqueo.
+
+**La lección para la próxima:** *el hueco no estaba en ninguna de las tres piezas, sino en la
+suma.* Cada una era razonable leída sola, y el test que existía cubría el vecindario
+equivocado. Cuando un rol tiene un bypass (acá, el de permisos), hay que preguntarse qué otra
+cosa lo estaba conteniendo — y si esa otra cosa se apaga sola en algún caso.
+
+---
+
 ## RESUMEN FINAL ✅ Auditoría completa (2026-07-18 → 2026-07-19)
 
 Las 6 fases del plan están hechas, verificadas (typecheck + jest + verificación en vivo

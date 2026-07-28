@@ -17,7 +17,11 @@ import {
   requestAccessSchema,
   revokeAccessSchema,
 } from "./access-control.schemas"
+import { PlatformRoute } from "../../common/decorators/platform-route.decorator";
 
+// Ruta de plataforma (ver platform-route.decorator.ts). Sesiones de acceso: el trámite para PODER entrar a un colegio. Si estuviera
+// bloqueada, no habría forma de conceder ni revocar un acceso.
+@PlatformRoute()
 @Controller("access-sessions")
 @UseGuards(JwtAuthGuard)
 export class AccessControlController {

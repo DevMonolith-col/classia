@@ -19,7 +19,10 @@ import {
   updateTenantSchema,
 } from "./tenants.schemas";
 import { TenantsService } from "./tenants.service";
+import { PlatformRoute } from "../../common/decorators/platform-route.decorator";
 
+// Ruta de plataforma (ver platform-route.decorator.ts). Alta y operación de los colegios como clientes. Es la definición de plataforma.
+@PlatformRoute()
 @Controller("tenants")
 export class TenantsController {
   constructor(private readonly tenants: TenantsService) {}

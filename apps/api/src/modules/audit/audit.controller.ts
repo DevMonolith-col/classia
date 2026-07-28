@@ -11,7 +11,10 @@ import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { RequestUser } from "../../common/types/request-context";
 import { AuditQueryService } from "./audit.service";
 import { ListAuditLogsInput, listAuditLogsSchema } from "./audit.schemas";
+import { PlatformRoute } from "../../common/decorators/platform-route.decorator";
 
+// Ruta de plataforma (ver platform-route.decorator.ts). Bitácora de plataforma, que existe justamente para vigilar lo que pasa adentro.
+@PlatformRoute()
 @Controller("audit")
 export class AuditController {
   constructor(private readonly audit: AuditQueryService) {}

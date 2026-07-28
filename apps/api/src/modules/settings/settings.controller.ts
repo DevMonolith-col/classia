@@ -7,7 +7,10 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { EmailService } from "../notifications/email/email.service";
 import { updateSettingsSchema, UpdateSettingsDto } from "./settings.schemas";
+import { PlatformRoute } from "../../common/decorators/platform-route.decorator";
 
+// Ruta de plataforma (ver platform-route.decorator.ts). Configuración global de Classia (system_settings), no de un colegio.
+@PlatformRoute()
 @Controller("settings")
 @UseGuards(JwtAuthGuard, DataScopeGuard)
 @DataScope(AccessScope.OPERATIVO)

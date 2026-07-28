@@ -797,6 +797,17 @@ mismo patrón que `backend-v1.e2e-spec.ts`).
   ningún chequeo de código que lo haga. Este test es la prueba en vivo de
   que esa garantía efectivamente se sostiene, y quedará en rojo
   automáticamente el día que deje de hacerlo.
+
+  **Actualización del 2026-07-27 — ese hueco se cerró, y con él apareció uno
+  peor que este test no cubría.** Ahora sí hay chequeo de código:
+  `JwtAuthGuard#assertPlatformScope` corta con **403** a un `SUPER_ADMIN` que
+  no esté impersonando en toda ruta que no esté marcada `@PlatformRoute()`,
+  así que ya no llega a la query y RLS dejó de ser la única defensa (sigue
+  estando, como segunda). El test de arriba espera 403 en vez de 404 por eso.
+  Lo que este archivo no vio en su momento: el caso realmente peligroso no era
+  el colegio AJENO —que RLS bloqueaba— sino el **propio**, porque el seed le da
+  al `SUPER_ADMIN` una membresía en `demo` y ahí RLS le abre la puerta con toda
+  razón. Historia completa en `auditoria-seguridad-2026-07.md`, Apéndice II.
 - Control negativo: TENANT_ADMIN de tenant A sí puede leer su propio
   listado de estudiantes (descarta un bug de "todo 404 siempre", que
   haría pasar los tests de arriba por la razón equivocada).

@@ -20,7 +20,10 @@ import {
   listDemoRequestsQuerySchema,
   updateDemoRequestSchema,
 } from "./demo-requests.schemas";
+import { PlatformRoute } from "../../common/decorators/platform-route.decorator";
 
+// Ruta de plataforma (ver platform-route.decorator.ts). Solicitudes de demo del sitio público: llegan antes de que el colegio exista.
+@PlatformRoute()
 @Controller("demo-requests")
 export class DemoRequestsController {
   constructor(private readonly demoRequests: DemoRequestsService) {}
