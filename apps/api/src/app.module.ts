@@ -21,6 +21,7 @@ import { StorageModule } from "./core/storage/storage.module";
 import { TenantContextModule } from "./core/tenant-context/tenant-context.module";
 import { AnnouncementsModule } from "./modules/announcements/announcements.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { AcademicModule } from "./modules/academic/academic.module";
 import { AttendanceModule } from "./modules/attendance/attendance.module";
 import { AuditModule } from "./modules/audit/audit.module";
@@ -112,6 +113,7 @@ import { AccessControlModule } from "./modules/access-control/access-control.mod
     StudentsModule,
     TeachersModule,
     GuardiansModule,
+    OnboardingModule,
     SubjectsModule,
     SchedulesModule,
     EventsModule,

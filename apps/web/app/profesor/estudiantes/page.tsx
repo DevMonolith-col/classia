@@ -1,8 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle, GraduationCap, Search } from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
+import { useTeacherId } from "@/lib/bootstrap"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
@@ -21,53 +22,58 @@ function initials(firstName: string, lastName: string) {
 }
 
 export default function ProfesorEstudiantesPage() {
+  const { teacherId, loading: teacherLoading, error: teacherError } = useTeacherId()
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [query, setQuery] = useState("")
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError("")
-    try {
-      const bootstrapRes = await apiFetch("/app/bootstrap", { silent: true })
-      if (!bootstrapRes.ok) throw new Error("No se pudo cargar tu perfil de profesor.")
-      const bootstrap = (await bootstrapRes.json()) as {
-        summary?: { kind?: string; teacher?: { id?: string } }
-      }
-      const teacherId = bootstrap.summary?.teacher?.id
-      if (!bootstrap.summary || bootstrap.summary.kind !== "teacher" || !teacherId) {
-        throw new Error("Esta cuenta no tiene un perfil de profesor asociado.")
-      }
-
-      const schedulesRes = await apiFetch(`/schedules?teacherId=${teacherId}`, { silent: true })
-      if (!schedulesRes.ok) throw new Error("No se pudieron cargar tus grupos.")
-      const schedules = (await schedulesRes.json()) as Schedule[]
-      const groupIds = [...new Set(schedules.map((s) => s.group.id))]
-
-      const studentsByGroup = await Promise.all(
-        groupIds.map(async (groupId) => {
-          const res = await apiFetch(`/students?groupId=${groupId}`, { silent: true })
-          return res.ok ? ((await res.json()) as Student[]) : []
-        }),
-      )
-      const byId = new Map(studentsByGroup.flat().map((s) => [s.id, s]))
-      setStudents(
-        [...byId.values()].sort(
-          (a, b) => a.firstName.localeCompare(b.firstName) || a.lastName.localeCompare(b.lastName),
-        ),
-      )
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
-      setStudents([])
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
+    if (teacherLoading) return
+    if (teacherError) {
+      setError(teacherError)
+      setLoading(false)
+      return
+    }
+    if (!teacherId) return
+
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError("")
+      try {
+        const schedulesRes = await apiFetch(`/schedules?teacherId=${teacherId}`, { silent: true })
+        if (!schedulesRes.ok) throw new Error("No se pudieron cargar tus grupos.")
+        const schedules = (await schedulesRes.json()) as Schedule[]
+        const groupIds = [...new Set(schedules.map((s) => s.group.id))]
+
+        const studentsByGroup = await Promise.all(
+          groupIds.map(async (groupId) => {
+            const res = await apiFetch(`/students?groupId=${groupId}`, { silent: true })
+            return res.ok ? ((await res.json()) as Student[]) : []
+          }),
+        )
+        const byId = new Map(studentsByGroup.flat().map((s) => [s.id, s]))
+        if (cancelled) return
+        setStudents(
+          [...byId.values()].sort(
+            (a, b) => a.firstName.localeCompare(b.firstName) || a.lastName.localeCompare(b.lastName),
+          ),
+        )
+      } catch (err) {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : "No se pudo conectar con el servidor.")
+        setStudents([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
     load()
-  }, [load])
+    return () => {
+      cancelled = true
+    }
+  }, [teacherId, teacherLoading, teacherError])
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase()

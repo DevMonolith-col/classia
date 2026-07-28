@@ -6,10 +6,11 @@ import { useState, useEffect } from "react"
 import {
   LayoutDashboard, Users, BookOpen, Calendar, CalendarDays,
   FileText, ClipboardList, MessageSquare, Settings,
-  LogOut, Menu, X, Bell, ClipboardCheck, Megaphone,
+  Bell, ClipboardCheck, Megaphone,
 } from "lucide-react"
 import { logout, getStoredUser } from "@/lib/auth"
 import { NavUnreadBadge, UnreadBell } from "@/components/shared/unread-bell"
+import { PortalSidebar } from "@/components/shared/portal-sidebar"
 
 const ROLE_LABELS: Record<string, string> = {
   TEACHER: "Docente",
@@ -37,7 +38,6 @@ interface Props { isCollapsed: boolean; onToggle: () => void }
 export function ProfesorSidebar({ isCollapsed, onToggle }: Props) {
   const pathname     = usePathname()
   const router       = useRouter()
-  const [mobileOpen, setMobileOpen] = useState(false)
   const [user, setUser] = useState<{ firstName: string; lastName: string; email: string; role: string } | null>(null)
 
   useEffect(() => { setUser(getStoredUser()) }, [])
@@ -49,62 +49,19 @@ export function ProfesorSidebar({ isCollapsed, onToggle }: Props) {
   const handleLogout = async () => { await logout(); router.push("/login") }
 
   return (
-    <>
-      {/* ── Top bar solo móvil ─────────────────────────────────── */}
-      <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background px-4 lg:hidden">
-        <button onClick={() => setMobileOpen(true)} className="rounded-md p-2 text-foreground" aria-label="Abrir menú">
-          <Menu className="h-5 w-5" />
-        </button>
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <span className="text-sm font-bold text-primary-foreground">C</span>
-          </div>
-          <span className="font-bold">Classia</span>
-        </div>
-        <UnreadBell href="/profesor/notificaciones" />
-      </header>
-
-      {/* ── Overlay móvil ──────────────────────────────────────── */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setMobileOpen(false)} />
-      )}
-
-      {/* ── Sidebar ────────────────────────────────────────────── */}
-      <aside className={[
-        "fixed inset-y-0 left-0 z-40 flex flex-col bg-sidebar transition-all duration-300",
-        "w-64",
-        isCollapsed ? "lg:w-16" : "lg:w-64",
-        mobileOpen  ? "translate-x-0" : "-translate-x-full",
-        "lg:translate-x-0",
-      ].join(" ")}>
-
-        {/* Header del sidebar */}
-        <div className={`flex h-16 shrink-0 items-center border-b border-sidebar-border ${isCollapsed ? "justify-center px-2" : "px-4"}`}>
-          {!isCollapsed && (
-            <div className="flex flex-1 items-center gap-2 overflow-hidden">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary">
-                <span className="text-sm font-bold text-sidebar-primary-foreground">C</span>
-              </div>
-              <span className="truncate font-bold text-sidebar-foreground">Classia</span>
-            </div>
-          )}
-          {/* Botón hamburguesa desktop */}
-          <button
-            onClick={onToggle}
-            className="hidden shrink-0 rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:flex"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-          {/* Botón cerrar móvil */}
-          <button
-            onClick={() => setMobileOpen(false)}
-            className="shrink-0 rounded-md p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:hidden"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Navegación */}
+    <PortalSidebar
+      isCollapsed={isCollapsed}
+      onToggle={onToggle}
+      brandInitial="C"
+      brandName="Classia"
+      mobileTopBarRightSlot={<UnreadBell href="/profesor/notificaciones" />}
+      initials={initials}
+      displayName={displayName}
+      roleLabel={roleLabel}
+      onLogout={handleLogout}
+      showUserInfo={!!user}
+    >
+      {(closeMobileMenu) => (
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
           {navigation.map((item) => {
             const active = pathname === item.href
@@ -112,7 +69,7 @@ export function ProfesorSidebar({ isCollapsed, onToggle }: Props) {
               <Link
                 key={item.name}
                 href={item.href}
-                onClick={() => setMobileOpen(false)}
+                onClick={closeMobileMenu}
                 title={isCollapsed ? item.name : undefined}
                 className={[
                   "relative flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
@@ -133,33 +90,7 @@ export function ProfesorSidebar({ isCollapsed, onToggle }: Props) {
             )
           })}
         </nav>
-
-        {/* Usuario + logout */}
-        <div className="shrink-0 space-y-1 border-t border-sidebar-border p-3">
-          {!isCollapsed && user && (
-            <div className="flex items-center gap-2 px-3 py-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent">
-                <span className="text-xs font-semibold text-sidebar-accent-foreground">{initials}</span>
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
-                <p className="truncate text-xs font-medium uppercase tracking-wide text-sidebar-foreground/50">{roleLabel}</p>
-              </div>
-            </div>
-          )}
-          <button
-            onClick={handleLogout}
-            title={isCollapsed ? "Cerrar sesión" : undefined}
-            className={[
-              "flex w-full items-center rounded-lg py-2 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
-              isCollapsed ? "justify-center px-2" : "gap-2 px-3",
-            ].join(" ")}
-          >
-            <LogOut className="h-4 w-4 shrink-0" />
-            {!isCollapsed && "Cerrar sesión"}
-          </button>
-        </div>
-      </aside>
-    </>
+      )}
+    </PortalSidebar>
   )
 }

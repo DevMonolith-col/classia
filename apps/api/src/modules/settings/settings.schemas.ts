@@ -16,8 +16,6 @@ export const updateSettingsSchema = z.object({
   planProMaxStudents: z.number().int().optional(),
   planProMaxUsers: z.number().int().optional(),
   planProMaxStorageGb: z.number().int().optional(),
-  backupFreq: z.string().optional(),
-  backupRetention: z.string().optional(),
 });
 
 export type UpdateSettingsDto = z.infer<typeof updateSettingsSchema>;
