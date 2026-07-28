@@ -208,8 +208,11 @@ export function CalendarGrid({
                           {event.title}
                         </button>
                       ))}
+                      {/* El indicador sigue siendo un punto de 6px, pero el área activa
+                          es el botón que lo contiene: 44px de alto y un reparto por
+                          `flex-1` del ancho de la celda. Antes el <button> medía 6×6px. */}
                       {dayEvents.length > 0 && (
-                        <div className="flex flex-wrap gap-0.5 lg:hidden">
+                        <div className="flex gap-0.5 lg:hidden">
                           {dayEvents.slice(0, 3).map((event) => (
                             <button
                               key={event.id}
@@ -218,8 +221,12 @@ export function CalendarGrid({
                                 e.stopPropagation()
                                 onSelectEvent(event)
                               }}
-                              className={`h-1.5 w-1.5 rounded-full ${EVENT_TYPE_COLORS[event.type]}`}
-                            />
+                              className="flex h-11 flex-1 items-center justify-center"
+                            >
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${EVENT_TYPE_COLORS[event.type]}`}
+                              />
+                            </button>
                           ))}
                         </div>
                       )}
