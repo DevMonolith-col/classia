@@ -41,7 +41,7 @@ cómo se escribe backend acá:
 
 Verificación exhaustiva: `pnpm verify:rls`. El procedimiento paso a paso (agregar un modelo,
 escribir la política, jobs de BullMQ, diagnosticar "cero filas") está en el skill
-`rls-multitenant`. Las 7 trampas conocidas, con la prueba en vivo que confirmó cada una:
+`rls-multitenant`. Las 8 trampas conocidas, con la prueba en vivo que confirmó cada una:
 `docs/planning/aislamiento-rls-multitenant.md`.
 
 RLS defiende contra "me olvidé el filtro", no contra "resolví el tenant equivocado" río

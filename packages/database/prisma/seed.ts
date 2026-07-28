@@ -1,8 +1,12 @@
 import { randomBytes } from "node:crypto";
 import {
+  AccessScope,
+  AccessSessionStatus,
   CalendarEventType,
   PrismaClient,
   TenantStatus,
+  TicketPriority,
+  TicketStatus,
   UserRole,
   UserStatus,
 } from "@prisma/client";
@@ -731,6 +735,80 @@ async function main() {
   ].map((event) => ({ ...event, tenantId: tenant.id, createdById: tenantAdmin.id }));
 
   await prisma.event.createMany({ data: [...holidayEvents, ...schoolEvents] });
+
+
+  // ── Acceso de soporte listo para usar en local ───────────────────────────
+  //
+  // Desde el 2026-07-27 un SUPER_ADMIN no entra a un colegio por la puerta del frente
+  // (JwtAuthGuard#assertPlatformScope): el único camino es la impersonación, que exige un
+  // ticket de ese colegio y una AccessSession aprobada por un supervisor. Montar eso a mano
+  // para cada prueba local son varios pasos y dos identidades distintas, así que el seed lo
+  // deja hecho: se entra desde /superadmin/tenants con un clic y se recorre el flujo REAL
+  // —franja ámbar, alcance, vencimiento, auditoría— en vez de una versión falsa de él.
+  //
+  // Vence en un año, no nunca. `expiresAt` nulo NO significa "eterna": DataScopeGuard filtra
+  // por `expiresAt > ahora` y en SQL una comparación contra NULL no es verdadera, así que la
+  // sesión se leería como inactiva mientras `resolveExpiration` la seguiría mostrando como
+  // CONCEDIDA — viva en la lista y sin servir para nada. Un año es lo más cerca de "sin
+  // caducidad" que se puede estar sin que el código de producción tenga que entender el
+  // concepto de un acceso que no vence.
+  //
+  // El tope de 8 horas (MAX_ACCESS_DURATION_MINUTES) vive en el Zod del endpoint de
+  // aprobación, no en la base: el seed escribe directo con Prisma, así que no lo cruza. Es
+  // dato de demo y `seed:demo` no corre en producción.
+  const soporteTicket = await prisma.supportTicket.upsert({
+    where: { id: "00000000-0000-4000-8000-000000000001" },
+    update: { status: TicketStatus.IN_PROGRESS, assigneeId: supportSupervisor.id },
+    create: {
+      id: "00000000-0000-4000-8000-000000000001",
+      tenantId: tenant.id,
+      authorId: tenantAdmin.id,
+      assigneeId: supportSupervisor.id,
+      title: "Acceso de soporte para pruebas locales",
+      description:
+        "Ticket sembrado por seed:demo para poder entrar al colegio por impersonación en desarrollo. No representa una incidencia real.",
+      status: TicketStatus.IN_PROGRESS,
+      priority: TicketPriority.MEDIUM,
+      category: "soporte-tecnico",
+    },
+  });
+
+  const accesoConcedidoDesde = new Date();
+  const accesoExpiraEn = new Date(accesoConcedidoDesde.getTime() + 365 * 24 * 60 * 60 * 1000);
+
+  await prisma.accessSession.upsert({
+    where: { id: "00000000-0000-4000-8000-000000000002" },
+    update: {
+      // `scope` va también acá y no solo en `create`: si no, volver a sembrar con otro
+      // alcance no cambiaba nada sobre una base que ya tenía la fila, y el seed mentía sobre
+      // su propio estado declarado.
+      scope: AccessScope.DATOS_PERSONALES,
+      status: AccessSessionStatus.CONCEDIDO,
+      grantedAt: accesoConcedidoDesde,
+      expiresAt: accesoExpiraEn,
+      revokedAt: null,
+      revokedReason: null,
+    },
+    create: {
+      id: "00000000-0000-4000-8000-000000000002",
+      ticketId: soporteTicket.id,
+      tenantId: tenant.id,
+      requestedById: superAdmin.id,
+      approvedById: supportSupervisor.id,
+      // DATOS_PERSONALES y no OPERATIVO: es el alcance amplio, y cubre los dos: DataScopeGuard
+      // solo exige que la sesión sea DATOS_PERSONALES cuando la ruta lo pide, así que con esta
+      // se recorre el panel entero. Con OPERATIVO, media app respondería 403 en local y
+      // parecería rota cuando en realidad sería el gate haciendo su trabajo. Para ejercitar
+      // ese gate a propósito, cambiar acá a AccessScope.OPERATIVO y volver a sembrar: las
+      // rutas de datos personales (estudiantes, notas) pasan a 403 y las operativas siguen.
+      scope: AccessScope.DATOS_PERSONALES,
+      status: AccessSessionStatus.CONCEDIDO,
+      reason: "Acceso sembrado para desarrollo local (seed:demo).",
+      requestedDurationMinutes: 240,
+      grantedAt: accesoConcedidoDesde,
+      expiresAt: accesoExpiraEn,
+    },
+  });
 
   await prisma.auditLog.create({
     data: {

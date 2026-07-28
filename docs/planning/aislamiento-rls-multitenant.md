@@ -144,6 +144,26 @@ que dejó de tener huecos. Quedan documentados para que nadie los reintroduzca:
    con el dato incorrecto". Por eso Fase 7 es un test de regresión real, no un
    checklist — para que este tipo de bug se detecte solo, siempre, en cada push.
 
+7. **(Encontrada el 2026-07-27, en producción de esta rama.) Un GUARD que
+   consulta una tabla con RLS corre ANTES de que exista el contexto de tenant.**
+   `TenantRlsContextInterceptor` está implementado como interceptor —y su propio
+   comentario explica por qué: necesita `request.user`, que recién existe
+   después de `JwtAuthGuard`—, pero en Nest los interceptores corren después de
+   **todos** los guards. Así que dentro de un guard, `app.tenant_id` todavía no
+   está seteado y cualquier consulta a una tabla con RLS forzado devuelve cero
+   filas.
+   `DataScopeGuard` hacía exactamente eso contra `access_sessions`: la
+   impersonación —la única puerta legítima al colegio— quedaba rechazada
+   siempre. Medido con el cliente de la app contra la fila real: 0 filas sin
+   contexto, 1 con contexto. Estuvo tapado meses porque el `SUPER_ADMIN` entraba
+   igual por la puerta del frente, que se cerró ese mismo día.
+   **La regla:** un guard que necesita leer una tabla tenant-owned tiene que
+   envolver su consulta en `runWithTenant(...)` con el tenant del JWT. No es
+   caso de `PlatformAdminPrismaService`: el tenant se conoce, solo falta
+   decirlo. Y el corolario que vale más que el arreglo: **falta de contexto se
+   ve igual que "no existe"** — cero filas no distingue entre "no hay permiso",
+   "no hay dato" y "olvidé el contexto".
+
 ## Decisiones tomadas con el usuario (2026-07-19)
 
 1. **Sin piloto.** Se aplica a las ~49 tablas de una vez, no tabla-por-tabla.
