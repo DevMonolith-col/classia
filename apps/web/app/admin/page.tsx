@@ -213,7 +213,12 @@ export default function AdminDashboardPage() {
         )}
 
         {/* Main Content Grid */}
-        <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+        {/* `grid-cols-1` explícito: la pista implícita es `auto`, cuyo mínimo es el
+            `min-content` del hijo — la tarjeta de próximos eventos mide 376px y forzaba
+            la pista a 375.67px dentro de un contenedor de 328px. `grid-cols-1` es
+            `repeat(1, minmax(0,1fr))`, con mínimo cero, así que la pista sigue al
+            contenedor. El tramo `xl` no cambia. */}
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
           <div className="space-y-6">
             
             {/* Triage / Alertas Urgentes */}
