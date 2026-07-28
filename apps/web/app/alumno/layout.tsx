@@ -10,7 +10,7 @@ export default function AlumnoLayout({ children }: { children: React.ReactNode }
     <div className="min-h-screen bg-background">
       <AlumnoSidebar isCollapsed={isCollapsed} onToggle={() => setIsCollapsed((c) => !c)} />
       <div className={`transition-all duration-300 lg:pt-0 pt-16 ${isCollapsed ? "lg:pl-16" : "lg:pl-64"}`}>
-        <main className="min-h-screen">{children}</main>
+        <main className="min-h-[calc(100vh-4rem)] lg:min-h-screen">{children}</main>
       </div>
     </div>
   )
