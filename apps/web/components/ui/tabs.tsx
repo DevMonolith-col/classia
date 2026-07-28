@@ -23,14 +23,26 @@ function TabsList({
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.List>) {
   return (
-    <TabsPrimitive.List
-      data-slot="tabs-list"
-      className={cn(
-        'bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-lg p-[3px]',
-        className,
-      )}
-      {...props}
-    />
+    // El scroll vive en un viewport propio y no en la lista: `w-fit` resuelve contra el
+    // área desbordable del viewport, así que la lista conserva intactos `h-9`, `w-fit`,
+    // `bg-muted`, `p-[3px]`, el radio y la sombra del estado activo, y los triggers no se
+    // comprimen ni pierden `whitespace-nowrap`. Cuando el contenido cabe —la mayoría de
+    // los consumidores— el viewport no scrollea y el render es idéntico al anterior.
+    // La barra se oculta para no robarle alto a los 36px de la lista ni desplazar el
+    // layout de quienes ya caben.
+    <div
+      data-slot="tabs-list-viewport"
+      className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      <TabsPrimitive.List
+        data-slot="tabs-list"
+        className={cn(
+          'bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-lg p-[3px]',
+          className,
+        )}
+        {...props}
+      />
+    </div>
   )
 }
 
