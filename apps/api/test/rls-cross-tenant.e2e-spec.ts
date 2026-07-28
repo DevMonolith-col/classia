@@ -13,7 +13,13 @@
 // correrlo/leerlo de forma aislada.
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { TenantStatus, UserRole, UserStatus } from "@prisma/client";
+import {
+  AccessScope,
+  AccessSessionStatus,
+  TenantStatus,
+  UserRole,
+  UserStatus,
+} from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { AppModule } from "../src/app.module";
 import { setupApp } from "../src/app.setup";
@@ -32,6 +38,9 @@ const TENANT_B_TEACHER_EMAIL = "rls-e2e-tenant-b-teacher@classia.test";
 // seed ya corrió alguna vez) pero no en CI, que solo aplica migraciones y nunca
 // siembra -- ahí el login daba 401 y se llevaba puesto el beforeAll entero.
 const SUPER_ADMIN_EMAIL = "rls-e2e-super-admin@classia.test";
+// Ids fijos para que resembrar el fixture no acumule tickets ni sesiones en la BD de dev.
+const TENANT_A_TICKET_ID = "00000000-0000-4000-8000-00000000e2e1";
+const TENANT_A_ACCESS_SESSION_ID = "00000000-0000-4000-8000-00000000e2e2";
 
 type LoginResponse = {
   accessToken: string;
@@ -50,6 +59,9 @@ type Fixtures = {
   tenantBStudentId: string;
   tenantBTeacherId: string;
   tenantBGroupId: string;
+  // Ticket de tenant A con su sesión de acceso ya aprobada: el insumo para probar el camino
+  // legítimo de entrada a un colegio.
+  tenantATicketId: string;
 };
 
 describe("RLS cross-tenant isolation regression", () => {
@@ -221,6 +233,34 @@ describe("RLS cross-tenant isolation regression", () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
   });
+
+  // La contraparte de los dos tests de arriba, y la que faltaba en TODA la suite: que el
+  // camino legítimo funcione. Sin esto, cerrar la puerta del frente podía dejar el producto
+  // sin ninguna entrada al colegio y los tests seguirían en verde.
+  //
+  // Este test destapó un bug real el 2026-07-27: DataScopeGuard consulta `access_sessions`
+  // —tabla con RLS forzado— desde un GUARD, y los guards corren ANTES del interceptor que
+  // establece `app.tenant_id`. La consulta devolvía siempre cero filas, así que TODA
+  // impersonación era rechazada. Estaba tapado porque el SUPER_ADMIN entraba igual por la
+  // puerta que se cerró ese mismo día.
+  it("support WITH an approved access session can enter the school (the legitimate path)", async () => {
+    const impersonation = await api<LoginResponse>("/auth/impersonate", {
+      method: "POST",
+      headers: { ...authHeaders(superAdminSession.accessToken), "content-type": "application/json" },
+      body: JSON.stringify({ tenantId: fixtures.tenantAId, ticketId: fixtures.tenantATicketId }),
+    });
+
+    expect(impersonation.status).toBe(201);
+    expect(impersonation.body.accessToken).toBeTruthy();
+
+    // Ruta con @DataScope(DATOS_PERSONALES): la que el guard roto rechazaba siempre.
+    const res = await api<Array<{ id: string }>>("/students", {
+      headers: authHeaders(impersonation.body.accessToken),
+    });
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+  });
 });
 
 async function ensureFixtures(
@@ -300,7 +340,7 @@ async function ensureFixtures(
 
   // Todo lo de acá para abajo escribe/lee tablas con RLS forzado -- ver el
   // mismo comentario en backend-v1.e2e-spec.ts#ensureDemoE2eUsers.
-  await tenantRlsContext.runWithTenant(tenantA.id, async () => {
+  const tenantATicketId = await tenantRlsContext.runWithTenant(tenantA.id, async () => {
     await prisma.tenantMembership.upsert({
       where: { tenantId_userId: { tenantId: tenantA.id, userId: tenantAAdminUser.id } },
       update: { role: UserRole.TENANT_ADMIN, status: "ACTIVE" },
@@ -314,6 +354,49 @@ async function ensureFixtures(
       update: { role: UserRole.SUPER_ADMIN, status: "ACTIVE" },
       create: { tenantId: tenantA.id, userId: superAdminUser.id, role: UserRole.SUPER_ADMIN },
     });
+
+    // Ticket + sesión de acceso YA aprobada: el estado en el que queda un colegio que le
+    // concedió entrada al soporte. Se siembra directo (no por la API) porque lo que estos
+    // tests prueban es la entrada en sí, no el trámite de aprobación.
+    const ticket = await prisma.supportTicket.upsert({
+      where: { id: TENANT_A_TICKET_ID },
+      update: {},
+      create: {
+        id: TENANT_A_TICKET_ID,
+        tenantId: tenantA.id,
+        authorId: tenantAAdminUser.id,
+        title: "Acceso de soporte (fixture e2e)",
+        description: "Ticket de fixture para probar la entrada por impersonación.",
+        category: "soporte-tecnico",
+      },
+    });
+
+    const grantedAt = new Date();
+    await prisma.accessSession.upsert({
+      where: { id: TENANT_A_ACCESS_SESSION_ID },
+      update: {
+        scope: AccessScope.DATOS_PERSONALES,
+        status: AccessSessionStatus.CONCEDIDO,
+        grantedAt,
+        expiresAt: new Date(grantedAt.getTime() + 60 * 60_000),
+        revokedAt: null,
+      },
+      create: {
+        id: TENANT_A_ACCESS_SESSION_ID,
+        ticketId: ticket.id,
+        tenantId: tenantA.id,
+        requestedById: superAdminUser.id,
+        approvedById: tenantAAdminUser.id,
+        scope: AccessScope.DATOS_PERSONALES,
+        status: AccessSessionStatus.CONCEDIDO,
+        reason: "Fixture e2e",
+        requestedDurationMinutes: 60,
+        grantedAt,
+        expiresAt: new Date(grantedAt.getTime() + 60 * 60_000),
+      },
+    });
+
+    return ticket.id;
   });
 
   const { studentId, teacherId, groupId } = await tenantRlsContext.runWithTenant(tenantB.id, async () => {
@@ -365,6 +448,7 @@ async function ensureFixtures(
     tenantBStudentId: studentId,
     tenantBTeacherId: teacherId,
     tenantBGroupId: groupId,
+    tenantATicketId,
   };
 }
 

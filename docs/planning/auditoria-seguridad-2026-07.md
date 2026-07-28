@@ -284,6 +284,37 @@ suma.* Cada una era razonable leída sola, y el test que existía cubría el vec
 equivocado. Cuando un rol tiene un bypass (acá, el de permisos), hay que preguntarse qué otra
 cosa lo estaba conteniendo — y si esa otra cosa se apaga sola en algún caso.
 
+### El hallazgo colateral: la puerta legítima estaba rota de fábrica
+
+Al cerrar el frente hubo que comprobar que el camino correcto funcionara, y no funcionaba.
+**Ninguna impersonación podía entrar a un colegio, nunca.**
+
+`DataScopeGuard` busca la `AccessSession` aprobada en `access_sessions`, que tiene RLS
+forzado — pero lo hace desde un **guard**, y `TenantRlsContextInterceptor` (el que establece
+`app.tenant_id`) es un **interceptor**, que en Nest corre después de todos los guards. Es más:
+el interceptor está implementado así a propósito, y su comentario lo explica —necesita
+`request.user`, que recién existe tras `JwtAuthGuard`—; nadie notó que el guard siguiente
+consultaba una tabla protegida en ese hueco. La consulta devolvía cero filas siempre, el
+guard concluía "no hay sesión aprobada" y respondía 403.
+
+Medido con el cliente de la app contra la fila real: **0 filas sin contexto, 1 con contexto.**
+
+Lo tapaba justamente el hueco de arriba: como el `SUPER_ADMIN` entraba por la puerta del
+frente, nadie necesitó nunca que la impersonación funcionara. Dos defectos que se ocultaban
+mutuamente, y ninguno de los dos tenía test: **la suite e2e no cubría la impersonación en
+absoluto** — cero menciones en los 176 tests que había.
+
+El arreglo es una línea de intención: envolver la consulta del guard en
+`runWithTenant(user.tenantId, ...)`. No hace falta el bypass de `PlatformAdminPrismaService`
+porque el tenant se conoce, viene en el JWT; lo único que faltaba era decirlo. Queda como
+trampa #7 en `aislamiento-rls-multitenant.md`, porque aplica a **cualquier** guard futuro que
+lea una tabla tenant-owned.
+
+Y el corolario que conviene tener presente más allá de este bug: **la falta de contexto se ve
+exactamente igual que "no existe"**. Cero filas no distingue entre "no tenés permiso", "no hay
+dato" y "olvidé el contexto" — es el mismo patrón que el fail-open de `calendar-aggregation`,
+solo que fallando para el otro lado.
+
 ---
 
 ## RESUMEN FINAL ✅ Auditoría completa (2026-07-18 → 2026-07-19)

@@ -63,6 +63,17 @@ No existe `apps/mobile` — la app móvil (React Native/Expo) mencionada en docu
 - Storage S3-compatible (MinIO en dev) para adjuntos e imágenes, con URLs firmadas.
 
 ### SuperAdmin (`/superadmin`)
+
+> **Cómo se entra a un colegio desde acá, desde el 2026-07-27.** No se entra: `/admin` le
+> responde 403 a un `SUPER_ADMIN` que no esté impersonando, y el middleware lo devuelve al
+> Panel SaaS. El único camino es la impersonación desde `/superadmin/tenants` — ticket del
+> colegio + `AccessSession` aprobada, con alcance y vencimiento. Antes existía una puerta
+> directa (el `SUPER_ADMIN` tiene membresía en `demo` por el seed) y esa puerta tapaba que
+> **la impersonación estaba rota de fábrica**: `DataScopeGuard` consultaba `access_sessions`
+> sin contexto de RLS y rechazaba todo. Los dos arreglados el mismo día; historia completa en
+> `auditoria-seguridad-2026-07.md`, Apéndice II. Para probarlo en local, `seed:demo` ya deja
+> sembrado un ticket con su acceso aprobado: se impersona con un clic.
+
 - Dashboard, gestión de tenants (crear/editar/suspender), usuarios globales, log de auditoría con paginación y diff-view. Todo conectado a datos reales.
 - **Solicitudes** (`/superadmin/solicitudes`, 2026-07-27): bandeja de las solicitudes de demo
   que llegan del sitio público, con seguimiento comercial (estado, plan y monto cotizado, notas
