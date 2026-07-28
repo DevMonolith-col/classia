@@ -151,7 +151,7 @@ export function TicketSidebar({ basePath, isTenant = false }: { basePath: string
           />
         </div>
         
-        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+        <div className="flex gap-2 overflow-x-auto pb-1">
           <Button 
             variant={statusFilter === "ALL" ? "default" : "outline"} 
             size="sm" 
