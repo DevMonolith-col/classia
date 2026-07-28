@@ -216,167 +216,165 @@ export default function TareasFamiliaPage() {
   const selectedSubmission = selectedTaskId ? submissions[selectedTaskId] : null
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="lg:pl-64">
-        <div className="px-4 py-6 lg:px-8">
-          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground lg:text-3xl">Tareas</h1>
-              <p className="mt-1 text-muted-foreground">
-                {activeStudent
-                  ? `${activeStudent.firstName} ${activeStudent.lastName}${
-                      activeStudent.group ? ` — ${activeStudent.group.name}` : ""
-                    }`
-                  : "Asignaciones y entregas"}
-              </p>
-            </div>
-            <Button variant="outline" className="gap-2" onClick={() => setShowFilters((v) => !v)}>
-              <Filter className="h-4 w-4" />
-              Filtros
-            </Button>
+    <>
+      <div className="p-4 sm:p-6 lg:p-8">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Tareas</h1>
+            <p className="mt-1 text-muted-foreground">
+              {activeStudent
+                ? `${activeStudent.firstName} ${activeStudent.lastName}${
+                    activeStudent.group ? ` — ${activeStudent.group.name}` : ""
+                  }`
+                : "Asignaciones y entregas"}
+            </p>
           </div>
+          <Button variant="outline" className="gap-2" onClick={() => setShowFilters((v) => !v)}>
+            <Filter className="h-4 w-4" />
+            Filtros
+          </Button>
+        </div>
 
-          {error && (
-            <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>{error}</p>
-            </div>
-          )}
+        {error && (
+          <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{error}</p>
+          </div>
+        )}
 
-          {(students.length > 1 || showFilters) && (
-            <Card className="mb-6">
-              <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
-                {students.length > 1 && (
-                  <div className="w-full space-y-2 sm:w-56">
-                    <Label>Estudiante</Label>
-                    <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
+        {(students.length > 1 || showFilters) && (
+          <Card className="mb-6">
+            <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
+              {students.length > 1 && (
+                <div className="w-full space-y-2 sm:w-56">
+                  <Label>Estudiante</Label>
+                  <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {students.map((student) => (
+                        <SelectItem key={student.id} value={student.id}>
+                          {student.firstName} {student.lastName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {showFilters && (
+                <>
+                  <div className="w-full space-y-2 sm:w-48">
+                    <Label>Materia</Label>
+                    <Select value={selectedSubject} onValueChange={setSelectedSubject}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {students.map((student) => (
-                          <SelectItem key={student.id} value={student.id}>
-                            {student.firstName} {student.lastName}
+                        {subjects.map((subject) => (
+                          <SelectItem key={subject} value={subject}>
+                            {subject}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-                )}
-                {showFilters && (
-                  <>
-                    <div className="w-full space-y-2 sm:w-48">
-                      <Label>Materia</Label>
-                      <Select value={selectedSubject} onValueChange={setSelectedSubject}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {subjects.map((subject) => (
-                            <SelectItem key={subject} value={subject}>
-                              {subject}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="w-full space-y-2 sm:w-48">
-                      <Label>Estado</Label>
-                      <Select
-                        value={selectedStatus}
-                        onValueChange={(value) => setSelectedStatus(value as TaskStatus | "Todos")}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUS_FILTERS.map((status) => (
-                            <SelectItem key={status} value={status}>
-                              {status === "Todos" ? "Todos" : STATUS_META[status].label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {(Object.keys(STATUS_META) as TaskStatus[]).map((status) => (
-              <Card key={status}>
-                <CardContent className="p-4">
-                  <p className="text-2xl font-bold text-foreground">{counts[status]}</p>
-                  <p className="text-xs text-muted-foreground">{STATUS_META[status].label}s</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {loading && (
-            <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="text-sm">Cargando tareas…</span>
-            </div>
-          )}
-
-          {!loading && filtered.length === 0 && (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <FileText className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
-                <p className="text-lg font-medium text-foreground">Sin tareas</p>
-                <p className="text-sm text-muted-foreground">
-                  {homework.length === 0
-                    ? "Todavía no hay asignaciones para este curso."
-                    : "Ninguna tarea coincide con los filtros."}
-                </p>
-              </CardContent>
-            </Card>
-          )}
-
-          {!loading && filtered.length > 0 && (
-            <div className="space-y-3">
-              {filtered.map((item) => {
-                const status = statusOf(item, submissions[item.id])
-                const meta = STATUS_META[status]
-                const Icon = meta.icon
-
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => setSelectedTaskId(item.id)}
-                    className="flex w-full items-center gap-4 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-muted/50"
-                  >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
-                      <Icon className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-foreground">{item.title}</p>
-                      <p className="truncate text-sm text-muted-foreground">
-                        {item.subject.name}
-                        {item.teacher?.user
-                          ? ` · ${item.teacher.user.firstName} ${item.teacher.user.lastName}`
-                          : ""}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Entrega: {formatDate(item.dueDate)}
-                      </p>
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${meta.badge}`}
+                  <div className="w-full space-y-2 sm:w-48">
+                    <Label>Estado</Label>
+                    <Select
+                      value={selectedStatus}
+                      onValueChange={(value) => setSelectedStatus(value as TaskStatus | "Todos")}
                     >
-                      {meta.label}
-                    </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  </button>
-                )
-              })}
-            </div>
-          )}
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_FILTERS.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {status === "Todos" ? "Todos" : STATUS_META[status].label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {(Object.keys(STATUS_META) as TaskStatus[]).map((status) => (
+            <Card key={status}>
+              <CardContent className="p-4">
+                <p className="text-2xl font-bold text-foreground">{counts[status]}</p>
+                <p className="text-xs text-muted-foreground">{STATUS_META[status].label}s</p>
+              </CardContent>
+            </Card>
+          ))}
         </div>
-      </main>
+
+        {loading && (
+          <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="text-sm">Cargando tareas…</span>
+          </div>
+        )}
+
+        {!loading && filtered.length === 0 && (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <FileText className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
+              <p className="text-lg font-medium text-foreground">Sin tareas</p>
+              <p className="text-sm text-muted-foreground">
+                {homework.length === 0
+                  ? "Todavía no hay asignaciones para este curso."
+                  : "Ninguna tarea coincide con los filtros."}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {!loading && filtered.length > 0 && (
+          <div className="space-y-3">
+            {filtered.map((item) => {
+              const status = statusOf(item, submissions[item.id])
+              const meta = STATUS_META[status]
+              const Icon = meta.icon
+
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setSelectedTaskId(item.id)}
+                  className="flex w-full items-center gap-4 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-muted/50"
+                >
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+                    <Icon className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-foreground">{item.title}</p>
+                    <p className="truncate text-sm text-muted-foreground">
+                      {item.subject.name}
+                      {item.teacher?.user
+                        ? ` · ${item.teacher.user.firstName} ${item.teacher.user.lastName}`
+                        : ""}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Entrega: {formatDate(item.dueDate)}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${meta.badge}`}
+                  >
+                    {meta.label}
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
 
       {selectedTask && (
         <div
@@ -488,6 +486,6 @@ export default function TareasFamiliaPage() {
           </Card>
         </div>
       )}
-    </div>
+    </>
   )
 }

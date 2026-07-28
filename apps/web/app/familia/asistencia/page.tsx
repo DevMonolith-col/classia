@@ -271,313 +271,309 @@ export default function AsistenciaFamiliaPage() {
   const todayKey = localDayKey(today.getFullYear(), today.getMonth(), today.getDate())
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="lg:pl-64">
-        <div className="px-4 py-6 lg:px-8">
-          {/* Header */}
-          <div className="mb-6">
-            <h1 className="text-2xl font-bold text-foreground lg:text-3xl">Asistencia</h1>
-            <p className="mt-1 text-muted-foreground">
-              {activeStudent
-                ? `Historial de ${activeStudent.firstName} ${activeStudent.lastName}${
-                    activeStudent.group ? ` — ${activeStudent.group.name}` : ""
-                  }`
-                : "Historial de asistencia"}
-            </p>
-          </div>
+    <div className="p-4 sm:p-6 lg:p-8">
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Asistencia</h1>
+        <p className="mt-1 text-muted-foreground">
+          {activeStudent
+            ? `Historial de ${activeStudent.firstName} ${activeStudent.lastName}${
+                activeStudent.group ? ` — ${activeStudent.group.name}` : ""
+              }`
+            : "Historial de asistencia"}
+        </p>
+      </div>
 
-          {error && (
-            <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>{error}</p>
+      {error && (
+        <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
+
+      {students.length > 1 && (
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="w-full space-y-2 sm:w-64">
+              <Label>Estudiante</Label>
+              <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {students.map((student) => (
+                    <SelectItem key={student.id} value={student.id}>
+                      {student.firstName} {student.lastName}
+                      {student.group ? ` (${student.group.name})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          )}
+          </CardContent>
+        </Card>
+      )}
 
-          {students.length > 1 && (
-            <Card className="mb-6">
+      {!loading && students.length === 0 && !error && (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Calendar className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">
+              No hay estudiantes vinculados a esta cuenta.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {students.length > 0 && (
+        <>
+          {/* Stats */}
+          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <Card>
               <CardContent className="p-4">
-                <div className="w-full space-y-2 sm:w-64">
-                  <Label>Estudiante</Label>
-                  <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {students.map((student) => (
-                        <SelectItem key={student.id} value={student.id}>
-                          {student.firstName} {student.lastName}
-                          {student.group ? ` (${student.group.name})` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
+                    <TrendingUp className="h-5 w-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-foreground">
+                      {stats.porcentaje === null ? "—" : `${stats.porcentaje}%`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Asistencia</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-          )}
-
-          {!loading && students.length === 0 && !error && (
             <Card>
-              <CardContent className="py-12 text-center">
-                <Calendar className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
-                <p className="text-sm text-muted-foreground">
-                  No hay estudiantes vinculados a esta cuenta.
-                </p>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
+                    <Check className="h-5 w-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-foreground">{stats.presentes}</p>
+                    <p className="text-xs text-muted-foreground">Presentes</p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
-          )}
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                    <X className="h-5 w-5 text-red-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-foreground">{stats.ausentes}</p>
+                    <p className="text-xs text-muted-foreground">Ausencias</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100">
+                    <Clock className="h-5 w-5 text-yellow-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-foreground">{stats.tardanzas}</p>
+                    <p className="text-xs text-muted-foreground">Tardanzas</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-          {students.length > 0 && (
-            <>
-              {/* Stats */}
-              <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
-                        <TrendingUp className="h-5 w-5 text-green-600" />
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-foreground">
-                          {stats.porcentaje === null ? "—" : `${stats.porcentaje}%`}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Asistencia</p>
-                      </div>
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Calendar */}
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    Calendario de Asistencia
+                    {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="icon" onClick={() => navigateMonth("prev")}>
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="min-w-32 text-center font-medium">
+                      {months[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                    </span>
+                    <Button variant="ghost" size="icon" onClick={() => navigateMonth("next")}>
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-7 gap-1">
+                  {weekDays.map((day) => (
+                    <div
+                      key={day}
+                      className="p-2 text-center text-xs font-medium text-muted-foreground"
+                    >
+                      {day}
                     </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
-                        <Check className="h-5 w-5 text-green-600" />
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-foreground">{stats.presentes}</p>
-                        <p className="text-xs text-muted-foreground">Presentes</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
-                        <X className="h-5 w-5 text-red-600" />
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-foreground">{stats.ausentes}</p>
-                        <p className="text-xs text-muted-foreground">Ausencias</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100">
-                        <Clock className="h-5 w-5 text-yellow-600" />
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-foreground">{stats.tardanzas}</p>
-                        <p className="text-xs text-muted-foreground">Tardanzas</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                  ))}
+                  {getMonthDays(currentMonth).map((day, index) => {
+                    const dateStr = day
+                      ? localDayKey(currentMonth.getFullYear(), currentMonth.getMonth(), day)
+                      : ""
+                    const entries = day ? byDay.get(dateStr) : undefined
+                    const status = entries && entries.length > 0 ? worstStatusOf(entries) : null
 
-              <div className="grid gap-6 lg:grid-cols-3">
-                {/* Calendar */}
-                <Card className="lg:col-span-2">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2 text-lg">
-                        Calendario de Asistencia
-                        {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                      </CardTitle>
-                      <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => navigateMonth("prev")}>
-                          <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                        <span className="min-w-32 text-center font-medium">
-                          {months[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-                        </span>
-                        <Button variant="ghost" size="icon" onClick={() => navigateMonth("next")}>
-                          <ChevronRight className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-7 gap-1">
-                      {weekDays.map((day) => (
-                        <div
-                          key={day}
-                          className="p-2 text-center text-xs font-medium text-muted-foreground"
-                        >
-                          {day}
-                        </div>
-                      ))}
-                      {getMonthDays(currentMonth).map((day, index) => {
-                        const dateStr = day
-                          ? localDayKey(currentMonth.getFullYear(), currentMonth.getMonth(), day)
-                          : ""
-                        const entries = day ? byDay.get(dateStr) : undefined
-                        const status = entries && entries.length > 0 ? worstStatusOf(entries) : null
-
-                        return (
-                          <button
-                            key={index}
-                            disabled={!entries}
-                            onClick={() => entries && setSelectedDate(dateStr)}
-                            className={`relative flex h-10 w-full items-center justify-center rounded-lg text-sm transition-colors lg:h-12 ${
-                              !day
-                                ? ""
-                                : !entries
-                                ? "text-muted-foreground/50"
-                                : selectedDate === dateStr
-                                ? "ring-2 ring-primary ring-offset-2"
-                                : "hover:bg-muted"
-                            } ${dateStr === todayKey ? "font-bold text-primary" : ""}`}
-                          >
-                            {day && (
-                              <>
-                                <span className={status ? "sr-only" : ""}>{day}</span>
-                                {status && (
-                                  <div
-                                    className={`flex h-7 w-7 items-center justify-center rounded-full ${STATUS_COLOR[status]}`}
-                                  >
-                                    {statusIcon(status)}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    {!loading && byDay.size === 0 && (
-                      <p className="mt-4 text-center text-sm text-muted-foreground">
-                        No hay asistencia registrada en {months[currentMonth.getMonth()].toLowerCase()}.
-                      </p>
-                    )}
-
-                    {/* Legend */}
-                    <div className="mt-4 flex flex-wrap gap-4 border-t border-border pt-4">
-                      {(Object.keys(STATUS_LABEL) as AttendanceStatus[]).map((status) => (
-                        <div key={status} className="flex items-center gap-2">
-                          <div
-                            className={`flex h-5 w-5 items-center justify-center rounded-full ${STATUS_COLOR[status]}`}
-                          >
-                            {statusIcon(status)}
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {STATUS_LABEL[status]}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Details */}
-                <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg">Detalles</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {selectedEntries.length > 0 ? (
-                        <div className="space-y-4">
-                          <p className="text-sm text-muted-foreground">
-                            {new Date(`${selectedDate}T12:00:00`).toLocaleDateString("es-ES", {
-                              weekday: "long",
-                              day: "numeric",
-                              month: "long",
-                            })}
-                          </p>
-                          {selectedEntries.map((entry) => (
-                            <div key={entry.sessionId} className="space-y-1 border-t border-border pt-3 first:border-0 first:pt-0">
-                              <div className="flex items-center gap-3">
-                                <div
-                                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${STATUS_COLOR[entry.status]}`}
-                                >
-                                  {statusIcon(entry.status)}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="truncate font-medium text-foreground">
-                                    {entry.subject}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {STATUS_LABEL[entry.status]}
-                                    {entry.startTime ? ` · ${entry.startTime}` : ""}
-                                  </p>
-                                </div>
+                    return (
+                      <button
+                        key={index}
+                        disabled={!entries}
+                        onClick={() => entries && setSelectedDate(dateStr)}
+                        className={`relative flex h-10 w-full items-center justify-center rounded-lg text-sm transition-colors lg:h-12 ${
+                          !day
+                            ? ""
+                            : !entries
+                            ? "text-muted-foreground/50"
+                            : selectedDate === dateStr
+                            ? "ring-2 ring-primary ring-offset-2"
+                            : "hover:bg-muted"
+                        } ${dateStr === todayKey ? "font-bold text-primary" : ""}`}
+                      >
+                        {day && (
+                          <>
+                            <span className={status ? "sr-only" : ""}>{day}</span>
+                            {status && (
+                              <div
+                                className={`flex h-7 w-7 items-center justify-center rounded-full ${STATUS_COLOR[status]}`}
+                              >
+                                {statusIcon(status)}
                               </div>
-                              {entry.observation && (
-                                <p className="pl-11 text-sm text-muted-foreground">
-                                  {entry.observation}
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="py-8 text-center">
-                          <Calendar className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
-                          <p className="text-sm text-muted-foreground">
-                            Selecciona un día para ver los detalles
-                          </p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                            )}
+                          </>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
 
-                  {needsAttention.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-lg">
-                          <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                          Atención Requerida
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {needsAttention.map((entry) => (
-                          <button
-                            key={`${entry.day}-${entry.sessionId}`}
-                            onClick={() => setSelectedDate(entry.day)}
-                            className="flex w-full items-center gap-3 rounded-lg bg-muted p-3 text-left transition-colors hover:bg-muted/70"
-                          >
+                {!loading && byDay.size === 0 && (
+                  <p className="mt-4 text-center text-sm text-muted-foreground">
+                    No hay asistencia registrada en {months[currentMonth.getMonth()].toLowerCase()}.
+                  </p>
+                )}
+
+                {/* Legend */}
+                <div className="mt-4 flex flex-wrap gap-4 border-t border-border pt-4">
+                  {(Object.keys(STATUS_LABEL) as AttendanceStatus[]).map((status) => (
+                    <div key={status} className="flex items-center gap-2">
+                      <div
+                        className={`flex h-5 w-5 items-center justify-center rounded-full ${STATUS_COLOR[status]}`}
+                      >
+                        {statusIcon(status)}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {STATUS_LABEL[status]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Details */}
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Detalles</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {selectedEntries.length > 0 ? (
+                    <div className="space-y-4">
+                      <p className="text-sm text-muted-foreground">
+                        {new Date(`${selectedDate}T12:00:00`).toLocaleDateString("es-ES", {
+                          weekday: "long",
+                          day: "numeric",
+                          month: "long",
+                        })}
+                      </p>
+                      {selectedEntries.map((entry) => (
+                        <div key={entry.sessionId} className="space-y-1 border-t border-border pt-3 first:border-0 first:pt-0">
+                          <div className="flex items-center gap-3">
                             <div
                               className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${STATUS_COLOR[entry.status]}`}
                             >
                               {statusIcon(entry.status)}
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium text-foreground">
-                                {STATUS_LABEL[entry.status]}
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-foreground">
+                                {entry.subject}
                               </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {new Date(`${entry.day}T12:00:00`).toLocaleDateString("es-ES", {
-                                  day: "numeric",
-                                  month: "short",
-                                })}
-                                {` · ${entry.subject}`}
+                              <p className="text-xs text-muted-foreground">
+                                {STATUS_LABEL[entry.status]}
+                                {entry.startTime ? ` · ${entry.startTime}` : ""}
                               </p>
                             </div>
-                          </button>
-                        ))}
-                      </CardContent>
-                    </Card>
+                          </div>
+                          {entry.observation && (
+                            <p className="pl-11 text-sm text-muted-foreground">
+                              {entry.observation}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-8 text-center">
+                      <Calendar className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
+                      <p className="text-sm text-muted-foreground">
+                        Selecciona un día para ver los detalles
+                      </p>
+                    </div>
                   )}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </main>
+                </CardContent>
+              </Card>
+
+              {needsAttention.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                      Atención Requerida
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {needsAttention.map((entry) => (
+                      <button
+                        key={`${entry.day}-${entry.sessionId}`}
+                        onClick={() => setSelectedDate(entry.day)}
+                        className="flex w-full items-center gap-3 rounded-lg bg-muted p-3 text-left transition-colors hover:bg-muted/70"
+                      >
+                        <div
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${STATUS_COLOR[entry.status]}`}
+                        >
+                          {statusIcon(entry.status)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {STATUS_LABEL[entry.status]}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {new Date(`${entry.day}T12:00:00`).toLocaleDateString("es-ES", {
+                              day: "numeric",
+                              month: "short",
+                            })}
+                            {` · ${entry.subject}`}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

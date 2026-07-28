@@ -142,7 +142,7 @@ const YA_INCLUIDO = [
 
 export default function AdminPluginsPage() {
   return (
-    <div className="min-h-screen bg-background">
+    <>
       <header className="border-b border-border bg-background px-4 py-6 sm:px-6 lg:px-8">
         <div className="flex items-start gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary">
@@ -269,6 +269,6 @@ export default function AdminPluginsPage() {
           </span>
         </p>
       </div>
-    </div>
+    </>
   )
 }

@@ -148,7 +148,7 @@ export default function AdminDashboardPage() {
     : []
 
   return (
-    <div className="min-h-screen bg-background pb-10">
+    <div className="pb-10">
       {/* Header */}
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -173,7 +173,7 @@ export default function AdminDashboardPage() {
         </div>
       </header>
 
-      <div className="px-4 py-5 sm:px-6 lg:px-8 space-y-6">
+      <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
         {/* Stats Row */}
         {statsError ? (
           <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">

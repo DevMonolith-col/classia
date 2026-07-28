@@ -129,123 +129,119 @@ export function NotificationsPanel({ userRole: _userRole }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="lg:pl-64">
-        <div className="mx-auto max-w-3xl p-4 lg:p-6">
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Bell className="h-6 w-6 text-primary" />
-              <h1 className="text-2xl font-semibold text-foreground">Notificaciones</h1>
-              {unreadCount > 0 && (
-                <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-2 text-xs font-medium text-primary-foreground">
-                  {unreadCount}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {unreadCount > 0 && (
-                <Button variant="ghost" size="sm" onClick={markAllRead}>
-                  Marcar todo como leído
-                </Button>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setShowPrefs((v) => !v)}>
-                Preferencias
-              </Button>
-            </div>
-          </div>
-
-          {showPrefs && (
-            <div className="mb-6 rounded-xl border border-border bg-card p-4">
-              <h2 className="mb-1 font-semibold text-foreground">Avisos por correo</h2>
-              <p className="mb-4 text-sm text-muted-foreground">
-                Las notificaciones siempre aparecen aquí. Elige además cuáles quieres recibir por
-                correo electrónico.
-              </p>
-              <div className="space-y-1">
-                {EVENT_ORDER.map((eventType) => {
-                  const meta = EVENT_META[eventType]
-                  const Icon = meta.icon
-                  const enabled = emailPrefs[eventType] ?? true
-                  return (
-                    <div
-                      key={eventType}
-                      className="flex items-center justify-between rounded-lg px-2 py-2.5 hover:bg-secondary/40"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon className={`h-4 w-4 ${meta.tint}`} />
-                        <span className="text-sm text-foreground">{meta.label}</span>
-                      </div>
-                      <Switch
-                        checked={enabled}
-                        onCheckedChange={(checked) => toggleEmail(eventType, checked)}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {loading ? (
-            <div className="flex items-center justify-center rounded-xl border border-border bg-card py-16 text-sm text-muted-foreground">
-              Cargando notificaciones…
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-card py-16">
-              <p className="text-sm text-muted-foreground">No se pudieron cargar las notificaciones.</p>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setLoading(true)
-                  void load()
-                }}
-              >
-                Reintentar
-              </Button>
-            </div>
-          ) : notifications.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card py-16 text-center">
-              <Bell className="h-8 w-8 text-muted-foreground/50" />
-              <p className="text-sm text-muted-foreground">No tienes notificaciones.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {notifications.map((notification) => {
-                const meta = EVENT_META[notification.eventType]
-                const Icon = meta?.icon ?? Bell
-                return (
-                  <button
-                    key={notification.id}
-                    onClick={() => !notification.isRead && markRead(notification.id)}
-                    className={[
-                      "flex w-full items-start gap-3 rounded-xl border p-4 text-left transition-colors",
-                      notification.isRead
-                        ? "border-border bg-card"
-                        : "cursor-pointer border-primary/40 bg-primary/[0.03] hover:bg-primary/[0.06]",
-                    ].join(" ")}
-                  >
-                    <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary">
-                      <Icon className={`h-4 w-4 ${meta?.tint ?? "text-muted-foreground"}`} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        {!notification.isRead && (
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                        )}
-                        <span className="font-medium text-foreground">{notification.title}</span>
-                      </div>
-                      <p className="mt-0.5 text-sm text-foreground/80">{notification.body}</p>
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        {relativeTime(notification.createdAt)}
-                      </span>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
+    <div className="mx-auto max-w-3xl p-4 lg:p-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Bell className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl font-semibold text-foreground">Notificaciones</h1>
+          {unreadCount > 0 && (
+            <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-2 text-xs font-medium text-primary-foreground">
+              {unreadCount}
+            </span>
           )}
         </div>
-      </main>
+        <div className="flex flex-wrap items-center gap-2">
+          {unreadCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={markAllRead}>
+              Marcar todo como leído
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setShowPrefs((v) => !v)}>
+            Preferencias
+          </Button>
+        </div>
+      </div>
+
+      {showPrefs && (
+        <div className="mb-6 rounded-xl border border-border bg-card p-4">
+          <h2 className="mb-1 font-semibold text-foreground">Avisos por correo</h2>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Las notificaciones siempre aparecen aquí. Elige además cuáles quieres recibir por
+            correo electrónico.
+          </p>
+          <div className="space-y-1">
+            {EVENT_ORDER.map((eventType) => {
+              const meta = EVENT_META[eventType]
+              const Icon = meta.icon
+              const enabled = emailPrefs[eventType] ?? true
+              return (
+                <div
+                  key={eventType}
+                  className="flex items-center justify-between rounded-lg px-2 py-2.5 hover:bg-secondary/40"
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon className={`h-4 w-4 ${meta.tint}`} />
+                    <span className="text-sm text-foreground">{meta.label}</span>
+                  </div>
+                  <Switch
+                    checked={enabled}
+                    onCheckedChange={(checked) => toggleEmail(eventType, checked)}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center justify-center rounded-xl border border-border bg-card py-16 text-sm text-muted-foreground">
+          Cargando notificaciones…
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-card py-16">
+          <p className="text-sm text-muted-foreground">No se pudieron cargar las notificaciones.</p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setLoading(true)
+              void load()
+            }}
+          >
+            Reintentar
+          </Button>
+        </div>
+      ) : notifications.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card py-16 text-center">
+          <Bell className="h-8 w-8 text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">No tienes notificaciones.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {notifications.map((notification) => {
+            const meta = EVENT_META[notification.eventType]
+            const Icon = meta?.icon ?? Bell
+            return (
+              <button
+                key={notification.id}
+                onClick={() => !notification.isRead && markRead(notification.id)}
+                className={[
+                  "flex w-full items-start gap-3 rounded-xl border p-4 text-left transition-colors",
+                  notification.isRead
+                    ? "border-border bg-card"
+                    : "cursor-pointer border-primary/40 bg-primary/[0.03] hover:bg-primary/[0.06]",
+                ].join(" ")}
+              >
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary">
+                  <Icon className={`h-4 w-4 ${meta?.tint ?? "text-muted-foreground"}`} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    {!notification.isRead && (
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                    )}
+                    <span className="font-medium text-foreground">{notification.title}</span>
+                  </div>
+                  <p className="mt-0.5 text-sm text-foreground/80">{notification.body}</p>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {relativeTime(notification.createdAt)}
+                  </span>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

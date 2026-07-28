@@ -162,237 +162,235 @@ export function PortalSchedulePage({ title, description, secondary, withStudentP
   const todayClasses = byDay.get(today) ?? []
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="lg:pl-64">
-        <div className="px-4 py-6 lg:px-8">
-          <div className="mb-6">
-            <h1 className="text-2xl font-bold text-foreground lg:text-3xl">{title}</h1>
-            <p className="mt-1 text-muted-foreground">
-              {activeStudent
-                ? `${activeStudent.firstName} ${activeStudent.lastName}${
-                    activeStudent.group ? ` — ${activeStudent.group.name}` : ""
-                  }`
-                : description}
-            </p>
+    <>
+      <div className="p-4 sm:p-6 lg:p-8">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">{title}</h1>
+          <p className="mt-1 text-muted-foreground">
+            {activeStudent
+              ? `${activeStudent.firstName} ${activeStudent.lastName}${
+                  activeStudent.group ? ` — ${activeStudent.group.name}` : ""
+                }`
+              : description}
+          </p>
+        </div>
+
+        {error && (
+          <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{error}</p>
           </div>
+        )}
 
-          {error && (
-            <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>{error}</p>
-            </div>
-          )}
-
-          <Card className="mb-6">
-            <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end sm:justify-between">
-              {students.length > 1 ? (
-                <div className="w-full space-y-2 sm:w-64">
-                  <Label>Estudiante</Label>
-                  <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {students.map((student) => (
-                        <SelectItem key={student.id} value={student.id}>
-                          {student.firstName} {student.lastName}
-                          {student.group ? ` (${student.group.name})` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                  Horario semanal
-                </p>
-              )}
-
-              <div className="flex rounded-lg border border-input p-1">
-                {(["week", "day"] as ViewMode[]).map((mode) => (
-                  <Button
-                    key={mode}
-                    variant={viewMode === mode ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setViewMode(mode)}
-                  >
-                    {mode === "week" ? "Semana" : "Hoy"}
-                  </Button>
-                ))}
+        <Card className="mb-6">
+          <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-end sm:justify-between">
+            {students.length > 1 ? (
+              <div className="w-full space-y-2 sm:w-64">
+                <Label>Estudiante</Label>
+                <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {students.map((student) => (
+                      <SelectItem key={student.id} value={student.id}>
+                        {student.firstName} {student.lastName}
+                        {student.group ? ` (${student.group.name})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+            ) : (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                Horario semanal
+              </p>
+            )}
+
+            <div className="flex rounded-lg border border-input p-1">
+              {(["week", "day"] as ViewMode[]).map((mode) => (
+                <Button
+                  key={mode}
+                  variant={viewMode === mode ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setViewMode(mode)}
+                >
+                  {mode === "week" ? "Semana" : "Hoy"}
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {!loading && visible.length === 0 && (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <CalendarIcon className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
+              <p className="text-lg font-medium text-foreground">Sin horario</p>
+              <p className="text-sm text-muted-foreground">
+                Todavía no hay clases asignadas.
+              </p>
             </CardContent>
           </Card>
+        )}
 
-          {!loading && visible.length === 0 && (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <CalendarIcon className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
-                <p className="text-lg font-medium text-foreground">Sin horario</p>
-                <p className="text-sm text-muted-foreground">
-                  Todavía no hay clases asignadas.
-                </p>
-              </CardContent>
-            </Card>
-          )}
-
-          {visible.length > 0 && viewMode === "week" && (
-            <Card className="overflow-hidden">
-              <CardContent className="p-0">
-                {/* Móvil: un día debajo del otro */}
-                <div className="lg:hidden">
-                  {SCHOOL_DAYS.map((dayIndex) => {
-                    const dayClasses = byDay.get(dayIndex) ?? []
-                    return (
-                      <div key={dayIndex} className="border-b border-border last:border-0">
-                        <div
-                          className={`flex items-center gap-2 p-3 ${
-                            dayIndex === today ? "bg-primary/5" : "bg-muted/50"
-                          }`}
-                        >
-                          <span className="font-medium text-foreground">
-                            {WEEK_DAYS_FULL[dayIndex]}
+        {visible.length > 0 && viewMode === "week" && (
+          <Card className="overflow-hidden">
+            <CardContent className="p-0">
+              {/* Móvil: un día debajo del otro */}
+              <div className="lg:hidden">
+                {SCHOOL_DAYS.map((dayIndex) => {
+                  const dayClasses = byDay.get(dayIndex) ?? []
+                  return (
+                    <div key={dayIndex} className="border-b border-border last:border-0">
+                      <div
+                        className={`flex items-center gap-2 p-3 ${
+                          dayIndex === today ? "bg-primary/5" : "bg-muted/50"
+                        }`}
+                      >
+                        <span className="font-medium text-foreground">
+                          {WEEK_DAYS_FULL[dayIndex]}
+                        </span>
+                        {dayIndex === today && (
+                          <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
+                            Hoy
                           </span>
-                          {dayIndex === today && (
-                            <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
-                              Hoy
-                            </span>
-                          )}
-                        </div>
-                        <div className="space-y-2 p-3">
-                          {dayClasses.length > 0 ? (
-                            dayClasses.map((item) => (
-                              <button
-                                key={item.id}
-                                onClick={() => setSelectedClass(item)}
-                                className={`flex w-full items-center gap-3 rounded-lg p-3 text-left text-white ${colorFor(item.subject.id)}`}
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate font-medium">{item.subject.name}</p>
-                                  <p className="text-sm opacity-80">
-                                    {item.startTime} - {item.endTime}
-                                  </p>
-                                </div>
-                                <div className="text-right text-sm opacity-80">
-                                  <p className="truncate">{item.room ?? secondaryOf(item)}</p>
-                                </div>
-                              </button>
-                            ))
-                          ) : (
-                            <p className="py-4 text-center text-sm text-muted-foreground">
-                              Sin clases
-                            </p>
-                          )}
-                        </div>
+                        )}
                       </div>
-                    )
-                  })}
+                      <div className="space-y-2 p-3">
+                        {dayClasses.length > 0 ? (
+                          dayClasses.map((item) => (
+                            <button
+                              key={item.id}
+                              onClick={() => setSelectedClass(item)}
+                              className={`flex w-full items-center gap-3 rounded-lg p-3 text-left text-white ${colorFor(item.subject.id)}`}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-medium">{item.subject.name}</p>
+                                <p className="text-sm opacity-80">
+                                  {item.startTime} - {item.endTime}
+                                </p>
+                              </div>
+                              <div className="text-right text-sm opacity-80">
+                                <p className="truncate">{item.room ?? secondaryOf(item)}</p>
+                              </div>
+                            </button>
+                          ))
+                        ) : (
+                          <p className="py-4 text-center text-sm text-muted-foreground">
+                            Sin clases
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Escritorio: grilla horaria */}
+              <div className="hidden lg:block">
+                <div className="grid grid-cols-6 border-b border-border">
+                  <div className="p-2" />
+                  {SCHOOL_DAYS.map((dayIndex) => (
+                    <div key={dayIndex} className="border-l border-border p-2 text-center">
+                      <p className="text-xs text-muted-foreground">{WEEK_DAYS_SHORT[dayIndex]}</p>
+                      <p
+                        className={`text-sm font-semibold ${
+                          dayIndex === today ? "text-primary" : "text-foreground"
+                        }`}
+                      >
+                        {WEEK_DAYS_FULL[dayIndex]}
+                      </p>
+                    </div>
+                  ))}
                 </div>
 
-                {/* Escritorio: grilla horaria */}
-                <div className="hidden lg:block">
-                  <div className="grid grid-cols-6 border-b border-border">
-                    <div className="p-2" />
+                <div className="max-h-[560px] overflow-y-auto">
+                  <div className="grid grid-cols-6">
+                    <div>
+                      {hours.map((hour) => (
+                        <div key={hour} className="h-20 border-b border-border px-2 py-1">
+                          <span className="text-xs text-muted-foreground">
+                            {String(hour).padStart(2, "0")}:00
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
                     {SCHOOL_DAYS.map((dayIndex) => (
-                      <div key={dayIndex} className="border-l border-border p-2 text-center">
-                        <p className="text-xs text-muted-foreground">{WEEK_DAYS_SHORT[dayIndex]}</p>
-                        <p
-                          className={`text-sm font-semibold ${
-                            dayIndex === today ? "text-primary" : "text-foreground"
-                          }`}
-                        >
-                          {WEEK_DAYS_FULL[dayIndex]}
-                        </p>
+                      <div key={dayIndex} className="relative border-l border-border">
+                        {hours.map((hour) => (
+                          <div key={hour} className="h-20 border-b border-border" />
+                        ))}
+                        {(byDay.get(dayIndex) ?? []).map((item) => {
+                          const top = ((minutesOf(item.startTime) - firstHour * 60) / 60) * 80
+                          const height =
+                            ((minutesOf(item.endTime) - minutesOf(item.startTime)) / 60) * 80
+
+                          return (
+                            <button
+                              key={item.id}
+                              onClick={() => setSelectedClass(item)}
+                              className={`absolute left-1 right-1 overflow-hidden rounded p-2 text-left text-white ${colorFor(item.subject.id)}`}
+                              style={{ top: `${top}px`, height: `${Math.max(height, 28)}px` }}
+                            >
+                              <p className="truncate text-sm font-medium">{item.subject.name}</p>
+                              <p className="truncate text-xs opacity-80">
+                                {item.startTime} - {item.endTime}
+                              </p>
+                              <p className="truncate text-xs opacity-80">
+                                {item.room ?? secondaryOf(item)}
+                              </p>
+                            </button>
+                          )
+                        })}
                       </div>
                     ))}
                   </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-                  <div className="max-h-[560px] overflow-y-auto">
-                    <div className="grid grid-cols-6">
-                      <div>
-                        {hours.map((hour) => (
-                          <div key={hour} className="h-20 border-b border-border px-2 py-1">
-                            <span className="text-xs text-muted-foreground">
-                              {String(hour).padStart(2, "0")}:00
-                            </span>
-                          </div>
-                        ))}
+        {visible.length > 0 && viewMode === "day" && (
+          <Card>
+            <CardContent className="p-4">
+              <div className="space-y-3">
+                {todayClasses.length > 0 ? (
+                  todayClasses.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setSelectedClass(item)}
+                      className={`flex w-full items-center gap-4 rounded-lg p-4 text-left text-white ${colorFor(item.subject.id)}`}
+                    >
+                      <div className="text-center">
+                        <p className="text-lg font-bold">{item.startTime}</p>
+                        <p className="text-sm opacity-80">{item.endTime}</p>
                       </div>
-
-                      {SCHOOL_DAYS.map((dayIndex) => (
-                        <div key={dayIndex} className="relative border-l border-border">
-                          {hours.map((hour) => (
-                            <div key={hour} className="h-20 border-b border-border" />
-                          ))}
-                          {(byDay.get(dayIndex) ?? []).map((item) => {
-                            const top = ((minutesOf(item.startTime) - firstHour * 60) / 60) * 80
-                            const height =
-                              ((minutesOf(item.endTime) - minutesOf(item.startTime)) / 60) * 80
-
-                            return (
-                              <button
-                                key={item.id}
-                                onClick={() => setSelectedClass(item)}
-                                className={`absolute left-1 right-1 overflow-hidden rounded p-2 text-left text-white ${colorFor(item.subject.id)}`}
-                                style={{ top: `${top}px`, height: `${Math.max(height, 28)}px` }}
-                              >
-                                <p className="truncate text-sm font-medium">{item.subject.name}</p>
-                                <p className="truncate text-xs opacity-80">
-                                  {item.startTime} - {item.endTime}
-                                </p>
-                                <p className="truncate text-xs opacity-80">
-                                  {item.room ?? secondaryOf(item)}
-                                </p>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      ))}
-                    </div>
+                      <div className="h-12 w-px bg-white/30" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-lg font-semibold">{item.subject.name}</p>
+                        <p className="truncate text-sm opacity-80">{secondaryOf(item)}</p>
+                        {item.room && <p className="truncate text-sm opacity-80">{item.room}</p>}
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="py-12 text-center">
+                    <CalendarIcon className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
+                    <p className="text-lg font-medium text-foreground">Sin clases</p>
+                    <p className="text-sm text-muted-foreground">
+                      No hay clases programadas para hoy ({WEEK_DAYS_FULL[today].toLowerCase()}).
+                    </p>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {visible.length > 0 && viewMode === "day" && (
-            <Card>
-              <CardContent className="p-4">
-                <div className="space-y-3">
-                  {todayClasses.length > 0 ? (
-                    todayClasses.map((item) => (
-                      <button
-                        key={item.id}
-                        onClick={() => setSelectedClass(item)}
-                        className={`flex w-full items-center gap-4 rounded-lg p-4 text-left text-white ${colorFor(item.subject.id)}`}
-                      >
-                        <div className="text-center">
-                          <p className="text-lg font-bold">{item.startTime}</p>
-                          <p className="text-sm opacity-80">{item.endTime}</p>
-                        </div>
-                        <div className="h-12 w-px bg-white/30" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-lg font-semibold">{item.subject.name}</p>
-                          <p className="truncate text-sm opacity-80">{secondaryOf(item)}</p>
-                          {item.room && <p className="truncate text-sm opacity-80">{item.room}</p>}
-                        </div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="py-12 text-center">
-                      <CalendarIcon className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
-                      <p className="text-lg font-medium text-foreground">Sin clases</p>
-                      <p className="text-sm text-muted-foreground">
-                        No hay clases programadas para hoy ({WEEK_DAYS_FULL[today].toLowerCase()}).
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </main>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       {selectedClass && (
         <div
@@ -449,6 +447,6 @@ export function PortalSchedulePage({ title, description, secondary, withStudentP
           </Card>
         </div>
       )}
-    </div>
+    </>
   )
 }

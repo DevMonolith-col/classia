@@ -152,109 +152,107 @@ export function AnnouncementsBoard({ userRole }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="lg:pl-64">
-        <div className="mx-auto max-w-3xl p-4 lg:p-6">
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Megaphone className="h-6 w-6 text-primary" />
-              <h1 className="text-2xl font-semibold text-foreground">Comunicados</h1>
-            </div>
-            {canPublish && (
-              <Button onClick={openDialog} className="gap-2">
-                <Plus className="h-4 w-4" />
-                Nuevo comunicado
-              </Button>
-            )}
+    <>
+      <div className="mx-auto max-w-3xl p-4 lg:p-6">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <Megaphone className="h-6 w-6 text-primary" />
+            <h1 className="text-2xl font-semibold text-foreground">Comunicados</h1>
           </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center rounded-xl border border-border bg-card py-16 text-sm text-muted-foreground">
-              Cargando comunicados…
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-card py-16">
-              <p className="text-sm text-muted-foreground">No se pudieron cargar los comunicados.</p>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setLoading(true)
-                  void load()
-                }}
-              >
-                Reintentar
-              </Button>
-            </div>
-          ) : announcements.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card py-16 text-center">
-              <Megaphone className="h-8 w-8 text-muted-foreground/50" />
-              <p className="text-sm text-muted-foreground">No hay comunicados por ahora.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {announcements.map((announcement) => {
-                const canDelete =
-                  userRole === "admin" || announcement.author.id === currentUserId
-                return (
-                  <article
-                    key={announcement.id}
-                    onClick={() => !announcement.isRead && markRead(announcement.id)}
-                    className={[
-                      "rounded-xl border bg-card p-4 shadow-sm transition-colors",
-                      announcement.isRead
-                        ? "border-border"
-                        : "cursor-pointer border-primary/40 bg-primary/[0.03] hover:bg-primary/[0.06]",
-                    ].join(" ")}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        {!announcement.isRead && (
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                        )}
-                        <h2 className="font-semibold text-foreground">{announcement.title}</h2>
-                      </div>
-                      {canDelete && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void handleDelete(announcement.id)
-                          }}
-                          className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          aria-label="Eliminar comunicado"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-
-                    <p className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">
-                      {announcement.body}
-                    </p>
-
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span>
-                        {announcement.author.firstName} {announcement.author.lastName}
-                      </span>
-                      <span aria-hidden>·</span>
-                      <span>{formatDate(announcement.createdAt)}</span>
-                      {announcement.group && (
-                        <Badge variant="secondary" className="font-normal">
-                          {announcement.group.name}
-                        </Badge>
-                      )}
-                      {announcement.targetRole && (
-                        <Badge variant="outline" className="font-normal">
-                          {ROLE_LABELS[announcement.targetRole] ?? announcement.targetRole}
-                        </Badge>
-                      )}
-                    </div>
-                  </article>
-                )
-              })}
-            </div>
+          {canPublish && (
+            <Button onClick={openDialog} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Nuevo comunicado
+            </Button>
           )}
         </div>
-      </main>
+
+        {loading ? (
+          <div className="flex items-center justify-center rounded-xl border border-border bg-card py-16 text-sm text-muted-foreground">
+            Cargando comunicados…
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-card py-16">
+            <p className="text-sm text-muted-foreground">No se pudieron cargar los comunicados.</p>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setLoading(true)
+                void load()
+              }}
+            >
+              Reintentar
+            </Button>
+          </div>
+        ) : announcements.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card py-16 text-center">
+            <Megaphone className="h-8 w-8 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">No hay comunicados por ahora.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {announcements.map((announcement) => {
+              const canDelete =
+                userRole === "admin" || announcement.author.id === currentUserId
+              return (
+                <article
+                  key={announcement.id}
+                  onClick={() => !announcement.isRead && markRead(announcement.id)}
+                  className={[
+                    "rounded-xl border bg-card p-4 shadow-sm transition-colors",
+                    announcement.isRead
+                      ? "border-border"
+                      : "cursor-pointer border-primary/40 bg-primary/[0.03] hover:bg-primary/[0.06]",
+                  ].join(" ")}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      {!announcement.isRead && (
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                      )}
+                      <h2 className="font-semibold text-foreground">{announcement.title}</h2>
+                    </div>
+                    {canDelete && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void handleDelete(announcement.id)
+                        }}
+                        className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        aria-label="Eliminar comunicado"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">
+                    {announcement.body}
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>
+                      {announcement.author.firstName} {announcement.author.lastName}
+                    </span>
+                    <span aria-hidden>·</span>
+                    <span>{formatDate(announcement.createdAt)}</span>
+                    {announcement.group && (
+                      <Badge variant="secondary" className="font-normal">
+                        {announcement.group.name}
+                      </Badge>
+                    )}
+                    {announcement.targetRole && (
+                      <Badge variant="outline" className="font-normal">
+                        {ROLE_LABELS[announcement.targetRole] ?? announcement.targetRole}
+                      </Badge>
+                    )}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </div>
 
       {canPublish && (
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -342,6 +340,6 @@ export function AnnouncementsBoard({ userRole }: Props) {
           </DialogContent>
         </Dialog>
       )}
-    </div>
+    </>
   )
 }

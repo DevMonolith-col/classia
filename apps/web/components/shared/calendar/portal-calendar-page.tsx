@@ -140,60 +140,58 @@ export function PortalCalendarPage({ title, description, sources }: Props) {
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="lg:pl-64">
-        <div className="px-4 py-6 lg:px-8">
-          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground lg:text-3xl">{title}</h1>
-              <p className="mt-1 text-muted-foreground">{description}</p>
-            </div>
-            <Button variant="outline" className="gap-2" onClick={() => setSubscribeOpen(true)}>
-              <CalendarPlus className="h-4 w-4" />
-              Suscribir a mi calendario
+    <>
+      <div className="p-4 sm:p-6 lg:p-8">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground sm:text-3xl">{title}</h1>
+            <p className="mt-1 text-muted-foreground">{description}</p>
+          </div>
+          <Button variant="outline" className="gap-2" onClick={() => setSubscribeOpen(true)}>
+            <CalendarPlus className="h-4 w-4" />
+            Suscribir a mi calendario
+          </Button>
+        </div>
+
+        {error && (
+          <div className="mb-6 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p className="flex-1">{error}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Reintentar
             </Button>
           </div>
+        )}
 
-          {error && (
-            <div className="mb-6 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p className="flex-1">{error}</p>
-              <Button variant="outline" size="sm" onClick={load}>
-                Reintentar
-              </Button>
-            </div>
-          )}
+        <CalendarGrid
+          events={gridEvents}
+          currentDate={currentDate}
+          viewMode={viewMode}
+          onCurrentDateChange={setCurrentDate}
+          onViewModeChange={setViewMode}
+          onSelectEvent={(event) => setSelected(byId.get(event.id) ?? null)}
+          loading={loading}
+        />
 
-          <CalendarGrid
-            events={gridEvents}
-            currentDate={currentDate}
-            viewMode={viewMode}
-            onCurrentDateChange={setCurrentDate}
-            onViewModeChange={setViewMode}
-            onSelectEvent={(event) => setSelected(byId.get(event.id) ?? null)}
-            loading={loading}
-          />
+        {!loading && !error && items.length === 0 && (
+          <Card className="mt-6">
+            <CardContent className="flex flex-col items-center gap-2 p-10 text-center">
+              <CalendarIcon className="h-10 w-10 text-muted-foreground" />
+              <p className="font-medium text-foreground">No hay nada en este rango</p>
+              <p className="text-sm text-muted-foreground">
+                Cuando el colegio publique eventos o se acerque una entrega, aparecen acá.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
-          {!loading && !error && items.length === 0 && (
-            <Card className="mt-6">
-              <CardContent className="flex flex-col items-center gap-2 p-10 text-center">
-                <CalendarIcon className="h-10 w-10 text-muted-foreground" />
-                <p className="font-medium text-foreground">No hay nada en este rango</p>
-                <p className="text-sm text-muted-foreground">
-                  Cuando el colegio publique eventos o se acerque una entrega, aparecen acá.
-                </p>
-              </CardContent>
-            </Card>
-          )}
-
-          {loading && items.length === 0 && (
-            <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Cargando el calendario…
-            </div>
-          )}
-        </div>
-      </main>
+        {loading && items.length === 0 && (
+          <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Cargando el calendario…
+          </div>
+        )}
+      </div>
 
       {selected && (
         <div
@@ -262,6 +260,6 @@ export function PortalCalendarPage({ title, description, sources }: Props) {
       )}
 
       <CalendarSubscribeDialog open={subscribeOpen} onOpenChange={setSubscribeOpen} />
-    </div>
+    </>
   )
 }
